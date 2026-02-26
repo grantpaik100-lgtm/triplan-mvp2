@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-//import PrimaryMiniApp from "../flows/PrimaryMiniApp";
-//import TripMiniApp from "../flows/TripMiniApp";
-import AssistChatMode from "../flows/AssistChatMode";
+import PrimaryMiniApp from "./flows/PrimaryMiniApp";
+import TripMiniApp from "./flows/TripMiniApp";
+import AssistChatMode from "./flows/AssistChatMode";
 
 export default function Home() {
   const [mode, setMode] = useState<"primary" | "trip" | "assist">("primary");
