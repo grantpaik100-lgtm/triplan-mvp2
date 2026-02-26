@@ -20,9 +20,26 @@
 
   --r: 28px;
 }
+:root {
+  --bg-gradient: linear-gradient(
+    180deg,
+    #eaf6ff 0%,
+    #ffffff 60%,
+    #fff7f0 100%
+  );
+
+  --card-bg: rgba(255, 255, 255, 0.75);
+  --card-border: rgba(20, 35, 60, 0.1);
+  --shadow-soft: 0 20px 60px rgba(15, 30, 60, 0.08);
+
+  --text-main: #111111;
+  --text-muted: #5a6472;
+  --accent: #3fa7ff;
+}
 
 *{ box-sizing:border-box; }
 html, body{ height:100%; }
+
 body{
   margin:0;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display","SF Pro Text",
@@ -33,9 +50,6 @@ body{
     linear-gradient(180deg, var(--sky1) 0%, var(--sky2) 56%, #F7FAFF 100%);
   color: var(--text);
   min-height:100vh;
-  display:flex;
-  align-items:center;
-  justify-content:center;
   padding:0;
 }
 
