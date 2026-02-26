@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { primaryQuestions } from "@/primary/primaryQuestions";
-import { calculateType } from "@/primary/primaryScoring";
-import PrimaryResultView from "@/primary/PrimaryResultView";
+import { primaryQuestions } from "../primary/primaryQuestions";
+import { calculateType } from "../primary/primaryScoring";
+import PrimaryResultView from "../primary/PrimaryResultView";
 
 type Props = {
   setMode: (mode: "primary" | "trip" | "assist") => void;
