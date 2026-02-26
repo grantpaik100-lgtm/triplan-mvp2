@@ -1,13 +1,18 @@
 "use client";
 
-import SurveyFlow from "@/components/survey/SurveyFlow";
+import { useState } from "react";
+import PrimaryMiniApp from "@/flows/PrimaryMiniApp";
+import TripMiniApp from "@/flows/TripMiniApp";
+import AssistChatMode from "@/flows/AssistChatMode";
 
-export default function Page() {
+export default function Home() {
+  const [mode, setMode] = useState<"primary" | "trip" | "assist">("primary");
+
   return (
-    <div className="wrap">
-      <div className="card">
-        <SurveyFlow />
-      </div>
-    </div>
+    <main style={{ minHeight: "100vh" }}>
+      {mode === "primary" && <PrimaryMiniApp setMode={setMode} />}
+      {mode === "trip" && <TripMiniApp setMode={setMode} />}
+      {mode === "assist" && <AssistChatMode setMode={setMode} />}
+    </main>
   );
 }
