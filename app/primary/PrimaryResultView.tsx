@@ -9,6 +9,7 @@ type Gender = "m" | "f";
 type Props = {
   type: PT;
   gender: Gender;
+  nickname: string; 
   onStartTrip: () => void;
 };
 
@@ -68,6 +69,11 @@ export default function PrimaryResultView({ type, gender, onStartTrip }: Props) 
         {/* 캡처 타겟(나중에 PNG 저장 라이브러리 붙일 때 이 영역만 캡처) */}
         <div ref={captureRef} className="tp-capture">
           <img className="tp-result-img" src={imageSrc} alt={meta.name} />
+          
+          <div className="tp-muted" style={{ fontSize: 13, marginTop: 6 }}>
+            {nickname}님의 결과
+          </div>
+          
           <h1 className="tp-result-name">{meta.name}</h1>
           <div className="tp-result-slogan">{meta.slogan}</div>
           <p className="tp-result-desc">{meta.description}</p>
