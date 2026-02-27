@@ -101,37 +101,50 @@ if (step === "intro") {
 if (step === "questions" && currentQuestion) {
   return (
     <div className="tp-wrap">
-      <div 
+      <div
         key={currentQuestion.id}
-        className="tp-card tp-anim-in" 
-        style={{ textAlign: "center" }}
-        >
+        className="tp-card tp-anim-in"
+        style={{
+          textAlign: "center",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        {/* 상단 진행도 */}
         <div className="tp-muted" style={{ fontSize: 13 }}>
           Q {currentIndex + 1} / {primaryQuestions.length}
         </div>
 
-        <h2 className="tp-title">{currentQuestion.title}</h2>
-
-        <div className="tp-scale">
-          {[1, 2, 3, 4, 5, 6, 7].map((n) => (
-            <button key={n} onClick={() => handleAnswer(n)}>
-              {n}
-            </button>
-          ))}
+        {/* ✅ 가운데로 내려오는 질문 영역 */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+          <h2 className="tp-title" style={{ marginTop: 0 }}>
+            {currentQuestion.title}
+          </h2>
         </div>
 
-        <div
-          className="tp-muted"
-          style={{
-            marginTop: 20,
-            fontSize: 12,
-            display: "flex",
-            justifyContent: "space-between",
-            opacity: 0.9,
-          }}
-        >
-          <span>전혀 아니다</span>
-          <span>매우 그렇다</span>
+        {/* ✅ 하단 선택 영역 */}
+        <div>
+          <div className="tp-scale">
+            {[1, 2, 3, 4, 5, 6, 7].map((n) => (
+              <button key={n} onClick={() => handleAnswer(n)}>
+                {n}
+              </button>
+            ))}
+          </div>
+
+          <div
+            className="tp-muted"
+            style={{
+              marginTop: 18,
+              fontSize: 12,
+              display: "flex",
+              justifyContent: "space-between",
+              opacity: 0.9,
+            }}
+          >
+            <span>전혀 아니다</span>
+            <span>매우 그렇다</span>
+          </div>
         </div>
       </div>
     </div>
