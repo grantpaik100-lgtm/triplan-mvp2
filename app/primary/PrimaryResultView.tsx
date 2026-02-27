@@ -14,7 +14,7 @@ export default function PrimaryResultView({
   onStartTrip,
 }: Props) {
   const meta = typeMeta[type];
-  const imageSrc = `/images/type_${type}_${gender}.PNG`;
+  const imageSrc = `/public/images/type_${type}_${gender}.PNG`;
 
   return (
     <div style={{ textAlign: "center", padding: "24px" }}>
