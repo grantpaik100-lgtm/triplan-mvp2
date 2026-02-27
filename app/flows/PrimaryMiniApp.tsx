@@ -13,6 +13,7 @@ export default function PrimaryMiniApp({ setMode }: Props) {
   const [step, setStep] = useState<"intro" | "questions" | "result">("intro");
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [gender, setGender] = useState<"m" | "f">("m");
+  const [nickname, setNickname] = useState<string>(""); // ✅ 추가
 
   const currentIndex = Object.keys(answers).length;
   const currentQuestion = primaryQuestions[currentIndex];
@@ -28,11 +29,40 @@ export default function PrimaryMiniApp({ setMode }: Props) {
 if (step === "intro") {
   return (
     <div className="tp-wrap">
-      <div className="tp-card" style={{ textAlign: "center" }}>
-        <h1 className="tp-h1">TriPlan 여행 성향 테스트</h1>
+      <div className="tp-card tp-anim-in" style={{ textAlign: "center" }}>
+        {/* ✅ v1처럼 첫 화면 대표 이미지 */}
+        <img
+          src="/images/type_schedule_m.PNG"
+          alt="스케줄 메이커"
+          className="tp-result-img"
+          style={{ width: "76%", maxWidth: 320 }}
+        />
+
+        <h1 className="tp-h1" style={{ marginTop: 8 }}>
+          TriPlan 여행 성향 테스트
+        </h1>
         <p className="tp-muted" style={{ marginTop: 10, marginBottom: 0 }}>
           7점 척도로 당신의 여행 감각을 빠르게 잡아냅니다.
         </p>
+
+        {/* ✅ 닉네임 입력 */}
+        <div style={{ marginTop: 16 }}>
+          <input
+            value={nickname}
+            onChange={(e) => setNickname(e.target.value)}
+            placeholder="닉네임 (예: 현승)"
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              padding: "12px 14px",
+              borderRadius: 14,
+              border: "1px solid var(--card-border)",
+              background: "rgba(255,255,255,0.9)",
+              fontWeight: 700,
+              outline: "none",
+            }}
+          />
+        </div>
 
         <div className="tp-row">
           <button
@@ -55,7 +85,12 @@ if (step === "intro") {
           </button>
         </div>
 
-        <button className="tp-cta" onClick={() => setStep("questions")}>
+        <button
+          className="tp-cta"
+          onClick={() => setStep("questions")}
+          disabled={!nickname.trim()}
+          style={{ opacity: nickname.trim() ? 1 : 0.55 }}
+        >
           시작하기
         </button>
       </div>
