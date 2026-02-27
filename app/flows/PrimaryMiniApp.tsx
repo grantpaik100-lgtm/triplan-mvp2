@@ -10,8 +10,9 @@ type Props = {
 };
 
 export default function PrimaryMiniApp({ setMode }: Props) {
-  const [step, setStep] = useState<"intro" | "questions" | "result">("intro");
+  const [step, setStep] = useState<"intro" | "questions" | "calculating" | "result">("intro");
   const [answers, setAnswers] = useState<Record<string, number>>({});
+  const [computedType, setComputedType] = useState<"rest" | "schedule" | "mood" | "strategy" | null>(null);
   const [gender, setGender] = useState<"m" | "f">("m");
   const [nickname, setNickname] = useState<string>(""); // ✅ 추가
 
@@ -19,12 +20,26 @@ export default function PrimaryMiniApp({ setMode }: Props) {
   const currentQuestion = primaryQuestions[currentIndex];
 
   const handleAnswer = (value: number) => {
-    setAnswers({ ...answers, [currentQuestion.id]: value });
+  const nextAnswers = { ...answers, [currentQuestion.id]: value };
+  setAnswers(nextAnswers);
 
-    if (currentIndex + 1 === primaryQuestions.length) {
-      setStep("result");
-    }
-  };
+  const isLast = currentIndex + 1 === primaryQuestions.length;
+  if (!isLast) return;
+
+  // ✅ 마지막: 즉시 타입 계산 + 이미지 프리로드 + calculating 화면
+  const t = calculateType(nextAnswers);
+  setComputedType(t);
+  setStep("calculating");
+
+  // 이미지 프리로드
+  const img = new Image();
+  img.src = `/images/type_${t}_${gender}.PNG`;
+
+  // v1처럼 "계산중" 잠깐 보여주고 결과로
+  window.setTimeout(() => {
+    setStep("result");
+  }, 500);
+};
 
 if (step === "intro") {
   return (
@@ -150,15 +165,29 @@ if (step === "questions" && currentQuestion) {
     </div>
   );
 }
-
-  const type = calculateType(answers);
-
+if (step === "calculating") {
   return (
-    <PrimaryResultView
-      type={type}
-      gender={gender}
-      nickname={nickname}
-      onStartTrip={() => setMode("trip")}
+    <div className="tp-wrap">
+      <div className="tp-card tp-anim-in" style={{ textAlign: "center" }}>
+        <div className="tp-muted" style={{ fontSize: 13 }}>
+          결과를 계산 중
+        </div>
+        <div className="tp-spinner" />
+        <div className="tp-muted" style={{ marginTop: 14, fontSize: 13, lineHeight: 1.6 }}>
+          잠깐만. 지금 여행 성향을 정리하고 있어.
+        </div>
+      </div>
+    </div>
+  );
+}
+  const type = computedType ?? calculateType(answers);
+
+return (
+  <PrimaryResultView
+    type={type}
+    gender={gender}
+    nickname={nickname}
+    onStartTrip={() => setMode("trip")}
     />
   );
 }
