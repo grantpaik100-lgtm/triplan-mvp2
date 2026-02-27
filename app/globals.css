@@ -332,3 +332,62 @@ details > div{ margin-top:10px; color:var(--muted); font-size:13px; line-height:
 .tp-anim-in{
   animation: tpIn 260ms ease both;
 }
+
+.tp-result-img{
+  width: 86%;
+  max-width: 340px;
+  height: auto;
+  display:block;
+  margin: 0 auto;
+}
+
+.tp-result-name{
+  margin: 14px 0 0;
+  font-size: 28px;
+  letter-spacing: -0.3px;
+  color: var(--text);
+}
+
+.tp-result-slogan{
+  margin: 8px 0 0;
+  font-weight: 700;
+  color: rgba(17,17,17,0.78);
+}
+
+.tp-result-desc{
+  margin: 12px 0 0;
+  line-height: 1.6;
+  color: rgba(90,100,114,0.95);
+}
+
+.tp-actions{
+  margin-top: 18px;
+  display:flex;
+  gap: 10px;
+  justify-content:center;
+}
+
+.tp-action-btn{
+  flex: 1;
+  max-width: 160px;
+  padding: 12px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--card-border);
+  background: rgba(255,255,255,0.88);
+  font-weight: 800;
+}
+
+.tp-cta2{
+  width: 100%;
+  margin-top: 14px;
+  padding: 13px 16px;
+  border-radius: 16px;
+  border: none;
+  background: var(--accent);
+  color: white;
+  font-weight: 900;
+}
+
+.tp-capture{
+  /* 결과 저장(이미지 저장) 시 캡처 대상 */
+}
