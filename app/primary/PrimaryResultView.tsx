@@ -17,7 +17,7 @@ function safeFileName(s: string) {
   return s.replaceAll(" ", "_").replaceAll("/", "_");
 }
 
-export default function PrimaryResultView({ type, gender, onStartTrip }: Props) {
+export default function PrimaryResultView({ type, gender, nickname, onStartTrip }: Props) {
   const meta = typeMeta[type];
   const imageSrc = `/images/type_${type}_${gender}.PNG`;
 
