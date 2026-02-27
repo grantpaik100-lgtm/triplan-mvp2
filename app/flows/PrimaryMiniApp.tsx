@@ -144,6 +144,7 @@ if (step === "questions" && currentQuestion) {
     <PrimaryResultView
       type={type}
       gender={gender}
+      nickname={nickname}
       onStartTrip={() => setMode("trip")}
     />
   );
