@@ -278,9 +278,9 @@ details > div{ margin-top:10px; color:var(--muted); font-size:13px; line-height:
 
 .tp-card{
   width: 100%;
-  max-width: 420px;
-  padding: 26px;
-  border-radius: 24px;
+  max-width: 460px;
+  padding: 30px;
+  border-radius: 26px;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   box-shadow: var(--shadow-soft);
@@ -289,7 +289,7 @@ details > div{ margin-top:10px; color:var(--muted); font-size:13px; line-height:
 }
 
 .tp-muted{ color: rgba(90,100,114,0.95); }
-.tp-title{ color: var(--text); font-size: 22px; line-height: 1.45; margin: 14px 0 0; }
+.tp-title{ color: var(--text); font-size: 24px; line-height: 1.5; margin: 14px 0 0; }
 .tp-h1{ color: var(--text); font-size: 24px; margin: 0; }
 .tp-cta{
   width: 100%;
@@ -316,11 +316,9 @@ details > div{ margin-top:10px; color:var(--muted); font-size:13px; line-height:
   gap: 8px;
 }
 .tp-scale button{
-  height: 44px;
-  border-radius: 12px;
-  border: 1px solid var(--card-border);
-  background: rgba(255,255,255,0.92);
-  font-weight: 800;
+  height: 48px;
+  border-radius: 13px;
+
 }
 .tp-scale button:active{
   transform: scale(0.98);
