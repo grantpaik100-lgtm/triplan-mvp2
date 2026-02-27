@@ -66,7 +66,9 @@ if (step === "intro") {
 if (step === "questions" && currentQuestion) {
   return (
     <div className="tp-wrap">
-      <div className="tp-card tp-anim-in" 
+      <div 
+        key={currentQuestion.id}
+        className="tp-card tp-anim-in" 
         style={{ textAlign: "center" }}
         >
         <div className="tp-muted" style={{ fontSize: 13 }}>
