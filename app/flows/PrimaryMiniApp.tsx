@@ -123,7 +123,7 @@ if (step === "questions" && currentQuestion) {
         <div
           className="tp-muted"
           style={{
-            marginTop: 16,
+            marginTop: 20,
             fontSize: 12,
             display: "flex",
             justifyContent: "space-between",
