@@ -325,3 +325,10 @@ details > div{ margin-top:10px; color:var(--muted); font-size:13px; line-height:
 .tp-scale button:active{
   transform: scale(0.98);
 }
+@keyframes tpIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.tp-anim-in{
+  animation: tpIn 260ms ease both;
+}
