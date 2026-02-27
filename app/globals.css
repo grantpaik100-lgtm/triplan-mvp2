@@ -260,3 +260,68 @@ details > div{ margin-top:10px; color:var(--muted); font-size:13px; line-height:
   .bar{ transition:none; }
   .btn, .pill{ transition:none; }
 }
+
+:root{
+  --card-bg: rgba(255,255,255,0.72);
+  --card-border: rgba(20,35,60,0.10);
+  --shadow-soft: 0 24px 70px rgba(15, 30, 60, 0.10);
+  --accent: #3fa7ff;
+}
+
+.tp-wrap{
+  min-height: 100vh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding: 18px;
+}
+
+.tp-card{
+  width: 100%;
+  max-width: 420px;
+  padding: 26px;
+  border-radius: 24px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.tp-muted{ color: rgba(90,100,114,0.95); }
+.tp-title{ color: var(--text); font-size: 22px; line-height: 1.45; margin: 14px 0 0; }
+.tp-h1{ color: var(--text); font-size: 24px; margin: 0; }
+.tp-cta{
+  width: 100%;
+  margin-top: 18px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: none;
+  background: var(--accent);
+  color: white;
+  font-weight: 700;
+}
+.tp-row{ display:flex; gap:10px; justify-content:center; margin-top: 16px; }
+.tp-chip{
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--card-border);
+  background: rgba(255,255,255,0.9);
+  font-weight: 700;
+}
+.tp-scale{
+  margin-top: 22px;
+  display:grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+}
+.tp-scale button{
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid var(--card-border);
+  background: rgba(255,255,255,0.92);
+  font-weight: 800;
+}
+.tp-scale button:active{
+  transform: scale(0.98);
+}
