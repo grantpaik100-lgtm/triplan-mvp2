@@ -425,3 +425,18 @@ button:focus-visible{
   outline: none;
   box-shadow: 0 0 0 3px rgba(63,167,255,0.28);
 }
+
+.tp-spinner{
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 3px solid rgba(20,35,60,0.12);
+  border-top-color: rgba(63,167,255,0.9);
+  animation: tpSpin 0.9s linear infinite;
+  margin: 14px auto 0;
+}
+
+@keyframes tpSpin{
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
