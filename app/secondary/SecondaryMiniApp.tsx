@@ -14,6 +14,57 @@ type State = { mode: Mode; idx: number; answers: SecondaryAnswers | Record<strin
 
 const DEFAULT_STATE: State = { mode: "question", idx: 0, answers: {} };
 
+function getRequiredIds(answers: Record<string, any>) {
+  const groupMode = answers?.e_groupMode ?? "혼자";
+  const base = [
+    "a_rhythm",
+    "a_density",
+    "b_waitingPreset",
+    "d_lodgingStrategy",
+    "f_places",
+    "f_placeReasonOneLine",
+  ];
+  if (groupMode === "여럿") base.push("e_conflictRule");
+  return new Set(base);
+}
+
+function validateQuestion(q: any, answers: Record<string, any>): { ok: boolean; msg?: string } {
+  const required = getRequiredIds(answers).has(q.id);
+  const v = answers[q.id];
+
+  if (!required) return { ok: true };
+
+  // 공통: 빈 값
+  if (v == null || v === "" || (Array.isArray(v) && v.length === 0)) {
+    return { ok: false, msg: "필수 항목" };
+  }
+
+  // waitingPreset: 직접이면 customMinutes 필요
+  if (q.id === "b_waitingPreset") {
+    if (v === "직접") {
+      const m = answers["b_waitingCustomMinutes"];
+      if (m == null || Number.isNaN(Number(m))) return { ok: false, msg: "직접 입력 분을 설정" };
+    }
+  }
+
+  // places: 각 카드의 핵심 입력 최소 검증
+  if (q.id === "f_places") {
+    if (!Array.isArray(v) || v.length < 1) return { ok: false, msg: "장소를 최소 1개 추가" };
+    for (const p of v) {
+      if (!p?.name?.trim()) return { ok: false, msg: "장소명 입력" };
+      if (!p?.reason?.trim()) return { ok: false, msg: "장소 이유 입력" };
+      if (!p?.importance) return { ok: false, msg: "중요도 선택" };
+    }
+  }
+
+  // textarea
+  if (q.type === "textarea") {
+    if (!String(v).trim()) return { ok: false, msg: "내용 입력" };
+  }
+
+  return { ok: true };
+}
+
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
