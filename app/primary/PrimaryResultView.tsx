@@ -6,19 +6,27 @@ import { typeMeta } from "./typeMeta";
 type PT = "rest" | "schedule" | "mood" | "strategy";
 type Gender = "m" | "f";
 
+type Meta = {
+  name: string;
+  slogan: string;
+  description: string;
+  bullets?: string[]; // ✅ 선택(optional)로 정식 지원
+};
+
 type Props = {
   type: PT;
   gender: Gender;
-  nickname: string; 
+  nickname: string;
   onStartTrip: () => void;
 };
 
-function safeFileName(s: string) {
-  return s.replaceAll(" ", "_").replaceAll("/", "_");
-}
-
-export default function PrimaryResultView({ type, gender, nickname, onStartTrip }: Props) {
-  const meta = typeMeta[type];
+export default function PrimaryResultView({
+  type,
+  gender,
+  nickname,
+  onStartTrip,
+}: Props) {
+  const meta = typeMeta[type] as Meta;
   const imageSrc = `/images/type_${type}_${gender}.PNG`;
 
   const captureRef = useRef<HTMLDivElement | null>(null);
@@ -31,7 +39,7 @@ export default function PrimaryResultView({ type, gender, nickname, onStartTrip 
   const handleShare = async () => {
     try {
       const url = window.location.href;
-      // 모바일 우선: Web Share API
+
       if (navigator.share) {
         await navigator.share({
           title: "TriPlan 여행 성향 테스트",
@@ -40,7 +48,7 @@ export default function PrimaryResultView({ type, gender, nickname, onStartTrip 
         });
         return;
       }
-      // fallback: 링크 복사
+
       await navigator.clipboard.writeText(url);
       alert("링크를 복사했어.");
     } catch {
@@ -48,13 +56,7 @@ export default function PrimaryResultView({ type, gender, nickname, onStartTrip 
     }
   };
 
-  // 결과 저장(이미지): 외부 라이브러리 없이 "화면 스크린샷"은 웹표준만으로 불가.
-  // 그래서 MVP에서는 2단계 전략:
-  // 1) 결과 카드 자체를 '인쇄(PDF/이미지)'로 저장 유도 (브라우저/OS 공유)
-  // 2) 다음 단계에서 html-to-image 라이브러리(예: html-to-image) 추가해 PNG 저장을 진짜 구현
   const handleSave = async () => {
-    // 지금은 가장 안전한 MVP 방식: print(모바일 공유/저장 경로로 이어짐)
-    // iOS/Android에서 "공유/저장"으로 이어질 수 있음.
     try {
       setSaving(true);
       window.print();
@@ -66,38 +68,44 @@ export default function PrimaryResultView({ type, gender, nickname, onStartTrip 
   return (
     <div className="tp-wrap">
       <div className="tp-card tp-anim-in" style={{ textAlign: "center" }}>
-        {/* 캡처 타겟(나중에 PNG 저장 라이브러리 붙일 때 이 영역만 캡처) */}
         <div ref={captureRef} className="tp-capture">
           <img className="tp-result-img" src={imageSrc} alt={meta.name} />
-          
+
           <div className="tp-muted" style={{ fontSize: 13, marginTop: 6 }}>
             {nickname}님의 결과
           </div>
-          
+
           <h1 className="tp-result-name">{meta.name}</h1>
           <div className="tp-result-slogan">{meta.slogan}</div>
           <p className="tp-result-desc">{meta.description}</p>
-          {Array.isArray((meta as any).bullets) &&
-  (meta as any).bullets.length > 0 && (
-    <div style={{ marginTop: 14, textAlign: "left" }}>
-      {(meta as any).bullets.map((line: string, i: number) => (
-        <div
-          key={i}
-          className="tp-muted"
-          style={{ lineHeight: 1.6, marginTop: i === 0 ? 0 : 8 }}
-        >
-          · {line}
-        </div>
-      ))}
-    </div>
-)}
+
+          {!!meta.bullets?.length && (
+            <div style={{ marginTop: 14, textAlign: "left" }}>
+              {meta.bullets.slice(0, 2).map((line, i) => (
+                <div
+                  key={i}
+                  className="tp-muted"
+                  style={{
+                    lineHeight: 1.6,
+                    marginTop: i === 0 ? 0 : 8,
+                  }}
+                >
+                  · {line}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="tp-actions">
           <button className="tp-action-btn" onClick={handleShare}>
             공유하기
           </button>
-          <button className="tp-action-btn" onClick={handleSave} disabled={saving}>
+          <button
+            className="tp-action-btn"
+            onClick={handleSave}
+            disabled={saving}
+          >
             {saving ? "저장중..." : "결과 저장하기"}
           </button>
         </div>
