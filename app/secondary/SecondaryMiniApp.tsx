@@ -4,9 +4,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { secondaryQuestions, type SecondaryQuestion } from "./secondaryQuestions";
 import { secondarySchema, type SecondaryAnswers } from "./secondarySchema";
-import { loadSecondaryDraft, saveSecondaryDraft, clearSecondaryDraft } from "@/src/lib/secondaryStorage";
+import { loadSecondaryDraft, saveSecondaryDraft, clearSecondaryDraft } from "@/lib/secondaryStorage";
 
-import { MOTION, GLASS, SHADOW, COLORS, SPACE, TYPE, DENSITY, RADIUS, MAXWIDTH, Z, FOCUS_RING } from "@/src/lib/MOTION_TOKENS";
+import { MOTION, GLASS, SHADOW, COLORS, SPACE, TYPE, DENSITY, RADIUS, MAXWIDTH, Z, FOCUS_RING } from "@/lib/MOTION_TOKENS";
 import SecondarySummaryView from "./SecondarySummaryView";
 
 type Mode = "question" | "summary";
