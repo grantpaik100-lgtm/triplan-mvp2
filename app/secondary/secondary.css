@@ -158,3 +158,94 @@
   justify-content: space-between;
   gap: calc(var(--tp2-space-10) * 1px);
 }
+/* ---- Inputs / Chips / Rank / Places ---- */
+
+.tp2-input {
+  height: calc(var(--tp2-btn-h) * 1px);
+  padding-inline: calc(var(--tp2-space-12) * 1px);
+  border-radius: calc(var(--tp2-radius-pill) * 1px);
+  border: var(--tp2-glass-border);
+  background: var(--tp2-glass-bg);
+  box-shadow: var(--tp2-shadow-1);
+  color: var(--tp2-text);
+  font-size: calc(var(--tp2-body-size) * 1px);
+  line-height: var(--tp2-body-lh);
+  font-weight: var(--tp2-body-w);
+}
+
+.tp2-textarea {
+  padding: calc(var(--tp2-space-12) * 1px);
+  border-radius: calc(var(--tp2-radius-lg) * 1px);
+  border: var(--tp2-glass-border);
+  background: var(--tp2-glass-bg);
+  box-shadow: var(--tp2-shadow-1);
+  color: var(--tp2-text);
+  font-size: calc(var(--tp2-body-size) * 1px);
+  line-height: var(--tp2-body-lh);
+  font-weight: var(--tp2-body-w);
+  resize: vertical;
+}
+
+.tp2-input:focus-visible,
+.tp2-textarea:focus-visible {
+  outline: none;
+  box-shadow: var(--tp2-focus), var(--tp2-shadow-2);
+}
+
+.tp2-wrapChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--tp2-space-8) * 1px);
+}
+
+.tp2-chip {
+  height: calc(var(--tp2-btn-h) * 1px);
+  padding-inline: calc(var(--tp2-space-12) * 1px);
+  border-radius: calc(var(--tp2-radius-pill) * 1px);
+  border: var(--tp2-glass-border);
+  background: var(--tp2-glass-bg);
+  box-shadow: var(--tp2-shadow-1);
+  color: var(--tp2-text);
+  font-size: calc(var(--tp2-body-size) * 1px);
+  line-height: var(--tp2-body-lh);
+  font-weight: var(--tp2-body-w);
+}
+
+.tp2-chipActive {
+  height: calc(var(--tp2-btn-h) * 1px);
+  padding-inline: calc(var(--tp2-space-12) * 1px);
+  border-radius: calc(var(--tp2-radius-pill) * 1px);
+  border: var(--tp2-glass-border);
+  background: var(--tp2-line);
+  box-shadow: var(--tp2-shadow-2);
+  color: var(--tp2-text);
+  font-size: calc(var(--tp2-body-size) * 1px);
+  line-height: var(--tp2-body-lh);
+  font-weight: var(--tp2-body-w);
+}
+
+.tp2-rankList {
+  display: grid;
+  gap: calc(var(--tp2-space-8) * 1px);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.tp2-rankItem {
+  border-radius: calc(var(--tp2-radius-lg) * 1px);
+  border: var(--tp2-glass-border);
+  background: var(--tp2-glass-bg);
+  box-shadow: var(--tp2-shadow-1);
+  padding: calc(var(--tp2-space-12) * 1px);
+}
+
+.tp2-subcard {
+  border-radius: calc(var(--tp2-radius-lg) * 1px);
+  border: var(--tp2-glass-border);
+  background: var(--tp2-glass-bg);
+  box-shadow: var(--tp2-shadow-2);
+  padding: calc(var(--tp2-space-12) * 1px);
+  display: grid;
+  gap: calc(var(--tp2-space-10) * 1px);
+}
