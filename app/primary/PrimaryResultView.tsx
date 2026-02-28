@@ -32,7 +32,7 @@ export default function PrimaryResultView({ type, gender, nickname, onStartTrip 
     return `TriPlan 여행 성향 테스트 결과: ${meta.name} · ${meta.slogan}`;
   }, [meta.name, meta.slogan]);
 
-  // ✅ enter 애니메이션 토큰 강제
+  // ✅ 토큰 기반 enter 애니메이션
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     setMounted(false);
@@ -127,10 +127,10 @@ export default function PrimaryResultView({ type, gender, nickname, onStartTrip 
               transition: `box-shadow ${MOTION.duration.fast}ms ${MOTION.easing}`,
             }}
             onFocus={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.boxShadow = FOCUS_RING.ring;
+              e.currentTarget.style.boxShadow = FOCUS_RING.ring;
             }}
             onBlur={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.boxShadow = "none";
+              e.currentTarget.style.boxShadow = "none";
             }}
           >
             공유하기
@@ -146,10 +146,10 @@ export default function PrimaryResultView({ type, gender, nickname, onStartTrip 
               opacity: saving ? 0.75 : 1,
             }}
             onFocus={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.boxShadow = FOCUS_RING.ring;
+              e.currentTarget.style.boxShadow = FOCUS_RING.ring;
             }}
             onBlur={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.boxShadow = "none";
+              e.currentTarget.style.boxShadow = "none";
             }}
           >
             {saving ? "저장중..." : "결과 저장하기"}
@@ -164,10 +164,10 @@ export default function PrimaryResultView({ type, gender, nickname, onStartTrip 
             transition: `box-shadow ${MOTION.duration.fast}ms ${MOTION.easing}`,
           }}
           onFocus={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.boxShadow = FOCUS_RING.ring;
+            e.currentTarget.style.boxShadow = FOCUS_RING.ring;
           }}
           onBlur={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.boxShadow = "none";
+            e.currentTarget.style.boxShadow = "none";
           }}
         >
           나만의 여행 설계하기
