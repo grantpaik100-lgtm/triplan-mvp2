@@ -223,14 +223,15 @@ export default function SecondaryMiniApp() {
       <main className="tp2-screen" style={cssVars}>
         <div className="tp2-wrap">
           <SecondarySummaryView
-            questions={filteredQuestions}
-            answers={state.answers as any}
-            onEdit={(qid) => {
-              const idx = filteredQuestions.findIndex((x) => x.id === qid);
-              goQuestionAt(idx >= 0 ? idx : 0);
-            }}
-            onBack={() => goQuestionAt(0)}
-          />
+  questions={filteredQuestions}
+  answers={state.answers as any}
+  onEdit={(qid) => {
+    const idx = filteredQuestions.findIndex((x) => x.id === qid);
+    goQuestionAt(idx >= 0 ? idx : 0);
+  }}
+  onBack={() => goQuestionAt(0)}
+  onReview={() => (window.location.href = "/secondary/review")}
+/>
         </div>
       </main>
     );
