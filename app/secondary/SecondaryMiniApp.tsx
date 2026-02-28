@@ -221,22 +221,11 @@ const q = (total > 0
   };
 
   const canGoNext = useMemo(() => {
-    const answers = state.answers as any;
-
-    const requiredOk =
-      !!answers["a_rhythm"] && !!answers["a_density"] && !!answers["b_waitingPreset"] && !!answers["d_lodgingStrategy"];
-
-    const placesOk = Array.isArray(answers["f_places"]) ? answers["f_places"].length >= 1 : false;
-
-    if (state.idx === total - 1) return requiredOk && placesOk;
-
-    const hardRequired = ["a_rhythm", "a_density", "b_waitingPreset", "d_lodgingStrategy", "f_places"].includes(q.id);
-    if (!hardRequired) return true;
-
-    const v = answers[q.id];
-    if (q.id === "f_places") return Array.isArray(v) && v.length >= 1;
-    return !!v;
-  }, [q.id, state.answers, state.idx, total]);
+  const answers = state.answers as any;
+  const res = validateQuestion(q, answers);
+  return res.ok;
+}, [q, state.answers]);;
+  const validation = useMemo(() => validateQuestion(q, state.answers as any), [q, state.answers]);
 
   const onFinish = () => {
     const parsed = secondarySchema.safeParse(state.answers);
@@ -303,6 +292,7 @@ const q = (total > 0
         else goNext();
       }}
       canNext={canGoNext}
+      validation={validation}
     />
   ) : (
     <SecondarySummaryView
@@ -310,6 +300,7 @@ const q = (total > 0
   answers={state.answers as any}
   onEdit={(qid) => {
     const idx = filteredQuestions.findIndex((x) => x.id === qid);
+    
     goQuestionAt(idx >= 0 ? idx : 0);
   }}
   onBack={() => goQuestionAt(0)}
