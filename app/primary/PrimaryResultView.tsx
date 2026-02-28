@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { typeMeta } from "./typeMeta";
+import { MOTION, GLASS, SHADOW, FOCUS_RING } from "@/lib/MOTION_TOKENS";
 
 type PT = "rest" | "schedule" | "mood" | "strategy";
 type Gender = "m" | "f";
@@ -10,7 +11,7 @@ type Meta = {
   name: string;
   slogan: string;
   description: string;
-  bullets?: string[]; // ✅ 선택(optional)로 정식 지원
+  bullets?: string[];
 };
 
 type Props = {
@@ -20,12 +21,7 @@ type Props = {
   onStartTrip: () => void;
 };
 
-export default function PrimaryResultView({
-  type,
-  gender,
-  nickname,
-  onStartTrip,
-}: Props) {
+export default function PrimaryResultView({ type, gender, nickname, onStartTrip }: Props) {
   const meta = typeMeta[type] as Meta;
   const imageSrc = `/images/type_${type}_${gender}.PNG`;
 
@@ -35,6 +31,31 @@ export default function PrimaryResultView({
   const shareText = useMemo(() => {
     return `TriPlan 여행 성향 테스트 결과: ${meta.name} · ${meta.slogan}`;
   }, [meta.name, meta.slogan]);
+
+  // ✅ enter 애니메이션 토큰 강제
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(false);
+    const t = window.setTimeout(() => setMounted(true), 10);
+    return () => window.clearTimeout(t);
+  }, [type, gender]);
+
+  const cardStyle = useMemo<React.CSSProperties>(() => {
+    const d = MOTION.duration.slow;
+    const e = MOTION.easing;
+    return {
+      background: GLASS.background,
+      border: GLASS.border,
+      backdropFilter: `blur(${GLASS.backdropBlurPx}px)`,
+      boxShadow: SHADOW.level3,
+      transition: `opacity ${d}ms ${e}, transform ${d}ms ${e}, filter ${d}ms ${e}`,
+      opacity: mounted ? MOTION.enter.to.opacity : MOTION.enter.from.opacity,
+      transform: mounted ? `scale(${MOTION.enter.to.scale})` : `scale(${MOTION.enter.from.scale})`,
+      filter: mounted ? `blur(${MOTION.enter.to.blurPx}px)` : `blur(${MOTION.enter.from.blurPx}px)`,
+      willChange: "opacity, transform, filter",
+      textAlign: "center",
+    };
+  }, [mounted]);
 
   const handleShare = async () => {
     try {
@@ -67,7 +88,7 @@ export default function PrimaryResultView({
 
   return (
     <div className="tp-wrap">
-      <div className="tp-card tp-anim-in" style={{ textAlign: "center" }}>
+      <div className="tp-card tp-anim-in" style={cardStyle}>
         <div ref={captureRef} className="tp-capture">
           <img className="tp-result-img" src={imageSrc} alt={meta.name} />
 
@@ -98,19 +119,57 @@ export default function PrimaryResultView({
         </div>
 
         <div className="tp-actions">
-          <button className="tp-action-btn" onClick={handleShare}>
+          <button
+            className="tp-action-btn"
+            onClick={handleShare}
+            style={{
+              outline: "none",
+              transition: `box-shadow ${MOTION.duration.fast}ms ${MOTION.easing}`,
+            }}
+            onFocus={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.boxShadow = FOCUS_RING.ring;
+            }}
+            onBlur={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.boxShadow = "none";
+            }}
+          >
             공유하기
           </button>
+
           <button
             className="tp-action-btn"
             onClick={handleSave}
             disabled={saving}
+            style={{
+              outline: "none",
+              transition: `box-shadow ${MOTION.duration.fast}ms ${MOTION.easing}`,
+              opacity: saving ? 0.75 : 1,
+            }}
+            onFocus={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.boxShadow = FOCUS_RING.ring;
+            }}
+            onBlur={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.boxShadow = "none";
+            }}
           >
             {saving ? "저장중..." : "결과 저장하기"}
           </button>
         </div>
 
-        <button className="tp-cta2" onClick={onStartTrip}>
+        <button
+          className="tp-cta2"
+          onClick={onStartTrip}
+          style={{
+            outline: "none",
+            transition: `box-shadow ${MOTION.duration.fast}ms ${MOTION.easing}`,
+          }}
+          onFocus={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.boxShadow = FOCUS_RING.ring;
+          }}
+          onBlur={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.boxShadow = "none";
+          }}
+        >
           나만의 여행 설계하기
         </button>
       </div>
