@@ -4,7 +4,7 @@
 import React, { useMemo, useState, useEffect } from "react";
 import type { SecondaryQuestion } from "./secondaryQuestions";
 import type { SecondaryAnswers } from "./secondarySchema";
-import { MOTION } from "@/src/lib/MOTION_TOKENS";
+import { MOTION } from "@/lib/MOTION_TOKENS";
 
 export default function SecondarySummaryView(props: {
   questions: SecondaryQuestion[];
