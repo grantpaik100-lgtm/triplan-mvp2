@@ -81,6 +81,7 @@ function toCssVars(densityKey: keyof typeof DENSITY, progressPct: number) {
     ["--tp2-text" as any]: COLORS.text,
     ["--tp2-muted" as any]: COLORS.muted,
     ["--tp2-line" as any]: COLORS.line,
+    ["--tp2-focusColor" as any]: COLORS.focus,
 
     // focus + glass + shadow
     ["--tp2-focus" as any]: FOCUS_RING.ring,
@@ -204,7 +205,7 @@ const q = (total > 0
     return Math.round((state.idx / (total - 1)) * 100);
   }, [state.idx, total]);
 
-  const cssVars = useMemo(() => toCssVars("base", progressPct), [progressPct] ,["--tp2-focusColor" as any]: COLORS.focus);
+  const cssVars = useMemo(() => toCssVars("base", progressPct), [progressPct]) ;
 
   const setAnswer = (id: string, value: any) => {
     setState((s) => ({ ...s, answers: { ...(s.answers as any), [id]: value } }));
