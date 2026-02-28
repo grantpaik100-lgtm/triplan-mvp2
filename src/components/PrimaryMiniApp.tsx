@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { primaryQuestions } from "../primary/primaryQuestions";
-import { calculateType } from "../primary/primaryScoring";
-import PrimaryResultView from "../primary/PrimaryResultView";
+import { useEffect, useMemo, useState } from "react";
+import { primaryQuestions } from "@/primary/primaryQuestions";
+import { calculateType } from "@/primary/primaryScoring";
+import PrimaryResultView from "@/primary/PrimaryResultView";
+
+import { MOTION, GLASS, SHADOW, FOCUS_RING, COLORS } from "@/lib/MOTION_TOKENS";
 
 type Props = {
   setMode: (mode: "primary" | "trip" | "assist") => void;
@@ -14,181 +16,268 @@ export default function PrimaryMiniApp({ setMode }: Props) {
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [computedType, setComputedType] = useState<"rest" | "schedule" | "mood" | "strategy" | null>(null);
   const [gender, setGender] = useState<"m" | "f">("m");
-  const [nickname, setNickname] = useState<string>(""); // ✅ 추가
+  const [nickname, setNickname] = useState<string>("");
 
   const currentIndex = Object.keys(answers).length;
   const currentQuestion = primaryQuestions[currentIndex];
 
+  // ✅ 토큰 기반 enter 애니메이션(질문이 바뀔 때마다 다시 트리거)
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(false);
+    const t = window.setTimeout(() => setMounted(true), 10);
+    return () => window.clearTimeout(t);
+  }, [step, currentQuestion?.id]);
+
+  const cardStyle = useMemo<React.CSSProperties>(() => {
+    const d = MOTION.duration.base;
+    const e = MOTION.easing;
+    return {
+      background: GLASS.background,
+      border: GLASS.border,
+      backdropFilter: `blur(${GLASS.backdropBlurPx}px)`,
+      boxShadow: SHADOW.level3,
+      transition: `opacity ${d}ms ${e}, transform ${d}ms ${e}, filter ${d}ms ${e}`,
+      opacity: mounted ? MOTION.enter.to.opacity : MOTION.enter.from.opacity,
+      transform: mounted ? `scale(${MOTION.enter.to.scale})` : `scale(${MOTION.enter.from.scale})`,
+      filter: mounted ? `blur(${MOTION.enter.to.blurPx}px)` : `blur(${MOTION.enter.from.blurPx}px)`,
+      willChange: "opacity, transform, filter",
+    };
+  }, [mounted]);
+
   const handleAnswer = (value: number) => {
-  const nextAnswers = { ...answers, [currentQuestion.id]: value };
-  setAnswers(nextAnswers);
+    if (!currentQuestion) return;
 
-  const isLast = currentIndex + 1 === primaryQuestions.length;
-  if (!isLast) return;
+    const nextAnswers = { ...answers, [currentQuestion.id]: value };
+    setAnswers(nextAnswers);
 
-  // ✅ 마지막: 즉시 타입 계산 + 이미지 프리로드 + calculating 화면
-  const t = calculateType(nextAnswers);
-  setComputedType(t);
-  setStep("calculating");
+    const isLast = currentIndex + 1 === primaryQuestions.length;
+    if (!isLast) return;
 
-  // 이미지 프리로드
-  const img = new Image();
-  img.src = `/images/type_${t}_${gender}.PNG`;
+    const t = calculateType(nextAnswers);
+    setComputedType(t);
+    setStep("calculating");
 
-  // v1처럼 "계산중" 잠깐 보여주고 결과로
-  window.setTimeout(() => {
-    setStep("result");
-  }, 500);
-};
+    const img = new Image();
+    img.src = `/images/type_${t}_${gender}.PNG`;
 
-if (step === "intro") {
-  return (
-    <div className="tp-wrap">
-      <div className="tp-card tp-anim-in" style={{ textAlign: "center" }}>
-        {/* ✅ v1처럼 첫 화면 대표 이미지 */}
-        <img
-          src="/images/type_schedule_m.PNG"
-          alt="스케줄 메이커"
-          className="tp-result-img"
-          style={{ width: "76%", maxWidth: 320 }}
-        />
+    window.setTimeout(() => {
+      setStep("result");
+    }, 500);
+  };
 
-        <h1 className="tp-h1" style={{ marginTop: 8 }}>
-          TriPlan 여행 성향 테스트
-        </h1>
-        <p className="tp-muted" style={{ marginTop: 10, marginBottom: 0 }}>
-          7점 척도로 당신의 여행 감각을 빠르게 잡아냅니다.
-        </p>
+  // --- INTRO ---
+  if (step === "intro") {
+    const selectedRing = (isSelected: boolean): React.CSSProperties =>
+      isSelected
+        ? {
+            boxShadow: FOCUS_RING.ring,
+          }
+        : {};
 
-        {/* ✅ 닉네임 입력 */}
-        <div style={{ marginTop: 16 }}>
-          <input
-            value={nickname}
-            onChange={(e) => setNickname(e.target.value)}
-            placeholder="닉네임 (예: 현승)"
-            style={{
-              width: "100%",
-              boxSizing: "border-box",
-              padding: "12px 14px",
-              borderRadius: 14,
-              border: "1px solid var(--card-border)",
-              background: "rgba(255,255,255,0.9)",
-              fontWeight: 700,
-              outline: "none",
-            }}
+    return (
+      <div className="tp-wrap">
+        <div className="tp-card tp-anim-in" style={{ ...cardStyle, textAlign: "center" }}>
+          <img
+            src="/images/type_schedule_m.PNG"
+            alt="스케줄 메이커"
+            className="tp-result-img"
+            style={{ width: "76%", maxWidth: 320 }}
           />
-        </div>
 
-        <div className="tp-row">
+          <h1 className="tp-h1" style={{ marginTop: 8 }}>
+            TriPlan 여행 성향 테스트
+          </h1>
+          <p className="tp-muted" style={{ marginTop: 10, marginBottom: 0 }}>
+            7점 척도로 당신의 여행 감각을 빠르게 잡아냅니다.
+          </p>
+
+          {/* ✅ 닉네임 입력: border/transition 토큰화 */}
+          <div style={{ marginTop: 16 }}>
+            <input
+              value={nickname}
+              onChange={(e) => setNickname(e.target.value)}
+              placeholder="닉네임 (예: 현승)"
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                padding: "12px 14px",
+                borderRadius: 14,
+                border: GLASS.border,
+                background: "rgba(255,255,255,0.90)",
+                fontWeight: 700,
+                outline: "none",
+                transition: `box-shadow ${MOTION.duration.fast}ms ${MOTION.easing}`,
+              }}
+              onFocus={(e) => {
+                (e.currentTarget as HTMLInputElement).style.boxShadow = FOCUS_RING.ring;
+              }}
+              onBlur={(e) => {
+                (e.currentTarget as HTMLInputElement).style.boxShadow = "none";
+              }}
+            />
+          </div>
+
+          <div className="tp-row">
+            <button
+              className="tp-chip"
+              onClick={() => setGender("m")}
+              style={{
+                outline: "none",
+                transition: `box-shadow ${MOTION.duration.fast}ms ${MOTION.easing}`,
+                ...selectedRing(gender === "m"),
+              }}
+              onFocus={(e) => {
+                // focus도 동일하게 ring
+                (e.currentTarget as HTMLButtonElement).style.boxShadow =
+                  gender === "m" ? FOCUS_RING.ring : FOCUS_RING.ring;
+              }}
+              onBlur={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.boxShadow = gender === "m" ? FOCUS_RING.ring : "none";
+              }}
+            >
+              남성
+            </button>
+
+            <button
+              className="tp-chip"
+              onClick={() => setGender("f")}
+              style={{
+                outline: "none",
+                transition: `box-shadow ${MOTION.duration.fast}ms ${MOTION.easing}`,
+                ...selectedRing(gender === "f"),
+              }}
+              onFocus={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.boxShadow =
+                  gender === "f" ? FOCUS_RING.ring : FOCUS_RING.ring;
+              }}
+              onBlur={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.boxShadow = gender === "f" ? FOCUS_RING.ring : "none";
+              }}
+            >
+              여성
+            </button>
+          </div>
+
           <button
-            className="tp-chip"
-            onClick={() => setGender("m")}
+            className="tp-cta"
+            onClick={() => setStep("questions")}
+            disabled={!nickname.trim()}
             style={{
-              outline: gender === "m" ? "2px solid rgba(63,167,255,0.6)" : "none",
+              opacity: nickname.trim() ? 1 : 0.55,
+              outline: "none",
+              transition: `transform ${MOTION.duration.fast}ms ${MOTION.easing}, box-shadow ${MOTION.duration.fast}ms ${MOTION.easing}`,
+            }}
+            onFocus={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.boxShadow = FOCUS_RING.ring;
+            }}
+            onBlur={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.boxShadow = "none";
             }}
           >
-            남성
-          </button>
-          <button
-            className="tp-chip"
-            onClick={() => setGender("f")}
-            style={{
-              outline: gender === "f" ? "2px solid rgba(63,167,255,0.6)" : "none",
-            }}
-          >
-            여성
+            시작하기
           </button>
         </div>
-
-        <button
-          className="tp-cta"
-          onClick={() => setStep("questions")}
-          disabled={!nickname.trim()}
-          style={{ opacity: nickname.trim() ? 1 : 0.55 }}
-        >
-          시작하기
-        </button>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
-if (step === "questions" && currentQuestion) {
-  return (
-    <div className="tp-wrap">
-      <div
-        key={currentQuestion.id}
-        className="tp-card tp-anim-in"
-        style={{ textAlign: "center", display: "flex", flexDirection: "column" }}
-      >
-        {/* 상단 진행도 */}
-        <div className="tp-muted" style={{ fontSize: 13 }}>
-          Q {currentIndex + 1} / {primaryQuestions.length}
-        </div>
-
-        {/* ✅ 중앙 영역: 질문 + 척도 같이 */}
+  // --- QUESTIONS ---
+  if (step === "questions" && currentQuestion) {
+    return (
+      <div className="tp-wrap">
         <div
+          key={currentQuestion.id}
+          className="tp-card tp-anim-in"
           style={{
-            flex: 1,
+            ...cardStyle,
+            textAlign: "center",
             display: "flex",
             flexDirection: "column",
-            justifyContent: "center",
           }}
         >
-          <h2 className="tp-title" style={{ marginTop: 0 }}>
-            {currentQuestion.title}
-          </h2>
-
-          {/* 척도: 너무 아래로 안 내려가게 margin-top 줄이기 */}
-          <div className="tp-scale" style={{ marginTop: 26 }}>
-            {[1, 2, 3, 4, 5, 6, 7].map((n) => (
-              <button key={n} onClick={() => handleAnswer(n)}>
-                {n}
-              </button>
-            ))}
+          <div className="tp-muted" style={{ fontSize: 13 }}>
+            Q {currentIndex + 1} / {primaryQuestions.length}
           </div>
 
           <div
-            className="tp-muted"
             style={{
-              marginTop: 16,
-              fontSize: 12,
+              flex: 1,
               display: "flex",
-              justifyContent: "space-between",
-              opacity: 0.9,
+              flexDirection: "column",
+              justifyContent: "center",
             }}
           >
-            <span>전혀 아니다</span>
-            <span>매우 그렇다</span>
+            <h2 className="tp-title" style={{ marginTop: 0 }}>
+              {currentQuestion.title}
+            </h2>
+
+            <div className="tp-scale" style={{ marginTop: 26 }}>
+              {[1, 2, 3, 4, 5, 6, 7].map((n) => (
+                <button
+                  key={n}
+                  onClick={() => handleAnswer(n)}
+                  style={{
+                    outline: "none",
+                    transition: `transform ${MOTION.duration.fast}ms ${MOTION.easing}, box-shadow ${MOTION.duration.fast}ms ${MOTION.easing}`,
+                  }}
+                  onFocus={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.boxShadow = FOCUS_RING.ring;
+                  }}
+                  onBlur={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.boxShadow = "none";
+                  }}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+
+            <div
+              className="tp-muted"
+              style={{
+                marginTop: 16,
+                fontSize: 12,
+                display: "flex",
+                justifyContent: "space-between",
+                opacity: 0.9,
+              }}
+            >
+              <span>전혀 아니다</span>
+              <span>매우 그렇다</span>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-if (step === "calculating") {
-  return (
-    <div className="tp-wrap">
-      <div className="tp-card tp-anim-in" style={{ textAlign: "center" }}>
-        <div className="tp-muted" style={{ fontSize: 13 }}>
-          결과를 계산 중
-        </div>
-        <div className="tp-spinner" />
-        <div className="tp-muted" style={{ marginTop: 14, fontSize: 13, lineHeight: 1.6 }}>
-          잠깐만. 지금 여행 성향을 정리하고 있어.
+    );
+  }
+
+  // --- CALCULATING ---
+  if (step === "calculating") {
+    return (
+      <div className="tp-wrap">
+        <div className="tp-card tp-anim-in" style={{ ...cardStyle, textAlign: "center" }}>
+          <div className="tp-muted" style={{ fontSize: 13 }}>
+            결과를 계산 중
+          </div>
+          <div className="tp-spinner" />
+          <div className="tp-muted" style={{ marginTop: 14, fontSize: 13, lineHeight: 1.6 }}>
+            잠깐만. 지금 여행 성향을 정리하고 있어.
+          </div>
         </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
+
+  // --- RESULT ---
   const type = computedType ?? calculateType(answers);
 
-return (
-  <PrimaryResultView
-    type={type}
-    gender={gender}
-    nickname={nickname}
-    onStartTrip={() => setMode("trip")}
+  return (
+    <PrimaryResultView
+      type={type}
+      gender={gender}
+      nickname={nickname}
+      onStartTrip={() => setMode("trip")}
     />
   );
 }
