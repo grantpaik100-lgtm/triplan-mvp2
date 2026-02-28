@@ -63,8 +63,8 @@ export default function SecondarySummaryView(props: {
                 수정
               </button>
               <button type="button" className="tp2-btn" onClick={() => onEdit(qs[0]?.id ?? "")}>
-                수정
-              </button>
+  수정
+</button>
             </div>
 
             <ul className="tp2-controls" aria-label={`summary-lines-${sec}`}>
