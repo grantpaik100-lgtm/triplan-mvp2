@@ -322,8 +322,9 @@ function QuestionCard(props: {
   onPrev: () => void;
   onNext: () => void;
   canNext: boolean;
+  validation: { ok: boolean; msg?: string };
 }) {
-  const { question: q, idx, total, answers, setAnswer, onPrev, onNext, canNext } = props;
+  const { question: q, idx, total, answers, setAnswer, onPrev, onNext, canNext,validation } = props;
 
   return (
     <article className="tp2-card" aria-label="question-card">
@@ -336,8 +337,9 @@ function QuestionCard(props: {
       </header>
 
       <div className="tp2-controls">
-        <QuestionControl q={q} value={answers[q.id]} setAnswer={setAnswer} answers={answers} />
-      </div>
+  <QuestionControl q={q} value={answers[q.id]} setAnswer={setAnswer} answers={answers} />
+  {!validation.ok ? <div className="tp2-meta">{validation.msg}</div> : null}
+</div>
 
       <footer className="tp2-footer">
         <button type="button" className="tp2-btn" onClick={onPrev} disabled={idx === 0}>
