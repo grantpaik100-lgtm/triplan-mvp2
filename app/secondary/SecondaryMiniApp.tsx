@@ -255,14 +255,14 @@ const q = (total > 0
     />
   ) : (
     <SecondarySummaryView
-      questions={secondaryQuestions}
-      answers={state.answers as any}
-      onEdit={(qid) => {
-        const idx = secondaryQuestions.findIndex((x) => x.id === qid);
-        goQuestionAt(idx >= 0 ? idx : 0);
-      }}
-      onBack={() => goQuestionAt(0)}
-    />
+  questions={filteredQuestions}
+  answers={state.answers as any}
+  onEdit={(qid) => {
+    const idx = filteredQuestions.findIndex((x) => x.id === qid);
+    goQuestionAt(idx >= 0 ? idx : 0);
+  }}
+  onBack={() => goQuestionAt(0)}
+/>
   )}
 </section>
     </main>
