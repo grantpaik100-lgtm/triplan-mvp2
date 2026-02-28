@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { primaryQuestions } from "./primaryQuestions";
-import { calculateType } from "./primaryScoring";
-import PrimaryResultView from "./PrimaryResultView";
+import { primaryQuestions } from "../primary/primaryQuestions";
+import { calculateType } from "../primary/primaryScoring";
+import PrimaryResultView from "../primary/PrimaryResultView";
 
 import { MOTION, GLASS, SHADOW, FOCUS_RING } from "@/lib/MOTION_TOKENS";
 
@@ -42,6 +42,7 @@ export default function PrimaryMiniApp({ setMode }: Props) {
       transform: mounted ? `scale(${MOTION.enter.to.scale})` : `scale(${MOTION.enter.from.scale})`,
       filter: mounted ? `blur(${MOTION.enter.to.blurPx}px)` : `blur(${MOTION.enter.from.blurPx}px)`,
       willChange: "opacity, transform, filter",
+      textAlign: "center",
     };
   }, [mounted]);
 
@@ -54,7 +55,6 @@ export default function PrimaryMiniApp({ setMode }: Props) {
     const isLast = currentIndex + 1 === primaryQuestions.length;
     if (!isLast) return;
 
-    // ✅ 마지막: 즉시 타입 계산 + 이미지 프리로드 + calculating 화면
     const t = calculateType(nextAnswers);
     setComputedType(t);
     setStep("calculating");
@@ -67,14 +67,13 @@ export default function PrimaryMiniApp({ setMode }: Props) {
     }, 500);
   };
 
-  // --- INTRO ---
   if (step === "intro") {
     const selectedRing = (isSelected: boolean): React.CSSProperties =>
       isSelected ? { boxShadow: FOCUS_RING.ring } : { boxShadow: "none" };
 
     return (
       <div className="tp-wrap">
-        <div className="tp-card tp-anim-in" style={{ ...cardStyle, textAlign: "center" }}>
+        <div className="tp-card tp-anim-in" style={cardStyle}>
           <img
             src="/images/type_schedule_m.PNG"
             alt="스케줄 메이커"
@@ -90,7 +89,6 @@ export default function PrimaryMiniApp({ setMode }: Props) {
             7점 척도로 당신의 여행 감각을 빠르게 잡아냅니다.
           </p>
 
-          {/* ✅ 닉네임 입력: 토큰 기반 border + focus ring */}
           <div style={{ marginTop: 16 }}>
             <input
               value={nickname}
@@ -116,7 +114,6 @@ export default function PrimaryMiniApp({ setMode }: Props) {
             />
           </div>
 
-          {/* ✅ 성별 선택: outline 금지, ring 사용 */}
           <div className="tp-row">
             <button
               className="tp-chip"
@@ -125,9 +122,6 @@ export default function PrimaryMiniApp({ setMode }: Props) {
                 outline: "none",
                 transition: `box-shadow ${MOTION.duration.fast}ms ${MOTION.easing}`,
                 ...selectedRing(gender === "m"),
-              }}
-              onFocus={(e) => {
-                if (gender !== "m") e.currentTarget.style.boxShadow = FOCUS_RING.ring;
               }}
               onBlur={(e) => {
                 e.currentTarget.style.boxShadow = gender === "m" ? FOCUS_RING.ring : "none";
@@ -143,9 +137,6 @@ export default function PrimaryMiniApp({ setMode }: Props) {
                 outline: "none",
                 transition: `box-shadow ${MOTION.duration.fast}ms ${MOTION.easing}`,
                 ...selectedRing(gender === "f"),
-              }}
-              onFocus={(e) => {
-                if (gender !== "f") e.currentTarget.style.boxShadow = FOCUS_RING.ring;
               }}
               onBlur={(e) => {
                 e.currentTarget.style.boxShadow = gender === "f" ? FOCUS_RING.ring : "none";
@@ -178,7 +169,6 @@ export default function PrimaryMiniApp({ setMode }: Props) {
     );
   }
 
-  // --- QUESTIONS ---
   if (step === "questions" && currentQuestion) {
     return (
       <div className="tp-wrap">
@@ -187,7 +177,6 @@ export default function PrimaryMiniApp({ setMode }: Props) {
           className="tp-card tp-anim-in"
           style={{
             ...cardStyle,
-            textAlign: "center",
             display: "flex",
             flexDirection: "column",
           }}
@@ -202,6 +191,7 @@ export default function PrimaryMiniApp({ setMode }: Props) {
               display: "flex",
               flexDirection: "column",
               justifyContent: "center",
+              textAlign: "center",
             }}
           >
             <h2 className="tp-title" style={{ marginTop: 0 }}>
@@ -248,11 +238,10 @@ export default function PrimaryMiniApp({ setMode }: Props) {
     );
   }
 
-  // --- CALCULATING ---
   if (step === "calculating") {
     return (
       <div className="tp-wrap">
-        <div className="tp-card tp-anim-in" style={{ ...cardStyle, textAlign: "center" }}>
+        <div className="tp-card tp-anim-in" style={cardStyle}>
           <div className="tp-muted" style={{ fontSize: 13 }}>
             결과를 계산 중
           </div>
@@ -265,10 +254,14 @@ export default function PrimaryMiniApp({ setMode }: Props) {
     );
   }
 
-  // --- RESULT ---
   const type = computedType ?? calculateType(answers);
 
   return (
-    <PrimaryResultView type={type} gender={gender} nickname={nickname} onStartTrip={() => setMode("trip")} />
+    <PrimaryResultView
+      type={type}
+      gender={gender}
+      nickname={nickname}
+      onStartTrip={() => setMode("trip")}
+    />
   );
 }
