@@ -119,27 +119,28 @@ if (step === "questions" && currentQuestion) {
       <div
         key={currentQuestion.id}
         className="tp-card tp-anim-in"
-        style={{
-          textAlign: "center",
-          display: "flex",
-          flexDirection: "column",
-        }}
+        style={{ textAlign: "center", display: "flex", flexDirection: "column" }}
       >
         {/* 상단 진행도 */}
         <div className="tp-muted" style={{ fontSize: 13 }}>
           Q {currentIndex + 1} / {primaryQuestions.length}
         </div>
 
-        {/* ✅ 가운데로 내려오는 질문 영역 */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+        {/* ✅ 중앙 영역: 질문 + 척도 같이 */}
+        <div
+          style={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+          }}
+        >
           <h2 className="tp-title" style={{ marginTop: 0 }}>
             {currentQuestion.title}
           </h2>
-        </div>
 
-        {/* ✅ 하단 선택 영역 */}
-        <div>
-          <div className="tp-scale">
+          {/* 척도: 너무 아래로 안 내려가게 margin-top 줄이기 */}
+          <div className="tp-scale" style={{ marginTop: 26 }}>
             {[1, 2, 3, 4, 5, 6, 7].map((n) => (
               <button key={n} onClick={() => handleAnswer(n)}>
                 {n}
@@ -150,7 +151,7 @@ if (step === "questions" && currentQuestion) {
           <div
             className="tp-muted"
             style={{
-              marginTop: 18,
+              marginTop: 16,
               fontSize: 12,
               display: "flex",
               justifyContent: "space-between",
