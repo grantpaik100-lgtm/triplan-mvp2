@@ -1,0 +1,160 @@
+/* app/secondary/secondary.css */
+/* 모든 값은 CSS 변수로만 받는다. 여기서는 직접 숫자/색/그림자/트랜지션 값을 쓰지 않는다. */
+
+.tp2-screen {
+  min-height: 100dvh;
+  color: var(--tp2-text);
+  background: linear-gradient(180deg, var(--tp2-sky1), var(--tp2-sky2));
+}
+
+.tp2-wrap {
+  width: 100%;
+  max-width: calc(var(--tp2-max-card) * 1px);
+  margin-inline: auto;
+  padding: calc(var(--tp2-space-16) * 1px);
+  display: grid;
+  gap: calc(var(--tp2-space-16) * 1px);
+}
+
+.tp2-topbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--tp2-z-sticky);
+  backdrop-filter: blur(calc(var(--tp2-glass-blur) * 1px));
+  background: var(--tp2-glass-bg);
+  border-bottom: var(--tp2-glass-border);
+}
+
+.tp2-topbar-inner {
+  width: 100%;
+  max-width: calc(var(--tp2-max-card) * 1px);
+  margin-inline: auto;
+  padding: calc(var(--tp2-space-12) * 1px) calc(var(--tp2-space-16) * 1px);
+  display: grid;
+  gap: calc(var(--tp2-space-8) * 1px);
+}
+
+.tp2-title {
+  font-size: calc(var(--tp2-title-size) * 1px);
+  line-height: var(--tp2-title-lh);
+  font-weight: var(--tp2-title-w);
+}
+
+.tp2-meta {
+  font-size: calc(var(--tp2-caption-size) * 1px);
+  line-height: var(--tp2-caption-lh);
+  font-weight: var(--tp2-caption-w);
+  color: var(--tp2-muted);
+}
+
+.tp2-progress {
+  height: calc(var(--tp2-space-8) * 1px);
+  border-radius: calc(var(--tp2-radius-pill) * 1px);
+  border: var(--tp2-glass-border);
+  background: var(--tp2-glass-bg);
+  overflow: hidden;
+  box-shadow: var(--tp2-shadow-1);
+}
+
+.tp2-progressFill {
+  height: 100%;
+  width: calc(var(--tp2-progress, 0) * 1%);
+  transform-origin: left;
+  background: var(--tp2-line);
+}
+
+.tp2-card {
+  background: var(--tp2-glass-bg);
+  border: var(--tp2-glass-border);
+  backdrop-filter: blur(calc(var(--tp2-glass-blur) * 1px));
+  border-radius: calc(var(--tp2-radius-lg) * 1px);
+  box-shadow: var(--tp2-shadow-3);
+  padding: calc(var(--tp2-card-pad-y) * 1px) calc(var(--tp2-card-pad-x) * 1px);
+  display: grid;
+  gap: calc(var(--tp2-row-gap) * 1px);
+
+  /* motion */
+  opacity: var(--tp2-opacity, 1);
+  transform: scale(var(--tp2-scale, 1));
+  filter: blur(calc(var(--tp2-blur, 0) * 1px));
+  transition:
+    opacity calc(var(--tp2-dur-page) * 1ms) var(--tp2-easing),
+    transform calc(var(--tp2-dur-page) * 1ms) var(--tp2-easing),
+    filter calc(var(--tp2-dur-page) * 1ms) var(--tp2-easing);
+}
+
+.tp2-cardHeader {
+  display: grid;
+  gap: calc(var(--tp2-space-6) * 1px);
+}
+
+.tp2-h2 {
+  font-size: calc(var(--tp2-h2-size) * 1px);
+  line-height: var(--tp2-h2-lh);
+  font-weight: var(--tp2-h2-w);
+}
+
+.tp2-body {
+  font-size: calc(var(--tp2-body-size) * 1px);
+  line-height: var(--tp2-body-lh);
+  font-weight: var(--tp2-body-w);
+  color: var(--tp2-text);
+}
+
+.tp2-help {
+  color: var(--tp2-muted);
+}
+
+.tp2-controls {
+  display: grid;
+  gap: calc(var(--tp2-row-gap) * 1px);
+}
+
+.tp2-seg {
+  display: grid;
+  grid-auto-flow: column;
+  gap: calc(var(--tp2-space-8) * 1px);
+}
+
+.tp2-btn {
+  height: calc(var(--tp2-btn-h) * 1px);
+  padding-inline: calc(var(--tp2-space-12) * 1px);
+  border-radius: calc(var(--tp2-radius-pill) * 1px);
+  border: var(--tp2-glass-border);
+  background: var(--tp2-glass-bg);
+  box-shadow: var(--tp2-shadow-1);
+  color: var(--tp2-text);
+  font-size: calc(var(--tp2-body-size) * 1px);
+  line-height: var(--tp2-body-lh);
+  font-weight: var(--tp2-body-w);
+}
+
+.tp2-btnPrimary {
+  height: calc(var(--tp2-btn-h) * 1px);
+  padding-inline: calc(var(--tp2-space-12) * 1px);
+  border-radius: calc(var(--tp2-radius-pill) * 1px);
+  border: var(--tp2-glass-border);
+  background: var(--tp2-line);
+  color: var(--tp2-text);
+  box-shadow: var(--tp2-shadow-2);
+  font-size: calc(var(--tp2-body-size) * 1px);
+  line-height: var(--tp2-body-lh);
+  font-weight: var(--tp2-body-w);
+}
+
+.tp2-btn[disabled],
+.tp2-btnPrimary[disabled] {
+  opacity: 0.5;
+}
+
+.tp2-btn:focus-visible,
+.tp2-btnPrimary:focus-visible {
+  outline: none;
+  box-shadow: var(--tp2-focus), var(--tp2-shadow-2);
+}
+
+.tp2-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: calc(var(--tp2-space-10) * 1px);
+}
