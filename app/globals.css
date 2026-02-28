@@ -290,7 +290,32 @@ details > div{ margin-top:10px; color:var(--muted); font-size:13px; line-height:
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
 }
+/* lock page scroll; allow internal card scroll */
+.tp-wrap {
+  min-height: 100svh;
+  height: 100svh;
+  overflow: hidden;
+}
 
+.tp-card {
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* content area scrolls inside card */
+.tp-capture {
+  flex: 1 1 auto;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.tp-action-btn,
+.tp-cta2,
+.tp-btn,
+.tp-chip,
+.tp-scaleBtn {
+  touch-action: manipulation;
+}
 .tp-muted{ color: rgba(90,100,114,0.95); }
 .tp-title{
   color: var(--text);
