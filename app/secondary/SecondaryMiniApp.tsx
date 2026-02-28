@@ -215,32 +215,32 @@ export default function SecondaryMiniApp() {
       </header>
 
       <section className="tp2-wrap">
-        {state.mode === "question" ? (
-          <QuestionCard
-            question={q}
-            idx={state.idx}
-            total={total}
-            answers={state.answers as any}
-            setAnswer={setAnswer}
-            onPrev={goPrev}
-            onNext={() => {
-              if (state.idx === total - 1) onFinish();
-              else goNext();
-            }}
-            canNext={canGoNext}
-          />
-        ) : (
-          <SecondarySummaryView
-            questions={secondaryQuestions}
-            answers={state.answers as any}
-            onEdit={(qid) => {
-              const idx = secondaryQuestions.findIndex((x) => x.id === qid);
-              goQuestionAt(idx >= 0 ? idx : 0);
-            }}
-            onBack={() => goQuestionAt(0)}
-          />
-        )}
-      </section>
+  {state.mode === "question" ? (
+    <QuestionCard
+      question={q}
+      idx={state.idx}
+      total={total}
+      answers={state.answers as any}
+      setAnswer={setAnswer}
+      onPrev={goPrev}
+      onNext={() => {
+        if (state.idx === total - 1) onFinish();
+        else goNext();
+      }}
+      canNext={canGoNext}
+    />
+  ) : (
+    <SecondarySummaryView
+      questions={secondaryQuestions}
+      answers={state.answers as any}
+      onEdit={(qid) => {
+        const idx = secondaryQuestions.findIndex((x) => x.id === qid);
+        goQuestionAt(idx >= 0 ? idx : 0);
+      }}
+      onBack={() => goQuestionAt(0)}
+    />
+  )}
+</section>
     </main>
   );
 }
