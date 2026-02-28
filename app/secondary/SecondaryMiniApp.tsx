@@ -173,13 +173,11 @@ const q = (total > 0
   : secondaryQuestions[0])!;
 
   useEffect(() => {
-  setState((s) => {
-    const max = Math.max(0, filteredQuestions.length - 1);
-    const nextIdx = clamp(s.idx, 0, max);
-    if (nextIdx === s.idx) return s;
-    return { ...s, idx: nextIdx };
-  });
-}, [filteredQuestions.length]);
+  const max = Math.max(0, filteredQuestions.length - 1);
+  if (state.idx <= max) return;
+  setState((s) => ({ ...s, idx: max }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [filteredQuestions.length]); 
   
 
   // draft load
