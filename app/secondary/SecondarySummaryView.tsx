@@ -1,6 +1,7 @@
 "use client";
 
-import type { SecondaryQuestion, SecondaryAnswers } from "./secondarySchema";
+import type { SecondaryAnswers } from "./secondarySchema";
+import type { SecondaryQuestion } from "./secondaryQuestions";
 
 type Section = "A" | "B" | "C" | "D" | "E" | "F";
 
