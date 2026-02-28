@@ -77,14 +77,20 @@ export default function PrimaryResultView({ type, gender, nickname, onStartTrip 
           <h1 className="tp-result-name">{meta.name}</h1>
           <div className="tp-result-slogan">{meta.slogan}</div>
           <p className="tp-result-desc">{meta.description}</p>
-          {Array.isArray((meta as any).bullets) && (meta as any).bullets.length > 0 && (
-            <div style={{ marginTop: 14, textAlign: "left" }}>
-              {(meta as any).bullets.map((line: string, i: number) => (
-                <div key={i} className="tp-muted" style={{ lineHeight: 1.6, marginTop: i === 0 ? 0 : 8 }}>
-                  · {line}
-                </div>
-              ))}
-            </div>
+          {Array.isArray((meta as any).bullets) &&
+  (meta as any).bullets.length > 0 && (
+    <div style={{ marginTop: 14, textAlign: "left" }}>
+      {(meta as any).bullets.map((line: string, i: number) => (
+        <div
+          key={i}
+          className="tp-muted"
+          style={{ lineHeight: 1.6, marginTop: i === 0 ? 0 : 8 }}
+        >
+          · {line}
+        </div>
+      ))}
+    </div>
+)}
         </div>
 
         <div className="tp-actions">
