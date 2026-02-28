@@ -15,7 +15,12 @@ type State = { mode: Mode; idx: number; answers: SecondaryAnswers | Record<strin
 const DEFAULT_STATE: State = { mode: "question", idx: 0, answers: {} };
 
 function getRequiredIds(answers: Record<string, any>) {
-  const groupMode = answers?.e_groupMode ?? "혼자";
+  const groupQ = secondaryQuestions.find((x: any) => x.id === "e_groupMode");
+  const SOLO = groupQ?.options?.[0] ?? "혼자";
+  const GROUP = groupQ?.options?.[1] ?? "여럿";
+
+  const groupMode = answers?.e_groupMode ?? SOLO;
+
   const base = [
     "a_rhythm",
     "a_density",
@@ -24,7 +29,8 @@ function getRequiredIds(answers: Record<string, any>) {
     "f_places",
     "f_placeReasonOneLine",
   ];
-  if (groupMode === "여럿") base.push("e_conflictRule");
+
+  if (groupMode === GROUP) base.push("e_conflictRule");
   return new Set(base);
 }
 
@@ -158,14 +164,19 @@ export default function SecondaryMiniApp() {
   const [state, setState] = useState<State>(DEFAULT_STATE);
 
   const filteredQuestions = useMemo(() => {
-    const a = state.answers as any;
-    const groupMode = a?.e_groupMode ?? "혼자";
+  const a = state.answers as any;
 
-    return secondaryQuestions.filter((qq) => {
-      if (qq.id === "e_conflictRule" && groupMode !== "여럿") return false;
-      return true;
-    });
-  }, [state.answers]);
+  const groupQ = secondaryQuestions.find((x) => x.id === "e_groupMode");
+  const SOLO = groupQ?.options?.[0] ?? "혼자";
+  const GROUP = groupQ?.options?.[1] ?? "여럿";
+
+  const groupMode = a?.e_groupMode ?? SOLO;
+
+  return secondaryQuestions.filter((qq) => {
+    if (qq.id === "e_conflictRule" && groupMode !== GROUP) return false;
+    return true;
+  });
+}, [state.answers]);
 
 const total = filteredQuestions.length;
 const q = (total > 0
