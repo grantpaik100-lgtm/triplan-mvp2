@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { typeMeta } from "./typeMeta";
 import { MOTION, GLASS, SHADOW, FOCUS_RING } from "@/lib/MOTION_TOKENS";
 
@@ -22,6 +23,7 @@ type Props = {
 };
 
 export default function PrimaryResultView({ type, gender, nickname, onStartTrip }: Props) {
+  const router = useRouter();
   const meta = typeMeta[type] as Meta;
   const imageSrc = `/images/type_${type}_${gender}.PNG`;
 
@@ -153,21 +155,12 @@ export default function PrimaryResultView({ type, gender, nickname, onStartTrip 
         </div>
 
         <button
-          className="tp-cta2"
-          onClick={onStartTrip}
-          style={{
-            outline: "none",
-            transition: `box-shadow ${MOTION.duration.fast}ms ${MOTION.easing}`,
-          }}
-          onFocus={(e) => {
-            e.currentTarget.style.boxShadow = FOCUS_RING.ring;
-          }}
-          onBlur={(e) => {
-            e.currentTarget.style.boxShadow = "none";
-          }}
-        >
-          나만의 여행 설계하기
-        </button>
+  type="button"
+  className="tp-cta2"
+  onClick={() => router.push("/secondary")}
+>
+  나만의 여행 설계하기
+</button>
       </div>
     </div>
   );
