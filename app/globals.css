@@ -44,10 +44,7 @@ body{
   margin:0;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display","SF Pro Text",
                "Helvetica Neue", Arial, sans-serif;
-  background:
-    radial-gradient(900px 520px at 18% 10%, var(--sun1), transparent 60%),
-    radial-gradient(760px 520px at 85% 12%, var(--sun2), transparent 62%),
-    linear-gradient(180deg, var(--sky1) 0%, var(--sky2) 56%, #F7FAFF 100%);
+  background: linear-gradient(180deg, var(--sky1) 0%, var(--sky2));
   color: var(--text);
   min-height:100vh;
   padding:0;
