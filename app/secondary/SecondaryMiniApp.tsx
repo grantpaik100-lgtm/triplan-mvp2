@@ -278,7 +278,7 @@ function QuestionCard(props: {
     <article className="tp2-card" aria-label="question-card">
       <header className="tp2-cardHeader">
         <div className="tp2-meta">
-          {q.section} · {sectionLabel} · Q{idx + 1} / {total}
+          {sectionLabel} · Q{idx + 1} / {total}
         </div>
         <h2 className="tp2-h2">{q.title}</h2>
         {q.help ? <p className="tp2-body tp2-help">{q.help}</p> : null}
