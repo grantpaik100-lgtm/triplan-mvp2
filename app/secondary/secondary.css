@@ -134,7 +134,7 @@
   padding-inline: calc(var(--tp2-space-12) * 1px);
   border-radius: calc(var(--tp2-radius-pill) * 1px);
   border: var(--tp2-glass-border);
-  background: var(--tp2-line);
+  background: var(--tp2-focusColor);
   color: var(--tp2-text);
   box-shadow: var(--tp2-shadow-2);
   font-size: calc(var(--tp2-body-size) * 1px);
