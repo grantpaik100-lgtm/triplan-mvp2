@@ -32,7 +32,6 @@ export default function PrimaryResultView({ type, gender, nickname, onStartTrip 
     return `TriPlan 여행 성향 테스트 결과: ${meta.name} · ${meta.slogan}`;
   }, [meta.name, meta.slogan]);
 
-  // ✅ 토큰 기반 enter 애니메이션
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     setMounted(false);
@@ -106,10 +105,7 @@ export default function PrimaryResultView({ type, gender, nickname, onStartTrip 
                 <div
                   key={i}
                   className="tp-muted"
-                  style={{
-                    lineHeight: 1.6,
-                    marginTop: i === 0 ? 0 : 8,
-                  }}
+                  style={{ lineHeight: 1.6, marginTop: i === 0 ? 0 : 8 }}
                 >
                   · {line}
                 </div>
