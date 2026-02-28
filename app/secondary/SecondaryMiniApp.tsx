@@ -204,7 +204,7 @@ const q = (total > 0
     return Math.round((state.idx / (total - 1)) * 100);
   }, [state.idx, total]);
 
-  const cssVars = useMemo(() => toCssVars("base", progressPct), [progressPct]);
+  const cssVars = useMemo(() => toCssVars("base", progressPct), [progressPct] ,["--tp2-focusColor" as any]: COLORS.focus);
 
   const setAnswer = (id: string, value: any) => {
     setState((s) => ({ ...s, answers: { ...(s.answers as any), [id]: value } }));
