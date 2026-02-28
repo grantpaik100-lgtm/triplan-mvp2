@@ -195,8 +195,11 @@ const q = (total > 0
 
   // draft save
   useEffect(() => {
+  const t = window.setTimeout(() => {
     saveSecondaryDraft(state);
-  }, [state]);
+  }, MOTION.duration.base);
+  return () => window.clearTimeout(t);
+}, [state]);
 
   const progressPct = useMemo(() => {
     if (total <= 1) return 0;
