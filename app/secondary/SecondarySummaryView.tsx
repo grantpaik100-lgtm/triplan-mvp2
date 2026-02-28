@@ -41,16 +41,17 @@ export default function SecondarySummaryView(props: {
   answers: SecondaryAnswers | Record<string, any>;
   onEdit: (qid: string) => void;
   onBack: () => void;
+  onReview: () => void;
 }) {
-  const { questions, answers, onEdit, onBack } = props;
+  const { questions, answers, onEdit, onBack, onReview } = props;
   const sections = groupBySection(questions);
 
   return (
     <article className="tp2-card" aria-label="summary-card">
       <header className="tp2-cardHeader">
-        <div className="tp2-meta">요약</div>
-        <h2 className="tp2-h2">내 여행 설계 보정</h2>
-        <p className="tp2-body tp2-help">필요한 섹션만 수정하고 완료하면 된다.</p>
+        <div className="tp2-meta">설정값 확인</div>
+        <h2 className="tp2-h2">여행 설계 입력</h2>
+        <p className="tp2-body tp2-help">섹션 단위로 수정하고, 검토 단계로 넘어간다.</p>
       </header>
 
       <div className="tp2-controls">
@@ -58,7 +59,6 @@ export default function SecondarySummaryView(props: {
           <div key={sec} className="tp2-subcard" aria-label={`summary-section-${sec}`}>
             <div className="tp2-rankRow">
               <div className="tp2-rankLeft">
-                <div className="tp2-rankBadge">{sec}</div>
                 <div className="tp2-body">{SECTION_LABEL[sec]}</div>
               </div>
 
@@ -83,8 +83,9 @@ export default function SecondarySummaryView(props: {
         <button type="button" className="tp2-btn" onClick={onBack}>
           처음으로
         </button>
-        <button type="button" className="tp2-btnPrimary" onClick={() => onBack()}>
-          완료
+
+        <button type="button" className="tp2-btnPrimary" onClick={onReview}>
+          검토 시작
         </button>
       </footer>
     </article>
