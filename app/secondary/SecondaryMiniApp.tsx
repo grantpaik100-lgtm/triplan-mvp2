@@ -307,9 +307,55 @@ function QuestionControl(props: {
         />
       );
 
-    // 옵션 A에서 “보이기만” 목표면, 나머지 타입은 다음 턴에서 컨트롤별 토큰화로 확장.
+    case "tagInput":
+      return (
+        <TagInput
+          tags={Array.isArray(value) ? value : []}
+          placeholder={q.placeholder ?? "입력 후 추가"}
+          onChange={(next) => setAnswer(q.id, next)}
+        />
+      );
+
+    case "multiChips":
+      return (
+        <MultiChips
+          options={q.options ?? []}
+          value={Array.isArray(value) ? value : []}
+          onChange={(next) => setAnswer(q.id, next)}
+        />
+      );
+
+    case "toggle":
+      return (
+        <Toggle2
+          left={q.options?.[0] ?? "없음"}
+          right={q.options?.[1] ?? "있음"}
+          value={value ?? (q.options?.[0] ?? "없음")}
+          onChange={(v) => setAnswer(q.id, v)}
+        />
+      );
+
+    case "rank":
+      return (
+        <RankList
+          items={Array.isArray(value) && value.length ? value : (q.options ?? [])}
+          onChange={(next) => setAnswer(q.id, next)}
+        />
+      );
+
+    case "places":
+      return (
+        <Places
+          places={Array.isArray(value) ? value : []}
+          onChange={(next) => setAnswer(q.id, next)}
+        />
+      );
+
+    case "textarea":
+      return <TextArea value={value ?? ""} placeholder={q.placeholder ?? ""} onChange={(v) => setAnswer(q.id, v)} />;
+
     default:
-      return <div className="tp2-meta">이 컨트롤은 다음 단계에서 연결</div>;
+      return <div className="tp2-meta">Unknown control</div>;
   }
 }
 
@@ -363,5 +409,207 @@ function WaitingPreset(props: {
         </div>
       ) : null}
     </div>
+  );
+}
+function TagInput(props: {
+  tags: string[];
+  placeholder: string;
+  onChange: (next: string[]) => void;
+}) {
+  const [text, setText] = useState("");
+
+  const add = () => {
+    const t = text.trim();
+    if (!t) return;
+    if (props.tags.includes(t)) {
+      setText("");
+      return;
+    }
+    props.onChange([...props.tags, t]);
+    setText("");
+  };
+
+  const remove = (tag: string) => {
+    props.onChange(props.tags.filter((x) => x !== tag));
+  };
+
+  return (
+    <div className="tp2-controls">
+      <div className="tp2-footer">
+        <input
+          className="tp2-input"
+          value={text}
+          placeholder={props.placeholder}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add();
+            }
+          }}
+        />
+        <button type="button" className="tp2-btn" onClick={add}>
+          추가
+        </button>
+      </div>
+
+      <div className="tp2-wrapChips" aria-label="tags">
+        {props.tags.map((tag) => (
+          <button
+            key={tag}
+            type="button"
+            className="tp2-chip"
+            onClick={() => remove(tag)}
+            aria-label={`삭제: ${tag}`}
+          >
+            {tag}
+          </button>
+        ))}
+        {props.tags.length === 0 ? <div className="tp2-meta">아직 없음</div> : null}
+      </div>
+    </div>
+  );
+}
+
+function MultiChips(props: { options: string[]; value: string[]; onChange: (next: string[]) => void }) {
+  const toggle = (opt: string) => {
+    const has = props.value.includes(opt);
+    props.onChange(has ? props.value.filter((x) => x !== opt) : [...props.value, opt]);
+  };
+
+  return (
+    <div className="tp2-wrapChips" aria-label="multi-chips">
+      {props.options.map((opt) => {
+        const active = props.value.includes(opt);
+        return (
+          <button
+            key={opt}
+            type="button"
+            className={active ? "tp2-chipActive" : "tp2-chip"}
+            onClick={() => toggle(opt)}
+          >
+            {opt}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function Toggle2(props: { left: string; right: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="tp2-footer" role="group" aria-label="toggle2">
+      <button
+        type="button"
+        className={props.value === props.left ? "tp2-chipActive" : "tp2-chip"}
+        onClick={() => props.onChange(props.left)}
+      >
+        {props.left}
+      </button>
+      <button
+        type="button"
+        className={props.value === props.right ? "tp2-chipActive" : "tp2-chip"}
+        onClick={() => props.onChange(props.right)}
+      >
+        {props.right}
+      </button>
+    </div>
+  );
+}
+
+function RankList(props: { items: string[]; onChange: (next: string[]) => void }) {
+  const move = (from: number, dir: -1 | 1) => {
+    const to = from + dir;
+    if (to < 0 || to >= props.items.length) return;
+    const arr = [...props.items];
+    const tmp = arr[from];
+    arr[from] = arr[to];
+    arr[to] = tmp;
+    props.onChange(arr);
+  };
+
+  return (
+    <ol className="tp2-rankList" aria-label="rank-list">
+      {props.items.map((item, i) => (
+        <li key={item} className="tp2-rankItem">
+          <div className="tp2-footer">
+            <div className="tp2-body">{item}</div>
+            <div className="tp2-rankBtns">
+            
+              <button type="button" className="tp2-btn" onClick={() => move(i, -1)} aria-label={`${item} 위로`}>
+                ↑
+              </button>
+              <button type="button" className="tp2-btn" onClick={() => move(i, 1)} aria-label={`${item} 아래로`}>
+                ↓
+              </button>
+            </div>
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+type PlaceItem = { name: string; reason: string; importance: "낮" | "중" | "높" };
+
+function Places(props: { places: PlaceItem[]; onChange: (next: PlaceItem[]) => void }) {
+  const add = () => props.onChange([...props.places, { name: "", reason: "", importance: "중" }]);
+
+  const update = (idx: number, patch: Partial<PlaceItem>) => {
+    props.onChange(props.places.map((p, i) => (i === idx ? { ...p, ...patch } : p)));
+  };
+
+  const remove = (idx: number) => props.onChange(props.places.filter((_, i) => i !== idx));
+
+  return (
+    <div className="tp2-controls">
+      <button type="button" className="tp2-btn" onClick={add}>
+        + 장소 카드 추가
+      </button>
+
+      {props.places.length === 0 ? <div className="tp2-meta">최소 1개는 추가해야 요약으로 넘어감</div> : null}
+
+      {props.places.map((p, idx) => (
+        <div key={idx} className="tp2-subcard" aria-label={`place-${idx}`}>
+          <div className="tp2-footer">
+            <div className="tp2-meta">장소 {idx + 1}</div>
+            <button type="button" className="tp2-btn" onClick={() => remove(idx)}>
+              삭제
+            </button>
+          </div>
+
+          <input
+            className="tp2-input"
+            value={p.name}
+            placeholder="장소명"
+            onChange={(e) => update(idx, { name: e.target.value })}
+          />
+
+          <TextArea
+            value={p.reason}
+            placeholder="이유(한 줄~두 줄)"
+            onChange={(v) => update(idx, { reason: v })}
+          />
+
+          <Segmented
+            options={["낮", "중", "높"]}
+            value={p.importance}
+            onChange={(v) => update(idx, { importance: v as any })}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TextArea(props: { value: string; placeholder: string; onChange: (v: string) => void }) {
+  return (
+    <textarea
+      className="tp2-textarea"
+      value={props.value}
+      placeholder={props.placeholder}
+      rows={4}
+      onChange={(e) => props.onChange(e.target.value)}
+    />
   );
 }
