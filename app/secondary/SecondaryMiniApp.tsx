@@ -101,10 +101,34 @@ function toCssVars(densityKey: keyof typeof DENSITY, progressPct: number) {
 }
 
 export default function SecondaryMiniApp() {
-  const total = secondaryQuestions.length;
+  
 
   const [state, setState] = useState<State>(DEFAULT_STATE);
-  const q = secondaryQuestions[clamp(state.idx, 0, total - 1)];
+
+  const filteredQuestions = useMemo(() => {
+    const a = state.answers as any;
+    const groupMode = a?.e_groupMode ?? "혼자";
+
+    return secondaryQuestions.filter((qq) => {
+      if (qq.id === "e_conflictRule" && groupMode !== "여럿") return false;
+      return true;
+    });
+  }, [state.answers]);
+
+const total = filteredQuestions.length;
+const q = (total > 0
+  ? filteredQuestions[clamp(state.idx, 0, total - 1)]
+  : secondaryQuestions[0])!;
+
+  useEffect(() => {
+  setState((s) => {
+    const max = Math.max(0, filteredQuestions.length - 1);
+    const nextIdx = clamp(s.idx, 0, max);
+    if (nextIdx === s.idx) return s;
+    return { ...s, idx: nextIdx };
+  });
+}, [filteredQuestions.length]);
+  
 
   // draft load
   useEffect(() => {
