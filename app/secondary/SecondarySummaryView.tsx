@@ -9,10 +9,10 @@ import { MOTION } from "@/lib/MOTION_TOKENS";
 export default function SecondarySummaryView(props: {
   questions: SecondaryQuestion[];
   answers: SecondaryAnswers | Record<string, any>;
-  onEditSection: (section: "A" | "B" | "C" | "D" | "E" | "F") => void;
+  onEdit: (qid: string) => void;
   onBack: () => void;
 }) {
-  const { questions, answers, onEditSection, onBack } = props;
+  const { questions, answers, onEdit, onBack } = props;
 
   const sections = useMemo(() => {
     const map = new Map<string, SecondaryQuestion[]>();
@@ -58,7 +58,7 @@ export default function SecondarySummaryView(props: {
               <button
                 type="button"
                 className="tp2-btn"
-                onClick={() => onEditSection(sec as any)}
+                onClick={() => onEdit(sec as any)}
               >
                 수정
               </button>
