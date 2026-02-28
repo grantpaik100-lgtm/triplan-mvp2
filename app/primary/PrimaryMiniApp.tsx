@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { primaryQuestions } from "@/primary/primaryQuestions";
-import { calculateType } from "@/primary/primaryScoring";
-import PrimaryResultView from "@/primary/PrimaryResultView";
+import { primaryQuestions } from "./primaryQuestions";
+import { calculateType } from "./primaryScoring";
+import PrimaryResultView from "./PrimaryResultView";
 
-import { MOTION, GLASS, SHADOW, FOCUS_RING, COLORS } from "@/lib/MOTION_TOKENS";
+import { MOTION, GLASS, SHADOW, FOCUS_RING } from "@/lib/MOTION_TOKENS";
 
 type Props = {
   setMode: (mode: "primary" | "trip" | "assist") => void;
@@ -21,7 +21,7 @@ export default function PrimaryMiniApp({ setMode }: Props) {
   const currentIndex = Object.keys(answers).length;
   const currentQuestion = primaryQuestions[currentIndex];
 
-  // ✅ 토큰 기반 enter 애니메이션(질문이 바뀔 때마다 다시 트리거)
+  // ✅ 토큰 기반 enter 애니메이션 (step/문항 변경마다 트리거)
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     setMounted(false);
@@ -54,6 +54,7 @@ export default function PrimaryMiniApp({ setMode }: Props) {
     const isLast = currentIndex + 1 === primaryQuestions.length;
     if (!isLast) return;
 
+    // ✅ 마지막: 즉시 타입 계산 + 이미지 프리로드 + calculating 화면
     const t = calculateType(nextAnswers);
     setComputedType(t);
     setStep("calculating");
@@ -69,11 +70,7 @@ export default function PrimaryMiniApp({ setMode }: Props) {
   // --- INTRO ---
   if (step === "intro") {
     const selectedRing = (isSelected: boolean): React.CSSProperties =>
-      isSelected
-        ? {
-            boxShadow: FOCUS_RING.ring,
-          }
-        : {};
+      isSelected ? { boxShadow: FOCUS_RING.ring } : { boxShadow: "none" };
 
     return (
       <div className="tp-wrap">
@@ -88,11 +85,12 @@ export default function PrimaryMiniApp({ setMode }: Props) {
           <h1 className="tp-h1" style={{ marginTop: 8 }}>
             TriPlan 여행 성향 테스트
           </h1>
+
           <p className="tp-muted" style={{ marginTop: 10, marginBottom: 0 }}>
             7점 척도로 당신의 여행 감각을 빠르게 잡아냅니다.
           </p>
 
-          {/* ✅ 닉네임 입력: border/transition 토큰화 */}
+          {/* ✅ 닉네임 입력: 토큰 기반 border + focus ring */}
           <div style={{ marginTop: 16 }}>
             <input
               value={nickname}
@@ -110,14 +108,15 @@ export default function PrimaryMiniApp({ setMode }: Props) {
                 transition: `box-shadow ${MOTION.duration.fast}ms ${MOTION.easing}`,
               }}
               onFocus={(e) => {
-                (e.currentTarget as HTMLInputElement).style.boxShadow = FOCUS_RING.ring;
+                e.currentTarget.style.boxShadow = FOCUS_RING.ring;
               }}
               onBlur={(e) => {
-                (e.currentTarget as HTMLInputElement).style.boxShadow = "none";
+                e.currentTarget.style.boxShadow = "none";
               }}
             />
           </div>
 
+          {/* ✅ 성별 선택: outline 금지, ring 사용 */}
           <div className="tp-row">
             <button
               className="tp-chip"
@@ -128,12 +127,10 @@ export default function PrimaryMiniApp({ setMode }: Props) {
                 ...selectedRing(gender === "m"),
               }}
               onFocus={(e) => {
-                // focus도 동일하게 ring
-                (e.currentTarget as HTMLButtonElement).style.boxShadow =
-                  gender === "m" ? FOCUS_RING.ring : FOCUS_RING.ring;
+                if (gender !== "m") e.currentTarget.style.boxShadow = FOCUS_RING.ring;
               }}
               onBlur={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.boxShadow = gender === "m" ? FOCUS_RING.ring : "none";
+                e.currentTarget.style.boxShadow = gender === "m" ? FOCUS_RING.ring : "none";
               }}
             >
               남성
@@ -148,11 +145,10 @@ export default function PrimaryMiniApp({ setMode }: Props) {
                 ...selectedRing(gender === "f"),
               }}
               onFocus={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.boxShadow =
-                  gender === "f" ? FOCUS_RING.ring : FOCUS_RING.ring;
+                if (gender !== "f") e.currentTarget.style.boxShadow = FOCUS_RING.ring;
               }}
               onBlur={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.boxShadow = gender === "f" ? FOCUS_RING.ring : "none";
+                e.currentTarget.style.boxShadow = gender === "f" ? FOCUS_RING.ring : "none";
               }}
             >
               여성
@@ -166,13 +162,13 @@ export default function PrimaryMiniApp({ setMode }: Props) {
             style={{
               opacity: nickname.trim() ? 1 : 0.55,
               outline: "none",
-              transition: `transform ${MOTION.duration.fast}ms ${MOTION.easing}, box-shadow ${MOTION.duration.fast}ms ${MOTION.easing}`,
+              transition: `box-shadow ${MOTION.duration.fast}ms ${MOTION.easing}, transform ${MOTION.duration.fast}ms ${MOTION.easing}`,
             }}
             onFocus={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.boxShadow = FOCUS_RING.ring;
+              e.currentTarget.style.boxShadow = FOCUS_RING.ring;
             }}
             onBlur={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.boxShadow = "none";
+              e.currentTarget.style.boxShadow = "none";
             }}
           >
             시작하기
@@ -219,13 +215,13 @@ export default function PrimaryMiniApp({ setMode }: Props) {
                   onClick={() => handleAnswer(n)}
                   style={{
                     outline: "none",
-                    transition: `transform ${MOTION.duration.fast}ms ${MOTION.easing}, box-shadow ${MOTION.duration.fast}ms ${MOTION.easing}`,
+                    transition: `box-shadow ${MOTION.duration.fast}ms ${MOTION.easing}, transform ${MOTION.duration.fast}ms ${MOTION.easing}`,
                   }}
                   onFocus={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.boxShadow = FOCUS_RING.ring;
+                    e.currentTarget.style.boxShadow = FOCUS_RING.ring;
                   }}
                   onBlur={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.boxShadow = "none";
+                    e.currentTarget.style.boxShadow = "none";
                   }}
                 >
                   {n}
@@ -273,11 +269,6 @@ export default function PrimaryMiniApp({ setMode }: Props) {
   const type = computedType ?? calculateType(answers);
 
   return (
-    <PrimaryResultView
-      type={type}
-      gender={gender}
-      nickname={nickname}
-      onStartTrip={() => setMode("trip")}
-    />
+    <PrimaryResultView type={type} gender={gender} nickname={nickname} onStartTrip={() => setMode("trip")} />
   );
 }
