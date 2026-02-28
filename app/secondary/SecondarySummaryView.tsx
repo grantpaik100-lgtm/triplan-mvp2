@@ -52,7 +52,7 @@ export default function SecondarySummaryView(props: {
 
       <div className="tp2-controls">
         {sections.map(([sec, qs]) => (
-          <div key={sec} className="tp2-card" aria-label={`section-${sec}`}>
+          <div key={sec} className="tp2-subcard" aria-label={`section-${sec}`}>
             <div className="tp2-footer">
               <div className="tp2-h2">Section {sec}</div>
               <button
