@@ -1,91 +1,180 @@
-import { NextResponse } from "next/server";
+"use client";
 
-type ReqBody = {
-  message: string;
-  answers: Record<string, any>;
-  history?: Array<{ role: "user" | "assistant"; text: string }>;
-};
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import "../secondary.css";
 
-export async function POST(req: Request) {
-  try {
-    const body = (await req.json()) as ReqBody;
-    const apiKey = process.env.OPENAI_API_KEY;
+import { loadSecondaryDraft } from "@/lib/secondaryStorage";
+import { MOTION, GLASS, SHADOW, COLORS, SPACE, TYPE, DENSITY, RADIUS, MAXWIDTH, FOCUS_RING } from "@/lib/MOTION_TOKENS";
 
-    if (!apiKey) {
-      return NextResponse.json({ error: "missing_OPENAI_API_KEY" }, { status: 500 });
-    }
+function toCssVars() {
+  const d = DENSITY.dense;
+  return {
+    ["--tp2-ease" as any]: MOTION.easing,
+    ["--tp2-dur-fast" as any]: MOTION.duration.fast,
+    ["--tp2-dur-base" as any]: MOTION.duration.base,
+    ["--tp2-dur-slow" as any]: MOTION.duration.slow,
+    ["--tp2-dur-page" as any]: MOTION.duration.page,
 
-    const userMsg = (body.message || "").trim();
-    if (!userMsg) {
-      return NextResponse.json({ error: "empty_message" }, { status: 400 });
-    }
+    ["--tp2-enter-opacity" as any]: MOTION.enter.to.opacity,
+    ["--tp2-enter-scale" as any]: MOTION.enter.to.scale,
+    ["--tp2-enter-blur" as any]: MOTION.enter.to.blurPx,
 
-    const instructions =
-      "너는 TriPlan의 여행 설계 보조(컨설턴트)다. 사용자가 입력한 설정값(제약/리스크/우선순위)을 기반으로, 일정 설계에 미치는 영향과 트레이드오프만 짧게 설명한다. 과장/감정/칭찬 없이, 1) 영향 2) 리스크 3) 확인 질문(필요한 경우만) 순서로 답한다.";
+    ["--tp2-glass-bg" as any]: GLASS.background,
+    ["--tp2-glass-border" as any]: GLASS.border,
+    ["--tp2-glass-blur" as any]: GLASS.backdropBlurPx,
 
-    const input = [
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text:
-              "설문2 설정값(JSON):\n" +
-              JSON.stringify(body.answers ?? {}, null, 2) +
-              "\n\n사용자 질문:\n" +
-              userMsg,
-          },
-        ],
-      },
-    ];
+    ["--tp2-shadow-1" as any]: SHADOW.level1,
+    ["--tp2-shadow-2" as any]: SHADOW.level2,
+    ["--tp2-shadow-3" as any]: SHADOW.level3,
 
-    // OpenAI Responses API
-    const r = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-5",
-        instructions,
-        input,
-      }),
-    });
+    ["--tp2-sky1" as any]: COLORS.sky1,
+    ["--tp2-sky2" as any]: COLORS.sky2,
+    ["--tp2-text" as any]: COLORS.text,
+    ["--tp2-muted" as any]: COLORS.muted,
+    ["--tp2-line" as any]: COLORS.line,
 
-    const json = await r.json();
-    if (!r.ok) {
-      return NextResponse.json({ error: "openai_error", detail: json }, { status: 500 });
-    }
+    ["--tp2-focus" as any]: FOCUS_RING.ring,
 
-    // responses: output_text is convenient but not always present depending on config
-    const text =
-      (json && (json.output_text as string)) ||
-      extractOutputText(json) ||
-      "응답 파싱 실패";
+    ["--tp2-space-8" as any]: SPACE[8],
+    ["--tp2-space-10" as any]: SPACE[10],
+    ["--tp2-space-12" as any]: SPACE[12],
+    ["--tp2-space-14" as any]: SPACE[14],
+    ["--tp2-space-16" as any]: SPACE[16],
 
-    return NextResponse.json({ text });
-  } catch {
-    return NextResponse.json({ error: "server_error" }, { status: 500 });
-  }
+    ["--tp2-radius-pill" as any]: RADIUS.pill,
+    ["--tp2-radius-lg" as any]: RADIUS.lg,
+    ["--tp2-radius-xl" as any]: RADIUS.xl,
+
+    ["--tp2-h2-size" as any]: TYPE.h2.size,
+    ["--tp2-h2-lh" as any]: TYPE.h2.lineHeight,
+    ["--tp2-h2-w" as any]: TYPE.h2.weight,
+    ["--tp2-body-size" as any]: TYPE.body.size,
+    ["--tp2-body-lh" as any]: TYPE.body.lineHeight,
+    ["--tp2-body-w" as any]: TYPE.body.weight,
+    ["--tp2-caption-size" as any]: TYPE.caption.size,
+    ["--tp2-caption-lh" as any]: TYPE.caption.lineHeight,
+    ["--tp2-caption-w" as any]: TYPE.caption.weight,
+
+    ["--tp2-pad-x" as any]: d.cardPadX,
+    ["--tp2-pad-y" as any]: d.cardPadY,
+    ["--tp2-rowgap" as any]: d.rowGap,
+    ["--tp2-btn-h" as any]: d.buttonHeight,
+    ["--tp2-chip-h" as any]: d.chipHeight,
+
+    ["--tp2-maxw" as any]: MAXWIDTH.card,
+  } as React.CSSProperties;
 }
 
-function extractOutputText(resp: any): string | null {
-  try {
-    const out = resp?.output;
-    if (!Array.isArray(out)) return null;
-    for (const item of out) {
-      // common shape: { type:"message", content:[{type:"output_text",text:"..."}]}
-      const content = item?.content;
-      if (!Array.isArray(content)) continue;
-      for (const c of content) {
-        if (c?.type === "output_text" && typeof c?.text === "string") return c.text;
-        if (c?.type === "text" && typeof c?.text === "string") return c.text;
-      }
+type Msg = { role: "user" | "assistant"; text: string };
+
+export default function SecondaryReviewPage() {
+  const router = useRouter();
+  const cssVars = useMemo(() => toCssVars(), []);
+
+  const draft = useMemo(() => loadSecondaryDraft(), []);
+  const answers = (draft?.answers ?? {}) as Record<string, any>;
+
+  const [msgs, setMsgs] = useState<Msg[]>([
+    {
+      role: "assistant",
+      text: "설정값을 검토한다. 트레이드오프/리스크만 짧게 정리하고, 필요한 경우에만 추가 질문을 한다.",
+    },
+  ]);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const send = async () => {
+    const t = input.trim();
+    if (!t || busy) return;
+
+    setMsgs((m) => [...m, { role: "user", text: t }]);
+    setInput("");
+    setBusy(true);
+
+    try {
+      const res = await fetch("/api/secondary/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: t,
+          answers,
+          history: msgs,
+        }),
+      });
+
+      const data = (await res.json()) as { text?: string; error?: string };
+      if (!res.ok) throw new Error(data.error || "request_failed");
+
+      setMsgs((m) => [...m, { role: "assistant", text: data.text || "응답 없음" }]);
+    } catch {
+      setMsgs((m) => [...m, { role: "assistant", text: "검토 요청에 실패했다. 키/서버 설정을 확인." }]);
+    } finally {
+      setBusy(false);
     }
-    return null;
-  } catch {
-    return null;
-  }
-}
+  };
+
+  return (
+    <main className="tp2-screen" style={cssVars}>
+      <div className="tp2-wrap">
+        <article className="tp2-card" aria-label="review-card">
+          <header className="tp2-cardHeader">
+            <div className="tp2-meta">검토 단계</div>
+            <h2 className="tp2-h2">설정 해석(보조)</h2>
+            <p className="tp2-body tp2-help">설정값을 기반으로 일정 설계에 영향을 주는 포인트만 말한다.</p>
+          </header>
+
+          <div className="tp2-controls">
+            <div className="tp2-subcard">
+              <div className="tp2-meta">현재 설정 스냅샷</div>
+              <pre className="tp2-meta" style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+{JSON.stringify(answers, null, 2)}
+              </pre>
+            </div>
+
+            <div className="tp2-subcard">
+              <div className="tp2-meta">대화</div>
+              <div style={{ display: "grid", gap: "calc(var(--tp2-space-10) * 1px)" }}>
+                {msgs.map((m, i) => (
+                  <div key={i} className="tp2-subcard">
+                    <div className="tp2-meta">{m.role === "user" ? "나" : "보조"}</div>
+                    <div className="tp2-body">{m.text}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="tp2-subcard">
+              <div className="tp2-row">
+                <input
+                  className="tp2-input"
+                  value={input}
+                  placeholder="검토 질문 입력(예: 일정 밀도 더 느슨하게 하면 뭐가 바뀜?)"
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      send();
+                    }
+                  }}
+                />
+                <button type="button" className="tp2-btnPrimary" onClick={send} disabled={busy}>
+                  {busy ? "요청중" : "보내기"}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <footer className="tp2-footer">
+            <button type="button" className="tp2-btn" onClick={() => router.push("/secondary")}>
+              설정으로
+            </button>
+            <button type="button" className="tp2-btnPrimary" onClick={() => router.push("/flows")}>
+              일정 생성으로
+            </button>
+          </footer>
+        </article>
+      </div>
+    </main>
+  );
 }
