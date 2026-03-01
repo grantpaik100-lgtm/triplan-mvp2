@@ -21,8 +21,7 @@ function groupBySection(questions: SecondaryQuestion[]) {
     if (!map.has(sec)) map.set(sec, []);
     map.get(sec)!.push(q);
   }
-  const entries = Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  return entries;
+  return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
 }
 
 function formatAnswer(q: SecondaryQuestion, answers: Record<string, any>) {
@@ -51,30 +50,25 @@ export default function SecondarySummaryView(props: {
       <header className="tp2-cardHeader">
         <div className="tp2-meta">설정값 확인</div>
         <h2 className="tp2-h2">여행 설계 입력</h2>
-        <p className="tp2-body tp2-help">섹션 단위로 수정하고, 검토 단계로 넘어간다.</p>
+        <p className="tp2-body tp2-help">섹션별로 값만 확인하고, 필요하면 수정한다.</p>
       </header>
 
       <div className="tp2-controls">
         {sections.map(([sec, qs]) => (
           <div key={sec} className="tp2-subcard" aria-label={`summary-section-${sec}`}>
-            <div className="tp2-rankRow">
-              <div className="tp2-rankLeft">
-                <div className="tp2-body">{SECTION_LABEL[sec]}</div>
-              </div>
-
+            <div className="tp2-row">
+              <div className="tp2-body">{SECTION_LABEL[sec]}</div>
               <button type="button" className="tp2-btn" onClick={() => onEdit(qs[0]?.id ?? "")}>
                 수정
               </button>
             </div>
 
-            <div className="tp2-rankHint">
-              {qs.map((q) => (
-                <div key={q.id} className="tp2-rankRow">
-                  <div className="tp2-meta">{q.title}</div>
-                  <div className="tp2-meta">{formatAnswer(q, answers as any)}</div>
-                </div>
-              ))}
-            </div>
+            {qs.map((q) => (
+              <div key={q.id} className="tp2-row">
+                <div className="tp2-meta">{q.title}</div>
+                <div className="tp2-meta">{formatAnswer(q, answers as any)}</div>
+              </div>
+            ))}
           </div>
         ))}
       </div>
@@ -83,7 +77,6 @@ export default function SecondarySummaryView(props: {
         <button type="button" className="tp2-btn" onClick={onBack}>
           처음으로
         </button>
-
         <button type="button" className="tp2-btnPrimary" onClick={onReview}>
           검토 시작
         </button>
