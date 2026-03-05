@@ -191,7 +191,7 @@ export default function SecondaryMiniApp() {
   const total = filteredQuestions.length;
   const q = (total > 0 ? filteredQuestions[clamp(state.idx, 0, total - 1)] : secondaryQuestions[0])!;
 
-  const cssVars = useMemo(() => toCssVars("dense"), []);
+  const cssVars = useMemo(() => toCssVars("base"), []);
 
   const setAnswer = (id: string, value: any) => {
     setState((s) => ({ ...s, answers: { ...(s.answers as any), [id]: value } }));
