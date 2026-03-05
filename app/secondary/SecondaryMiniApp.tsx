@@ -1,13 +1,14 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import "./secondary.css";
 
-import { secondaryQuestions, type SecondaryQuestion } from "./secondaryQuestions";
-import { secondarySchema, type SecondaryAnswers } from "./secondarySchema";
+import { secondaryQuestions, type SecondaryQuestion, type SecondarySection } from "./secondaryQuestions";
+import type { SecondaryAnswers } from "./secondarySchema";
+import SecondarySummaryView from "./SecondarySummaryView";
+
 import { loadSecondaryDraft, saveSecondaryDraft } from "@/lib/secondaryStorage";
 import { MOTION, GLASS, SHADOW, COLORS, SPACE, TYPE, DENSITY, RADIUS, MAXWIDTH, FOCUS_RING } from "@/lib/MOTION_TOKENS";
-import SecondarySummaryView from "./SecondarySummaryView";
 
 type Mode = "intro" | "question" | "summary";
 
@@ -15,17 +16,20 @@ type State = {
   mode: Mode;
   idx: number;
   answers: Partial<SecondaryAnswers> & Record<string, any>;
+
+  returnToSummary: boolean;
+  editSection?: SecondarySection;
 };
 
 const DEFAULT_STATE: State = {
   mode: "intro",
   idx: 0,
   answers: {},
+  returnToSummary: false,
 };
 
-type Section = "A" | "B" | "C" | "D" | "E" | "F";
-
-const SECTION_LABEL: Record<Section, string> = {
+const SECTION_LABEL: Record<SecondarySection, string> = {
+  G: "기본 정보",
   A: "시간대 · 리듬",
   B: "음식 리스크",
   C: "이동 제약",
@@ -40,6 +44,10 @@ function clamp(n: number, min: number, max: number) {
 
 function toCssVars(densityKey: keyof typeof DENSITY) {
   const d = DENSITY[densityKey];
+
+  // controls 최대 높이: 하드코딩 금지 → SPACE 기반으로 산출(= 64*8=512px)
+  const controlsMaxH = SPACE[64] * 8;
+
   return {
     ["--tp2-ease" as any]: MOTION.easing,
     ["--tp2-dur-fast" as any]: MOTION.duration.fast,
@@ -94,22 +102,32 @@ function toCssVars(densityKey: keyof typeof DENSITY) {
     ["--tp2-chip-h" as any]: d.chipHeight,
 
     ["--tp2-maxw" as any]: MAXWIDTH.card,
+    ["--tp2-controls-maxh" as any]: controlsMaxH,
   } as React.CSSProperties;
 }
 
 function getGroupLabels() {
-  const groupQ = secondaryQuestions.find((x) => x.id === "e_groupMode");
-  return {
-    SOLO: (groupQ?.options?.[0] as string) ?? "혼자",
-    GROUP: (groupQ?.options?.[1] as string) ?? "여럿",
-  };
+  return { SOLO: "혼자", GROUP: "여럿" } as const;
 }
 
 function getRequiredIds(answers: Record<string, any>) {
   const { SOLO, GROUP } = getGroupLabels();
   const groupMode = answers?.e_groupMode ?? SOLO;
 
-  const base = ["a_rhythm", "a_density", "b_waitingPreset", "d_lodgingStrategy", "f_places", "f_placeReasonOneLine"];
+  const base = [
+    "g_tripNights",
+    "g_tripDays",
+    "g_groupSize",
+    "g_companionType",
+    "a_rhythm",
+    "a_density",
+    "b_waitingPreset",
+    "c_walkCap",
+    "d_lodgingStrategy",
+    "d_lodgingPriority",
+    "f_places",
+  ];
+
   if (groupMode === GROUP) base.push("e_conflictRule");
   return new Set(base);
 }
@@ -120,26 +138,37 @@ function validateQuestion(q: SecondaryQuestion, answers: Record<string, any>): {
 
   if (!required) return { ok: true };
 
+  if (q.type === "numberPair") {
+    const n = Number(answers["g_tripNights"]);
+    const d = Number(answers["g_tripDays"]);
+    if (!Number.isFinite(n) || !Number.isFinite(d) || n < 0 || d < 1) return { ok: false, msg: "박/일 입력" };
+    return { ok: true };
+  }
+
+  if (q.type === "numberOne") {
+    const x = Number(v);
+    if (!Number.isFinite(x) || x < 1) return { ok: false, msg: "인원 입력" };
+    return { ok: true };
+  }
+
   if (v == null || v === "" || (Array.isArray(v) && v.length === 0)) return { ok: false, msg: "필수 항목" };
 
-  if (q.id === "b_waitingPreset") {
-    if (v === "직접") {
-      const m = answers["b_waitingCustomMinutes"];
-      if (m == null || Number.isNaN(Number(m))) return { ok: false, msg: "직접 입력 분을 설정" };
-    }
+  if (q.id === "b_waitingPreset" && v === "직접") {
+    const m = Number(answers["b_waitingCustomMinutes"]);
+    if (!Number.isFinite(m) || m < 1) return { ok: false, msg: "분 입력" };
+  }
+
+  if (q.id === "d_lodgingPriority") {
+    if (!Array.isArray(v) || v.length !== 5) return { ok: false, msg: "1~5순위 모두 지정" };
   }
 
   if (q.id === "f_places") {
-    if (!Array.isArray(v) || v.length < 1) return { ok: false, msg: "장소를 최소 1개 추가" };
+    if (!Array.isArray(v) || v.length < 1) return { ok: false, msg: "장소 최소 1개" };
     for (const p of v) {
-      if (!p?.name?.trim()) return { ok: false, msg: "장소명 입력" };
-      if (!p?.reason?.trim()) return { ok: false, msg: "장소 이유 입력" };
-      if (!p?.importance) return { ok: false, msg: "중요도 선택" };
+      if (!p?.name?.trim()) return { ok: false, msg: "장소명" };
+      if (!p?.reason?.trim()) return { ok: false, msg: "이유" };
+      if (!p?.importance) return { ok: false, msg: "중요도" };
     }
-  }
-
-  if (q.type === "textarea") {
-    if (!String(v).trim()) return { ok: false, msg: "내용 입력" };
   }
 
   return { ok: true };
@@ -148,7 +177,6 @@ function validateQuestion(q: SecondaryQuestion, answers: Record<string, any>): {
 export default function SecondaryMiniApp() {
   const [state, setState] = useState<State>(DEFAULT_STATE);
 
-  // load draft once
   useEffect(() => {
     const draft = loadSecondaryDraft();
     if (draft?.answers) {
@@ -157,15 +185,14 @@ export default function SecondaryMiniApp() {
         answers: draft.answers,
         idx: draft.idx ?? 0,
         mode: draft.mode ?? "intro",
+        returnToSummary: draft.returnToSummary ?? false,
+        editSection: draft.editSection,
       }));
     }
   }, []);
 
-  // debounce save (avoid lag)
   useEffect(() => {
-    const t = window.setTimeout(() => {
-      saveSecondaryDraft(state);
-    }, MOTION.duration.base);
+    const t = window.setTimeout(() => saveSecondaryDraft(state), MOTION.duration.base);
     return () => window.clearTimeout(t);
   }, [state]);
 
@@ -180,7 +207,6 @@ export default function SecondaryMiniApp() {
     });
   }, [state.answers]);
 
-  // keep idx valid if list shrinks
   useEffect(() => {
     const max = Math.max(0, filteredQuestions.length - 1);
     if (state.idx <= max) return;
@@ -189,23 +215,16 @@ export default function SecondaryMiniApp() {
   }, [filteredQuestions.length]);
 
   const total = filteredQuestions.length;
-  const q = (total > 0 ? filteredQuestions[clamp(state.idx, 0, total - 1)] : secondaryQuestions[0])!;
+  const q = filteredQuestions[clamp(state.idx, 0, Math.max(0, total - 1))]!;
+  const cssVars = useMemo(() => toCssVars("dense"), []);
 
-  const cssVars = useMemo(() => toCssVars("base"), []);
-
-  const setAnswer = (id: string, value: any) => {
-    setState((s) => ({ ...s, answers: { ...(s.answers as any), [id]: value } }));
-  };
-
-  const goPrev = () => setState((s) => ({ ...s, idx: clamp(s.idx - 1, 0, Math.max(0, total - 1)), mode: "question" }));
+  const setAnswer = (id: string, value: any) => setState((s) => ({ ...s, answers: { ...(s.answers as any), [id]: value } }));
   const goQuestionAt = (idx: number) => setState((s) => ({ ...s, idx: clamp(idx, 0, Math.max(0, total - 1)), mode: "question" }));
-  const goNext = () => setState((s) => ({ ...s, idx: clamp(s.idx + 1, 0, Math.max(0, total - 1)), mode: "question" }));
-  const onFinish = () => setState((s) => ({ ...s, mode: "summary" }));
+  const goPrev = () => goQuestionAt(state.idx - 1);
+  const goNext = () => goQuestionAt(state.idx + 1);
 
   const validation = useMemo(() => validateQuestion(q, state.answers as any), [q, state.answers]);
-  const canGoNext = validation.ok;
-
-  const sectionLabel = SECTION_LABEL[q.section as Section] ?? `${q.section}`;
+  const canNext = validation.ok;
 
   if (state.mode === "intro") {
     return (
@@ -219,9 +238,7 @@ export default function SecondaryMiniApp() {
             </header>
 
             <div className="tp2-controls">
-              <div className="tp2-subcard">
-                <div className="tp2-meta">예: 음식 리스크, 이동 제약, 숙소 우선순위, 핵심 장소(이유 포함)</div>
-              </div>
+              <div className="tp2-meta">예: 음식 리스크, 이동 제약, 숙소 우선순위, 핵심 장소(이유 포함)</div>
             </div>
 
             <footer className="tp2-footer">
@@ -242,11 +259,17 @@ export default function SecondaryMiniApp() {
           <SecondarySummaryView
             questions={filteredQuestions}
             answers={state.answers as any}
-            onEdit={(qid) => {
-              const idx = filteredQuestions.findIndex((x) => x.id === qid);
-              goQuestionAt(idx >= 0 ? idx : 0);
+            onEditSection={(section) => {
+              const idx = filteredQuestions.findIndex((x) => x.section === section);
+              setState((s) => ({
+                ...s,
+                mode: "question",
+                idx: idx >= 0 ? idx : 0,
+                returnToSummary: true,
+                editSection: section,
+              }));
             }}
-            onBack={() => goQuestionAt(0)}
+            onBack={() => setState((s) => ({ ...s, mode: "question", idx: 0, returnToSummary: false, editSection: undefined }))}
             onReview={() => {
               window.location.href = "/secondary/review";
             }}
@@ -256,6 +279,8 @@ export default function SecondaryMiniApp() {
     );
   }
 
+  const sectionLabel = SECTION_LABEL[q.section];
+
   return (
     <main className="tp2-screen" style={cssVars}>
       <div className="tp2-wrap">
@@ -263,16 +288,26 @@ export default function SecondaryMiniApp() {
           question={q}
           idx={state.idx}
           total={total}
-          answers={state.answers as any}
           sectionLabel={sectionLabel}
+          answers={state.answers as any}
           setAnswer={setAnswer}
+          canNext={canNext}
+          validation={validation}
           onPrev={goPrev}
           onNext={() => {
-            if (state.idx === total - 1) onFinish();
+            // 요약에서 섹션 수정으로 들어온 경우: 섹션 끝이면 요약으로 복귀
+            if (state.returnToSummary && state.editSection) {
+              const nextQ = filteredQuestions[state.idx + 1];
+              const isLastOfSection = !nextQ || nextQ.section !== state.editSection;
+              if (isLastOfSection) {
+                setState((s) => ({ ...s, mode: "summary", returnToSummary: false, editSection: undefined }));
+                return;
+              }
+            }
+
+            if (state.idx === total - 1) setState((s) => ({ ...s, mode: "summary" }));
             else goNext();
           }}
-          canNext={canGoNext}
-          validation={validation}
         />
       </div>
     </main>
@@ -283,28 +318,28 @@ function QuestionCard(props: {
   question: SecondaryQuestion;
   idx: number;
   total: number;
-  answers: Record<string, any>;
   sectionLabel: string;
+  answers: Record<string, any>;
   setAnswer: (id: string, v: any) => void;
-  onPrev: () => void;
-  onNext: () => void;
   canNext: boolean;
   validation: { ok: boolean; msg?: string };
+  onPrev: () => void;
+  onNext: () => void;
 }) {
-  const { question: q, idx, total, answers, sectionLabel, setAnswer, onPrev, onNext, canNext, validation } = props;
+  const { question: q, idx, total, sectionLabel, answers, setAnswer, canNext, validation, onPrev, onNext } = props;
 
   return (
     <article className="tp2-card" aria-label="question-card">
       <header className="tp2-cardHeader">
         <div className="tp2-meta">
-          {sectionLabel} · {idx + 1} / {total}
+          {sectionLabel} · Q {idx + 1} / {total}
         </div>
         <h2 className="tp2-h2">{q.title}</h2>
         {q.help ? <p className="tp2-body tp2-help">{q.help}</p> : null}
       </header>
 
-      <div className="tp2-controls">
-        <QuestionControl q={q} value={answers[q.id]} setAnswer={setAnswer} answers={answers} />
+      <div className={"tp2-controls " + (q.type === "places" ? "tp2-controlsScrollable" : "")}>
+        <QuestionControl q={q} value={answers[q.id]} answers={answers} setAnswer={setAnswer} />
         {!validation.ok ? <div className="tp2-meta">{validation.msg}</div> : null}
       </div>
 
@@ -320,7 +355,7 @@ function QuestionCard(props: {
   );
 }
 
-/* ---------------- Controls ---------------- */
+/* -------- Controls -------- */
 
 function QuestionControl(props: {
   q: SecondaryQuestion;
@@ -338,7 +373,8 @@ function QuestionControl(props: {
       return (
         <WaitingPreset
           preset={value ?? ""}
-          customMinutes={answers["b_waitingCustomMinutes"] ?? 25}
+          customMinutes={answers["b_waitingCustomMinutes"] ?? 20}
+          options={q.options ?? []}
           onPreset={(p) => setAnswer(q.id, p)}
           onCustom={(m) => setAnswer("b_waitingCustomMinutes", m)}
         />
@@ -353,14 +389,29 @@ function QuestionControl(props: {
         />
       );
 
-    case "multiChips":
-      return <MultiChips options={q.options ?? []} value={Array.isArray(value) ? value : []} onChange={(n) => setAnswer(q.id, n)} />;
+    case "numberPair":
+      return (
+        <NumberPair
+          nights={answers["g_tripNights"] ?? 0}
+          days={answers["g_tripDays"] ?? 1}
+          onChange={(n, d) => {
+            setAnswer("g_tripNights", n);
+            setAnswer("g_tripDays", d);
+          }}
+        />
+      );
 
-    case "toggle":
-      return <Toggle2 left={q.options?.[0] ?? "없음"} right={q.options?.[1] ?? "있음"} value={value ?? (q.options?.[0] ?? "없음")} onChange={(v) => setAnswer(q.id, v)} />;
+    case "numberOne":
+      return <NumberOne value={value ?? 1} onChange={(n) => setAnswer(q.id, n)} />;
 
-    case "rank":
-      return <PressReorderList items={Array.isArray(value) && value.length ? value : q.options ?? []} onChange={(n) => setAnswer(q.id, n)} />;
+    case "rankAssign":
+      return (
+        <RankAssign
+          options={q.options ?? []}
+          value={Array.isArray(value) ? value : []}
+          onChange={(n) => setAnswer(q.id, n)}
+        />
+      );
 
     case "places":
       return <Places places={Array.isArray(value) ? value : []} onChange={(n) => setAnswer(q.id, n)} />;
@@ -375,7 +426,7 @@ function QuestionControl(props: {
 
 function Segmented(props: { options: string[]; value: string; onChange: (v: string) => void }) {
   return (
-    <div className="tp2-seg" aria-label="segmented">
+    <div className="tp2-seg">
       {props.options.map((opt) => {
         const active = props.value === opt;
         return (
@@ -396,18 +447,19 @@ function Segmented(props: { options: string[]; value: string; onChange: (v: stri
 function WaitingPreset(props: {
   preset: string;
   customMinutes: number;
+  options: string[];
   onPreset: (p: string) => void;
   onCustom: (m: number) => void;
 }) {
   const isCustom = props.preset === "직접";
   return (
     <div className="tp2-subcard">
-      <Segmented options={["짧게", "보통", "여유", "직접"]} value={props.preset} onChange={props.onPreset} />
+      <Segmented options={props.options} value={props.preset} onChange={props.onPreset} />
       {isCustom ? (
         <div className="tp2-row">
           <input
             className="tp2-input"
-            value={String(props.customMinutes ?? 25)}
+            value={String(props.customMinutes ?? 20)}
             onChange={(e) => props.onCustom(Number(e.target.value))}
             inputMode="numeric"
             placeholder="분"
@@ -455,7 +507,7 @@ function TagInput(props: { tags: string[]; placeholder: string; onChange: (next:
         </button>
       </div>
 
-      <div className="tp2-wrapChips" aria-label="tags">
+      <div className="tp2-wrapChips">
         {props.tags.map((tag) => (
           <button key={tag} type="button" className="tp2-chip" onClick={() => remove(tag)} aria-label={`삭제: ${tag}`}>
             {tag}
@@ -467,108 +519,130 @@ function TagInput(props: { tags: string[]; placeholder: string; onChange: (next:
   );
 }
 
-function MultiChips(props: { options: string[]; value: string[]; onChange: (next: string[]) => void }) {
-  const toggle = (opt: string) => {
-    const has = props.value.includes(opt);
-    props.onChange(has ? props.value.filter((x) => x !== opt) : [...props.value, opt]);
-  };
+function NumberPair(props: { nights: number; days: number; onChange: (nights: number, days: number) => void }) {
+  const [n, setN] = useState<number>(Number(props.nights ?? 0));
+  const [d, setD] = useState<number>(Number(props.days ?? 1));
+
+  useEffect(() => {
+    setN(Number(props.nights ?? 0));
+    setD(Number(props.days ?? 1));
+  }, [props.nights, props.days]);
 
   return (
-    <div className="tp2-wrapChips" aria-label="multi-chips">
-      {props.options.map((opt) => {
-        const active = props.value.includes(opt);
-        return (
-          <button key={opt} type="button" className={active ? "tp2-chipActive" : "tp2-chip"} onClick={() => toggle(opt)}>
-            {opt}
-          </button>
-        );
-      })}
+    <div className="tp2-subcard">
+      <div className="tp2-row">
+        <input
+          className="tp2-input"
+          value={String(n)}
+          inputMode="numeric"
+          onChange={(e) => {
+            const x = Number(e.target.value);
+            setN(x);
+            props.onChange(x, d);
+          }}
+          placeholder="박"
+        />
+        <div className="tp2-meta">박</div>
+
+        <input
+          className="tp2-input"
+          value={String(d)}
+          inputMode="numeric"
+          onChange={(e) => {
+            const x = Number(e.target.value);
+            setD(x);
+            props.onChange(n, x);
+          }}
+          placeholder="일"
+        />
+        <div className="tp2-meta">일</div>
+      </div>
     </div>
   );
 }
 
-function Toggle2(props: { left: string; right: string; value: string; onChange: (v: string) => void }) {
+function NumberOne(props: { value: number; onChange: (n: number) => void }) {
+  const v = Number(props.value ?? 1);
   return (
-    <div className="tp2-row" role="group" aria-label="toggle2">
-      <button type="button" className={props.value === props.left ? "tp2-chipActive" : "tp2-chip"} onClick={() => props.onChange(props.left)}>
-        {props.left}
-      </button>
-      <button type="button" className={props.value === props.right ? "tp2-chipActive" : "tp2-chip"} onClick={() => props.onChange(props.right)}>
-        {props.right}
-      </button>
+    <div className="tp2-subcard">
+      <div className="tp2-row">
+        <button type="button" className="tp2-btn" onClick={() => props.onChange(Math.max(1, v - 1))}>
+          -
+        </button>
+        <div className="tp2-badge">{v}명</div>
+        <button type="button" className="tp2-btn" onClick={() => props.onChange(v + 1)}>
+          +
+        </button>
+      </div>
     </div>
   );
 }
 
-/* Mobile-safe reorder: long press => reorder mode */
-function PressReorderList(props: { items: string[]; onChange: (next: string[]) => void }) {
-  const [reorderMode, setReorderMode] = useState(false);
-  const pressTimer = useRef<number | null>(null);
+/**
+ * RankAssign (모바일 탭 기반)
+ * - 각 항목에 1~5순위를 부여(중복 불가)
+ * - 내부는 swap 방식
+ * - 최종값은 1..5 순으로 정렬된 배열
+ */
+function RankAssign(props: { options: string[]; value: string[]; onChange: (next: string[]) => void }) {
+  const initial = useMemo(() => {
+    const v = Array.isArray(props.value) ? props.value : [];
+    if (v.length === 5) return v;
+    return props.options.slice(0, 5);
+  }, [props.value, props.options]);
 
-  const move = (from: number, dir: -1 | 1) => {
-    const to = from + dir;
-    if (to < 0 || to >= props.items.length) return;
-    const arr = [...props.items];
-    const [moved] = arr.splice(from, 1);
-    arr.splice(to, 0, moved);
-    props.onChange(arr);
-  };
+  const [ordered, setOrdered] = useState<string[]>(initial);
 
-  const onPressStart = () => {
-    if (pressTimer.current != null) window.clearTimeout(pressTimer.current);
-    pressTimer.current = window.setTimeout(() => {
-      setReorderMode(true);
-    }, MOTION.duration.slow);
-  };
+  useEffect(() => setOrdered(initial), [initial]);
 
-  const onPressEnd = () => {
-    if (pressTimer.current != null) window.clearTimeout(pressTimer.current);
-    pressTimer.current = null;
+  const ranks = ["1", "2", "3", "4", "5"];
+  const currentRankOf = (item: string) => ordered.findIndex((x) => x === item);
+
+  const setRank = (item: string, rankIndex: number) => {
+    const cur = currentRankOf(item);
+    if (cur === rankIndex) return;
+
+    const next = [...ordered];
+    const swapItem = next[rankIndex];
+    next[rankIndex] = item;
+    if (cur >= 0) next[cur] = swapItem;
+
+    setOrdered(next);
+    props.onChange(next);
   };
 
   return (
     <div className="tp2-subcard">
-      <div className="tp2-meta">
-        위에서부터 1~5순위. {reorderMode ? "정렬 모드: 위/아래로 이동" : "항목을 꾹 눌러 정렬 모드"}
-      </div>
-
-      <ol className="tp2-rankList" aria-label="rank-list">
-        {props.items.map((item, i) => (
-          <li
-            key={`${item}-${i}`}
-            className="tp2-rankItem"
-            onPointerDown={onPressStart}
-            onPointerUp={onPressEnd}
-            onPointerCancel={onPressEnd}
-          >
-            <div className="tp2-row">
-              <div className="tp2-left">
-                <div className="tp2-badge">{i + 1}순위</div>
+      <div className="tp2-meta">각 항목의 순위를 1~5로 지정(중복 불가).</div>
+      <div className="tp2-rankGrid">
+        {props.options.slice(0, 5).map((item) => {
+          const ri = Math.max(0, currentRankOf(item));
+          return (
+            <div key={item} className="tp2-rankItem">
+              <div className="tp2-row">
                 <div className="tp2-body">{item}</div>
+                <div className="tp2-badge">{ri + 1}순위</div>
               </div>
 
-              {reorderMode ? (
-                <div className="tp2-left">
-                  <button type="button" className="tp2-btn" onClick={() => move(i, -1)} disabled={i === 0}>
-                    위
-                  </button>
-                  <button type="button" className="tp2-btn" onClick={() => move(i, 1)} disabled={i === props.items.length - 1}>
-                    아래
-                  </button>
-                </div>
-              ) : (
-                <div className="tp2-handle">꾹 눌러</div>
-              )}
+              <div className="tp2-seg" aria-label={`rank-${item}`}>
+                {ranks.map((r, idx) => {
+                  const active = idx === ri;
+                  return (
+                    <button
+                      key={r}
+                      type="button"
+                      className={active ? "tp2-segBtn tp2-segBtnActive" : "tp2-segBtn"}
+                      onClick={() => setRank(item, idx)}
+                    >
+                      {r}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </li>
-        ))}
-      </ol>
-
-      {reorderMode ? (
-        <button type="button" className="tp2-btn" onClick={() => setReorderMode(false)}>
-          정렬 종료
-        </button>
-      ) : null}
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -591,6 +665,12 @@ function Places(props: { places: PlaceItem[]; onChange: (next: PlaceItem[]) => v
     window.open(naver, "_blank", "noopener,noreferrer");
   };
 
+  const importanceLabel = (x: PlaceItem["importance"]) => {
+    if (x === "낮") return "낮(있으면 좋음)";
+    if (x === "중") return "중(중요)";
+    return "높(핵심)";
+  };
+
   return (
     <div className="tp2-subcard">
       <button type="button" className="tp2-btn" onClick={add}>
@@ -600,7 +680,7 @@ function Places(props: { places: PlaceItem[]; onChange: (next: PlaceItem[]) => v
       {props.places.length === 0 ? <div className="tp2-meta">최소 1개는 추가해야 한다.</div> : null}
 
       {props.places.map((p, idx) => (
-        <div key={idx} className="tp2-subcard" aria-label={`place-${idx}`}>
+        <div key={idx} className="tp2-subcard">
           <div className="tp2-row">
             <div className="tp2-meta">장소 {idx + 1}</div>
             <button type="button" className="tp2-btn" onClick={() => remove(idx)}>
@@ -616,6 +696,11 @@ function Places(props: { places: PlaceItem[]; onChange: (next: PlaceItem[]) => v
           </div>
 
           <TextArea value={p.reason} placeholder="이유(한 줄~두 줄)" onChange={(v) => update(idx, { reason: v })} />
+
+          <div className="tp2-row">
+            <div className="tp2-meta">중요도</div>
+            <div className="tp2-meta">{importanceLabel(p.importance)}</div>
+          </div>
 
           <Segmented options={["낮", "중", "높"]} value={p.importance} onChange={(v) => update(idx, { importance: v as any })} />
         </div>
