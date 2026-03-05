@@ -194,16 +194,16 @@ export default function SecondaryMiniApp() {
 
   useEffect(() => {
     const draft = loadSecondaryDraft();
-    if (draft?.answers) {
-      setState((s) => ({
-        ...s,
-        answers: draft.answers,
-        idx: draft.idx ?? 0,
-        mode: draft.mode ?? "intro",
-        returnToSummary: draft.returnToSummary ?? false,
-        editSection: draft.editSection,
-      }));
-    }
+if (draft) {
+  setState((s) => ({
+    ...s,
+    answers: (draft.answers ?? {}) as any,
+    idx: draft.idx ?? 0,
+    mode: (draft.mode ?? "intro") as any,
+    returnToSummary: draft.returnToSummary ?? false,
+    editSection: draft.editSection as any,
+  }));
+}
   }, []);
 
   useEffect(() => {
