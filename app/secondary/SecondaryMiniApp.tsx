@@ -126,6 +126,7 @@ function getRequiredIds(answers: Record<string, any>) {
     "d_lodgingStrategy",
     "d_lodgingPriority",
     "f_places",
+    "g_destinationCity",
   ];
 
   if (groupMode === GROUP) base.push("e_conflictRule");
@@ -366,6 +367,18 @@ function QuestionControl(props: {
   const { q, value, answers, setAnswer } = props;
 
   switch (q.type) {
+    case "destination":
+  return (
+    <DestinationControl
+      city={String(answers["g_destinationCity"] ?? "")}
+      mapUrl={String(answers["g_destinationMapUrl"] ?? "")}
+      placeholder={q.placeholder ?? "예: 오사카"}
+      onCity={(v) => setAnswer("g_destinationCity", v)}
+      onMapUrl={(v) => setAnswer("g_destinationMapUrl", v)}
+    />
+  );
+
+      
     case "segmented":
       return <Segmented options={q.options ?? []} value={value ?? ""} onChange={(v) => setAnswer(q.id, v)} />;
 
@@ -708,7 +721,47 @@ function Places(props: { places: PlaceItem[]; onChange: (next: PlaceItem[]) => v
     </div>
   );
 }
+function DestinationControl(props: {
+  city: string;
+  mapUrl: string;
+  placeholder: string;
+  onCity: (v: string) => void;
+  onMapUrl: (v: string) => void;
+}) {
+  const openNaverSearch = () => {
+    const q = props.city.trim();
+    if (!q) return;
+    const url = `https://map.naver.com/p/search/${encodeURIComponent(q)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
 
+  return (
+    <div className="tp2-subcard">
+      <div className="tp2-row">
+        <input
+          className="tp2-input"
+          value={props.city}
+          placeholder={props.placeholder}
+          onChange={(e) => props.onCity(e.target.value)}
+        />
+        <button type="button" className="tp2-btn" onClick={openNaverSearch}>
+          지도에서 찾기
+        </button>
+      </div>
+
+      <div className="tp2-meta">
+        지도 선택(선택): 네이버지도에서 공유 링크를 복사해 아래에 붙여넣을 수 있다.
+      </div>
+
+      <input
+        className="tp2-input"
+        value={props.mapUrl}
+        placeholder="지도 공유 링크(선택)"
+        onChange={(e) => props.onMapUrl(e.target.value)}
+      />
+    </div>
+  );
+}
 function TextArea(props: { value: string; placeholder: string; onChange: (v: string) => void }) {
   return (
     <textarea className="tp2-textarea" value={props.value} placeholder={props.placeholder} rows={4} onChange={(e) => props.onChange(e.target.value)} />
