@@ -1,14 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import "../secondary.css";
-
 import { loadSecondaryDraft } from "@/lib/secondaryStorage";
 import { MOTION, GLASS, SHADOW, COLORS, SPACE, TYPE, DENSITY, RADIUS, MAXWIDTH, FOCUS_RING } from "@/lib/MOTION_TOKENS";
 
 function toCssVars() {
   const d = DENSITY.dense;
+  const controlsMaxH = SPACE[64] * 8;
+
   return {
     ["--tp2-ease" as any]: MOTION.easing,
     ["--tp2-dur-fast" as any]: MOTION.duration.fast,
@@ -63,114 +63,91 @@ function toCssVars() {
     ["--tp2-chip-h" as any]: d.chipHeight,
 
     ["--tp2-maxw" as any]: MAXWIDTH.card,
+    ["--tp2-controls-maxh" as any]: controlsMaxH,
   } as React.CSSProperties;
 }
 
 type Msg = { role: "user" | "assistant"; text: string };
 
-export default function SecondaryReviewPage() {
-  const router = useRouter();
-  const cssVars = useMemo(() => toCssVars(), []);
+function interpret(answers: Record<string, any>) {
+  const lines: string[] = [];
 
+  const nights = answers.g_tripNights;
+  const days = answers.g_tripDays;
+  if (nights != null && days != null) lines.push(`기간: ${nights}박 ${days}일`);
+
+  if (answers.a_density) lines.push(`일정 밀도: ${answers.a_density}`);
+  if (answers.b_waitingPreset) lines.push(`대기 상한: ${answers.b_waitingPreset}${answers.b_waitingPreset === "직접" ? `(${answers.b_waitingCustomMinutes}분)` : ""}`);
+  if (answers.c_walkCap) lines.push(`도보 허용: ${answers.c_walkCap}`);
+  if (answers.d_lodgingStrategy) lines.push(`숙소 전략: ${answers.d_lodgingStrategy}`);
+
+  const risk = [];
+  if (Array.isArray(answers.b_allergyTags) && answers.b_allergyTags.length) risk.push(`알레르기=${answers.b_allergyTags.join(", ")}`);
+  if (Array.isArray(answers.b_avoidTags) && answers.b_avoidTags.length) risk.push(`회피=${answers.b_avoidTags.join(", ")}`);
+  if (risk.length) lines.push(`음식 리스크: ${risk.join(" / ")}`);
+
+  // 간단 트레이드오프 문장
+  const t: string[] = [];
+  if (answers.a_density === "빡빡") t.push("밀도가 높으면 이동/대기 제약이 강하게 작동한다.");
+  if (answers.c_walkCap === "짧게") t.push("도보 제한이 강하면 대중교통/택시 비중이 올라간다.");
+  if (answers.b_waitingPreset?.includes("짧게")) t.push("대기 상한이 낮으면 인기 맛집 후보가 크게 줄어든다.");
+  if (t.length) lines.push(`트레이드오프: ${t.join(" ")}`);
+
+  return lines.length ? lines.join("\n") : "설정값이 충분하지 않다.";
+}
+
+export default function SecondaryReviewPage() {
+  const cssVars = useMemo(() => toCssVars(), []);
   const draft = useMemo(() => loadSecondaryDraft(), []);
   const answers = (draft?.answers ?? {}) as Record<string, any>;
 
   const [msgs, setMsgs] = useState<Msg[]>([
-    {
-      role: "assistant",
-      text: "설정값을 검토한다. 트레이드오프/리스크만 짧게 정리하고, 필요한 경우에만 추가 질문을 한다.",
-    },
+    { role: "assistant", text: "설정값을 검토한다. 아래는 요약/트레이드오프다.\n\n" + interpret(answers) },
   ]);
   const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
 
-  const send = async () => {
+  const send = () => {
     const t = input.trim();
-    if (!t || busy) return;
-
+    if (!t) return;
     setMsgs((m) => [...m, { role: "user", text: t }]);
+
+    // 지금은 규칙 기반. (나중에 LLM API로 교체)
+    const reply = `요청: ${t}\n\n현재 설정 기반으로 반영하면, 후보 필터/동선/밀도에서 영향이 발생한다. 필요한 경우 ‘대기 상한’과 ‘도보 허용’을 먼저 조정한다.`;
+    setMsgs((m) => [...m, { role: "assistant", text: reply }]);
     setInput("");
-    setBusy(true);
-
-    try {
-      const res = await fetch("/api/secondary/review", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: t,
-          answers,
-          history: msgs,
-        }),
-      });
-
-      const data = (await res.json()) as { text?: string; error?: string };
-      if (!res.ok) throw new Error(data.error || "request_failed");
-
-      setMsgs((m) => [...m, { role: "assistant", text: data.text || "응답 없음" }]);
-    } catch {
-      setMsgs((m) => [...m, { role: "assistant", text: "검토 요청에 실패했다. 키/서버 설정을 확인." }]);
-    } finally {
-      setBusy(false);
-    }
   };
 
   return (
     <main className="tp2-screen" style={cssVars}>
       <div className="tp2-wrap">
-        <article className="tp2-card" aria-label="review-card">
+        <article className="tp2-card">
           <header className="tp2-cardHeader">
             <div className="tp2-meta">검토 단계</div>
-            <h2 className="tp2-h2">설정 해석(보조)</h2>
-            <p className="tp2-body tp2-help">설정값을 기반으로 일정 설계에 영향을 주는 포인트만 말한다.</p>
+            <h2 className="tp2-h2">설정 해석</h2>
+            <p className="tp2-body tp2-help">설정값이 일정 생성에 미치는 영향만 정리한다.</p>
           </header>
 
-          <div className="tp2-controls">
-            <div className="tp2-subcard">
-              <div className="tp2-meta">현재 설정 스냅샷</div>
-              <pre className="tp2-meta" style={{ margin: 0, whiteSpace: "pre-wrap" }}>
-{JSON.stringify(answers, null, 2)}
-              </pre>
-            </div>
-
-            <div className="tp2-subcard">
-              <div className="tp2-meta">대화</div>
-              <div style={{ display: "grid", gap: "calc(var(--tp2-space-10) * 1px)" }}>
-                {msgs.map((m, i) => (
-                  <div key={i} className="tp2-subcard">
-                    <div className="tp2-meta">{m.role === "user" ? "나" : "보조"}</div>
-                    <div className="tp2-body">{m.text}</div>
-                  </div>
-                ))}
+          <div className="tp2-controls tp2-controlsScrollable">
+            {msgs.map((m, i) => (
+              <div key={i} className="tp2-subcard">
+                <div className="tp2-meta">{m.role === "user" ? "나" : "보조"}</div>
+                <div className="tp2-body" style={{ whiteSpace: "pre-wrap" }}>
+                  {m.text}
+                </div>
               </div>
-            </div>
+            ))}
 
-            <div className="tp2-subcard">
-              <div className="tp2-row">
-                <input
-                  className="tp2-input"
-                  value={input}
-                  placeholder="검토 질문 입력(예: 일정 밀도 더 느슨하게 하면 뭐가 바뀜?)"
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      send();
-                    }
-                  }}
-                />
-                <button type="button" className="tp2-btnPrimary" onClick={send} disabled={busy}>
-                  {busy ? "요청중" : "보내기"}
-                </button>
-              </div>
+            <div className="tp2-row">
+              <input className="tp2-input" value={input} onChange={(e) => setInput(e.target.value)} placeholder="질문 입력" />
+              <button className="tp2-btnPrimary" onClick={send}>
+                보내기
+              </button>
             </div>
           </div>
 
           <footer className="tp2-footer">
-            <button type="button" className="tp2-btn" onClick={() => router.push("/secondary")}>
+            <button className="tp2-btn" onClick={() => (window.location.href = "/secondary")}>
               설정으로
-            </button>
-            <button type="button" className="tp2-btnPrimary" onClick={() => router.push("/flows")}>
-              일정 생성으로
             </button>
           </footer>
         </article>
