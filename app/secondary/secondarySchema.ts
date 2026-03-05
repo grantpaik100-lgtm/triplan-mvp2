@@ -1,9 +1,12 @@
 // app/secondary/secondarySchema.ts
+
 export type SecondaryAnswers = {
-  // G: 기본 정보
-  g_tripNights: number; // n박
-  g_tripDays: number;   // n일
-  g_groupSize: number;  // 인원
+  // G: 기본 정보 (일정 생성에 필요한 "컨텍스트")
+  g_destinationCity: string;         // 도시/지역 텍스트 입력 (필수)
+  g_destinationMapUrl?: string;      // 지도 링크(선택) - 공유 링크 붙여넣기
+  g_tripNights: number;              // n박
+  g_tripDays: number;                // n일
+  g_groupSize: number;               // 인원
   g_companionType: "혼자" | "친구" | "가족" | "연인" | "기타";
 
   // A: 시간/리듬
@@ -34,5 +37,4 @@ export type SecondaryAnswers = {
   f_placeReasonOneLine: string;
 };
 
-// (현재는 타입 기반. 추후 zod 도입 가능)
 export const secondarySchema = {} as const;
