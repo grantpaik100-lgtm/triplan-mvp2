@@ -1,12 +1,18 @@
 // app/secondary/secondarySchema.ts
+import type { CountryCode } from "@/lib/geo/cities_kr_jp";
 
 export type SecondaryAnswers = {
-  // G: 기본 정보 (일정 생성에 필요한 "컨텍스트")
-  g_destinationCity: string;         // 도시/지역 텍스트 입력 (필수)
-  g_destinationMapUrl?: string;      // 지도 링크(선택) - 공유 링크 붙여넣기
-  g_tripNights: number;              // n박
-  g_tripDays: number;                // n일
-  g_groupSize: number;               // 인원
+  // G: 기본 정보(컨텍스트)
+  g_countryCode: CountryCode; // KR | JP
+  g_cityId: string;
+  g_cityName: string;
+  g_cityAdmin1: string;
+  g_cityLat: number;
+  g_cityLng: number;
+
+  g_tripNights: number; // n박
+  g_tripDays: number; // n일
+  g_groupSize: number; // 인원
   g_companionType: "혼자" | "친구" | "가족" | "연인" | "기타";
 
   // A: 시간/리듬
