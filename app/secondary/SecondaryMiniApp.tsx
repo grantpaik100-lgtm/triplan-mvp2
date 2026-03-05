@@ -8,6 +8,7 @@ import type { SecondaryAnswers } from "./secondarySchema";
 import SecondarySummaryView from "./SecondarySummaryView";
 
 import { loadSecondaryDraft, saveSecondaryDraft } from "@/lib/secondaryStorage";
+import { searchCities, type CountryCode, type City } from "@/lib/geo/cities_kr_jp";
 import { MOTION, GLASS, SHADOW, COLORS, SPACE, TYPE, DENSITY, RADIUS, MAXWIDTH, FOCUS_RING } from "@/lib/MOTION_TOKENS";
 
 type Mode = "intro" | "question" | "summary";
@@ -16,7 +17,6 @@ type State = {
   mode: Mode;
   idx: number;
   answers: Partial<SecondaryAnswers> & Record<string, any>;
-
   returnToSummary: boolean;
   editSection?: SecondarySection;
 };
@@ -44,8 +44,6 @@ function clamp(n: number, min: number, max: number) {
 
 function toCssVars(densityKey: keyof typeof DENSITY) {
   const d = DENSITY[densityKey];
-
-  // controls 최대 높이: 하드코딩 금지 → SPACE 기반으로 산출(= 64*8=512px)
   const controlsMaxH = SPACE[64] * 8;
 
   return {
@@ -115,18 +113,24 @@ function getRequiredIds(answers: Record<string, any>) {
   const groupMode = answers?.e_groupMode ?? SOLO;
 
   const base = [
+    // 컨텍스트(핵심)
+    "g_countryCode",
+    "g_cityId",
     "g_tripNights",
     "g_tripDays",
     "g_groupSize",
     "g_companionType",
+
+    // 리듬/제약/전략
     "a_rhythm",
     "a_density",
     "b_waitingPreset",
     "c_walkCap",
     "d_lodgingStrategy",
     "d_lodgingPriority",
+
+    // 앵커
     "f_places",
-    "g_destinationCity",
   ];
 
   if (groupMode === GROUP) base.push("e_conflictRule");
@@ -138,6 +142,16 @@ function validateQuestion(q: SecondaryQuestion, answers: Record<string, any>): {
   const v = answers[q.id];
 
   if (!required) return { ok: true };
+
+  if (q.id === "g_countryCode") {
+    if (v !== "KR" && v !== "JP") return { ok: false, msg: "국가 선택" };
+    return { ok: true };
+  }
+
+  if (q.id === "g_cityId") {
+    if (!String(answers?.g_cityId ?? "").trim()) return { ok: false, msg: "도시 선택" };
+    return { ok: true };
+  }
 
   if (q.type === "numberPair") {
     const n = Number(answers["g_tripNights"]);
@@ -217,9 +231,20 @@ export default function SecondaryMiniApp() {
 
   const total = filteredQuestions.length;
   const q = filteredQuestions[clamp(state.idx, 0, Math.max(0, total - 1))]!;
-  const cssVars = useMemo(() => toCssVars("dense"), []);
+  const cssVars = useMemo(() => toCssVars("base"), []);
 
-  const setAnswer = (id: string, value: any) => setState((s) => ({ ...s, answers: { ...(s.answers as any), [id]: value } }));
+  const setAnswer = (id: string, value: any) =>
+    setState((s) => ({
+      ...s,
+      answers: { ...(s.answers as any), [id]: value },
+    }));
+
+  const setMany = (patch: Record<string, any>) =>
+    setState((s) => ({
+      ...s,
+      answers: { ...(s.answers as any), ...patch },
+    }));
+
   const goQuestionAt = (idx: number) => setState((s) => ({ ...s, idx: clamp(idx, 0, Math.max(0, total - 1)), mode: "question" }));
   const goPrev = () => goQuestionAt(state.idx - 1);
   const goNext = () => goQuestionAt(state.idx + 1);
@@ -235,11 +260,11 @@ export default function SecondaryMiniApp() {
             <header className="tp2-cardHeader">
               <div className="tp2-meta">설문 2</div>
               <h2 className="tp2-h2">여행 세부 설정 입력</h2>
-              <p className="tp2-body tp2-help">실제 일정 생성에 필요한 제약/우선순위를 입력한다. 약 5분.</p>
+              <p className="tp2-body tp2-help">실제 일정 생성에 필요한 컨텍스트/제약/우선순위를 입력한다. 약 5~7분.</p>
             </header>
 
             <div className="tp2-controls">
-              <div className="tp2-meta">예: 음식 리스크, 이동 제약, 숙소 우선순위, 핵심 장소(이유 포함)</div>
+              <div className="tp2-meta">국가·도시 → 기간 → 제약/우선순위 → 핵심 장소(이유)</div>
             </div>
 
             <footer className="tp2-footer">
@@ -292,11 +317,11 @@ export default function SecondaryMiniApp() {
           sectionLabel={sectionLabel}
           answers={state.answers as any}
           setAnswer={setAnswer}
+          setMany={setMany}
           canNext={canNext}
           validation={validation}
           onPrev={goPrev}
           onNext={() => {
-            // 요약에서 섹션 수정으로 들어온 경우: 섹션 끝이면 요약으로 복귀
             if (state.returnToSummary && state.editSection) {
               const nextQ = filteredQuestions[state.idx + 1];
               const isLastOfSection = !nextQ || nextQ.section !== state.editSection;
@@ -322,12 +347,13 @@ function QuestionCard(props: {
   sectionLabel: string;
   answers: Record<string, any>;
   setAnswer: (id: string, v: any) => void;
+  setMany: (patch: Record<string, any>) => void;
   canNext: boolean;
   validation: { ok: boolean; msg?: string };
   onPrev: () => void;
   onNext: () => void;
 }) {
-  const { question: q, idx, total, sectionLabel, answers, setAnswer, canNext, validation, onPrev, onNext } = props;
+  const { question: q, idx, total, sectionLabel, answers, setAnswer, setMany, canNext, validation, onPrev, onNext } = props;
 
   return (
     <article className="tp2-card" aria-label="question-card">
@@ -340,7 +366,7 @@ function QuestionCard(props: {
       </header>
 
       <div className={"tp2-controls " + (q.type === "places" ? "tp2-controlsScrollable" : "")}>
-        <QuestionControl q={q} value={answers[q.id]} answers={answers} setAnswer={setAnswer} />
+        <QuestionControl q={q} value={answers[q.id]} answers={answers} setAnswer={setAnswer} setMany={setMany} />
         {!validation.ok ? <div className="tp2-meta">{validation.msg}</div> : null}
       </div>
 
@@ -363,22 +389,63 @@ function QuestionControl(props: {
   value: any;
   answers: Record<string, any>;
   setAnswer: (id: string, v: any) => void;
+  setMany: (patch: Record<string, any>) => void;
 }) {
-  const { q, value, answers, setAnswer } = props;
+  const { q, value, answers, setAnswer, setMany } = props;
 
   switch (q.type) {
-    case "destination":
-  return (
-    <DestinationControl
-      city={String(answers["g_destinationCity"] ?? "")}
-      mapUrl={String(answers["g_destinationMapUrl"] ?? "")}
-      placeholder={q.placeholder ?? "예: 오사카"}
-      onCity={(v) => setAnswer("g_destinationCity", v)}
-      onMapUrl={(v) => setAnswer("g_destinationMapUrl", v)}
-    />
-  );
+    case "country":
+      return (
+        <CountryControl
+          value={(answers.g_countryCode as CountryCode) ?? undefined}
+          onChange={(cc) => {
+            // 국가가 바뀌면 기존 도시 선택을 리셋
+            setMany({
+              g_countryCode: cc,
+              g_cityId: "",
+              g_cityName: "",
+              g_cityAdmin1: "",
+              g_cityLat: 0,
+              g_cityLng: 0,
+            });
+          }}
+        />
+      );
 
-      
+    case "city":
+      return (
+        <CitySearchControl
+          countryCode={(answers.g_countryCode as CountryCode) ?? undefined}
+          selected={
+            answers.g_cityId
+              ? ({
+                  id: answers.g_cityId,
+                  countryCode: answers.g_countryCode,
+                  nameKo: answers.g_cityName,
+                  nameEn: answers.g_cityName,
+                  admin1: answers.g_cityAdmin1,
+                  lat: answers.g_cityLat,
+                  lng: answers.g_cityLng,
+                  aliases: [],
+                } as City)
+              : undefined
+          }
+          placeholder={q.placeholder ?? "도시 검색"}
+          onSelect={(city) => {
+            setMany({
+              g_cityId: city.id,
+              g_cityName: city.nameKo,
+              g_cityAdmin1: city.admin1,
+              g_cityLat: city.lat,
+              g_cityLng: city.lng,
+            });
+          }}
+          onClear={() => {
+            setMany({ g_cityId: "", g_cityName: "", g_cityAdmin1: "", g_cityLat: 0, g_cityLng: 0 });
+          }}
+        />
+      );
+
     case "segmented":
       return <Segmented options={q.options ?? []} value={value ?? ""} onChange={(v) => setAnswer(q.id, v)} />;
 
@@ -418,13 +485,7 @@ function QuestionControl(props: {
       return <NumberOne value={value ?? 1} onChange={(n) => setAnswer(q.id, n)} />;
 
     case "rankAssign":
-      return (
-        <RankAssign
-          options={q.options ?? []}
-          value={Array.isArray(value) ? value : []}
-          onChange={(n) => setAnswer(q.id, n)}
-        />
-      );
+      return <RankAssign options={q.options ?? []} value={Array.isArray(value) ? value : []} onChange={(n) => setAnswer(q.id, n)} />;
 
     case "places":
       return <Places places={Array.isArray(value) ? value : []} onChange={(n) => setAnswer(q.id, n)} />;
@@ -437,18 +498,115 @@ function QuestionControl(props: {
   }
 }
 
+function CountryControl(props: { value?: CountryCode; onChange: (cc: CountryCode) => void }) {
+  const mapLabel = (cc: CountryCode) => (cc === "KR" ? "한국" : "일본");
+
+  return (
+    <div className="tp2-subcard">
+      <div className="tp2-seg">
+        {(["KR", "JP"] as CountryCode[]).map((cc) => {
+          const active = props.value === cc;
+          return (
+            <button
+              key={cc}
+              type="button"
+              className={active ? "tp2-segBtn tp2-segBtnActive" : "tp2-segBtn"}
+              onClick={() => props.onChange(cc)}
+            >
+              {mapLabel(cc)}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="tp2-meta">선택: {props.value ? mapLabel(props.value) : "—"}</div>
+    </div>
+  );
+}
+
+function CitySearchControl(props: {
+  countryCode?: CountryCode;
+  selected?: City;
+  placeholder: string;
+  onSelect: (city: City) => void;
+  onClear: () => void;
+}) {
+  const [query, setQuery] = useState("");
+
+  const results = useMemo(() => {
+    if (!props.countryCode) return [];
+    return searchCities(props.countryCode, query, 8);
+  }, [props.countryCode, query]);
+
+  const openNaverMap = (cityName: string) => {
+    const q = cityName.trim();
+    if (!q) return;
+    const url = `https://map.naver.com/p/search/${encodeURIComponent(q)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  return (
+    <div className="tp2-subcard">
+      {!props.countryCode ? <div className="tp2-meta">먼저 국가를 선택한다.</div> : null}
+
+      <div className="tp2-row">
+        <input
+          className="tp2-input"
+          value={query}
+          placeholder={props.placeholder}
+          onChange={(e) => setQuery(e.target.value)}
+          disabled={!props.countryCode}
+        />
+        <button type="button" className="tp2-btn" onClick={() => openNaverMap(query)} disabled={!query.trim()}>
+          지도에서 보기
+        </button>
+      </div>
+
+      {props.selected?.id ? (
+        <div className="tp2-subcard">
+          <div className="tp2-row">
+            <div className="tp2-body">{props.selected.nameKo}</div>
+            <button type="button" className="tp2-btn" onClick={props.onClear}>
+              변경
+            </button>
+          </div>
+          <div className="tp2-meta">
+            {props.selected.countryCode} · {props.selected.admin1} · ({props.selected.lat.toFixed(3)}, {props.selected.lng.toFixed(3)})
+          </div>
+        </div>
+      ) : null}
+
+      {props.countryCode && query.trim() && !props.selected?.id ? (
+        <div className="tp2-subcard">
+          {results.length === 0 ? <div className="tp2-meta">일치하는 도시가 없다.</div> : null}
+          {results.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              className="tp2-btn"
+              onClick={() => {
+                props.onSelect(c);
+                setQuery(c.nameKo);
+              }}
+            >
+              {c.nameKo} · {c.admin1}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="tp2-meta">도시는 내부 목록에서만 선택 가능하다(MVP).</div>
+    </div>
+  );
+}
+
 function Segmented(props: { options: string[]; value: string; onChange: (v: string) => void }) {
   return (
     <div className="tp2-seg">
       {props.options.map((opt) => {
         const active = props.value === opt;
         return (
-          <button
-            key={opt}
-            type="button"
-            className={active ? "tp2-segBtn tp2-segBtnActive" : "tp2-segBtn"}
-            onClick={() => props.onChange(opt)}
-          >
+          <button key={opt} type="button" className={active ? "tp2-segBtn tp2-segBtnActive" : "tp2-segBtn"} onClick={() => props.onChange(opt)}>
             {opt}
           </button>
         );
@@ -582,7 +740,7 @@ function NumberOne(props: { value: number; onChange: (n: number) => void }) {
         <button type="button" className="tp2-btn" onClick={() => props.onChange(Math.max(1, v - 1))}>
           -
         </button>
-        <div className="tp2-badge">{v}명</div>
+        <div className="tp2-meta">{v}명</div>
         <button type="button" className="tp2-btn" onClick={() => props.onChange(v + 1)}>
           +
         </button>
@@ -591,12 +749,6 @@ function NumberOne(props: { value: number; onChange: (n: number) => void }) {
   );
 }
 
-/**
- * RankAssign (모바일 탭 기반)
- * - 각 항목에 1~5순위를 부여(중복 불가)
- * - 내부는 swap 방식
- * - 최종값은 1..5 순으로 정렬된 배열
- */
 function RankAssign(props: { options: string[]; value: string[]; onChange: (next: string[]) => void }) {
   const initial = useMemo(() => {
     const v = Array.isArray(props.value) ? props.value : [];
@@ -627,14 +779,14 @@ function RankAssign(props: { options: string[]; value: string[]; onChange: (next
   return (
     <div className="tp2-subcard">
       <div className="tp2-meta">각 항목의 순위를 1~5로 지정(중복 불가).</div>
-      <div className="tp2-rankGrid">
+      <div className="tp2-subcard">
         {props.options.slice(0, 5).map((item) => {
           const ri = Math.max(0, currentRankOf(item));
           return (
-            <div key={item} className="tp2-rankItem">
+            <div key={item} className="tp2-subcard">
               <div className="tp2-row">
                 <div className="tp2-body">{item}</div>
-                <div className="tp2-badge">{ri + 1}순위</div>
+                <div className="tp2-meta">{ri + 1}순위</div>
               </div>
 
               <div className="tp2-seg" aria-label={`rank-${item}`}>
@@ -678,12 +830,6 @@ function Places(props: { places: PlaceItem[]; onChange: (next: PlaceItem[]) => v
     window.open(naver, "_blank", "noopener,noreferrer");
   };
 
-  const importanceLabel = (x: PlaceItem["importance"]) => {
-    if (x === "낮") return "낮(있으면 좋음)";
-    if (x === "중") return "중(중요)";
-    return "높(핵심)";
-  };
-
   return (
     <div className="tp2-subcard">
       <button type="button" className="tp2-btn" onClick={add}>
@@ -704,64 +850,18 @@ function Places(props: { places: PlaceItem[]; onChange: (next: PlaceItem[]) => v
           <div className="tp2-row">
             <input className="tp2-input" value={p.name} placeholder="장소명" onChange={(e) => update(idx, { name: e.target.value })} />
             <button type="button" className="tp2-btn" onClick={() => openMapSearch(p.name)}>
-              지도에서 찾기
+              검색
             </button>
           </div>
 
           <TextArea value={p.reason} placeholder="이유(한 줄~두 줄)" onChange={(v) => update(idx, { reason: v })} />
-
-          <div className="tp2-row">
-            <div className="tp2-meta">중요도</div>
-            <div className="tp2-meta">{importanceLabel(p.importance)}</div>
-          </div>
-
           <Segmented options={["낮", "중", "높"]} value={p.importance} onChange={(v) => update(idx, { importance: v as any })} />
         </div>
       ))}
     </div>
   );
 }
-function DestinationControl(props: {
-  city: string;
-  mapUrl: string;
-  placeholder: string;
-  onCity: (v: string) => void;
-  onMapUrl: (v: string) => void;
-}) {
-  const openNaverSearch = () => {
-    const q = props.city.trim();
-    if (!q) return;
-    const url = `https://map.naver.com/p/search/${encodeURIComponent(q)}`;
-    window.open(url, "_blank", "noopener,noreferrer");
-  };
 
-  return (
-    <div className="tp2-subcard">
-      <div className="tp2-row">
-        <input
-          className="tp2-input"
-          value={props.city}
-          placeholder={props.placeholder}
-          onChange={(e) => props.onCity(e.target.value)}
-        />
-        <button type="button" className="tp2-btn" onClick={openNaverSearch}>
-          지도에서 찾기
-        </button>
-      </div>
-
-      <div className="tp2-meta">
-        지도 선택(선택): 네이버지도에서 공유 링크를 복사해 아래에 붙여넣을 수 있다.
-      </div>
-
-      <input
-        className="tp2-input"
-        value={props.mapUrl}
-        placeholder="지도 공유 링크(선택)"
-        onChange={(e) => props.onMapUrl(e.target.value)}
-      />
-    </div>
-  );
-}
 function TextArea(props: { value: string; placeholder: string; onChange: (v: string) => void }) {
   return (
     <textarea className="tp2-textarea" value={props.value} placeholder={props.placeholder} rows={4} onChange={(e) => props.onChange(e.target.value)} />
