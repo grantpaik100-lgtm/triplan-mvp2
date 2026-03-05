@@ -1,143 +1,54 @@
 // app/secondary/secondaryQuestions.ts
-export type Section = "A" | "B" | "C" | "D" | "E" | "F";
-
-export type SecondaryQuestionType =
-  | "segmented"
-  | "toggle"
-  | "multiChips"
-  | "tagInput"
-  | "waitingPreset"
-  | "rank"
-  | "places"
-  | "textarea";
+export type SecondarySection = "G" | "A" | "B" | "C" | "D" | "E" | "F";
 
 export type SecondaryQuestion = {
   id: string;
-  section: Section;
+  section: SecondarySection;
   orderInSection: number;
-  type: SecondaryQuestionType;
   title: string;
   help?: string;
+  type:
+    | "segmented"
+    | "waitingPreset"
+    | "tagInput"
+    | "rankAssign"
+    | "places"
+    | "numberPair"
+    | "numberOne"
+    | "textarea";
   options?: string[];
   placeholder?: string;
 };
 
 export const secondaryQuestions: SecondaryQuestion[] = [
-  // A (리듬/밀도)
-  {
-    id: "a_rhythm",
-    section: "A",
-    orderInSection: 1,
-    type: "segmented",
-    title: "하루 리듬은 어떤 편인가요?",
-    help: "출발/첫 일정 시간을 자동으로 맞추는 데 사용돼요.",
-    options: ["아침형", "중간", "저녁형"],
-  },
-  {
-    id: "a_density",
-    section: "A",
-    orderInSection: 2,
-    type: "segmented",
-    title: "일정 밀도는 어느 쪽이 좋아요?",
-    help: "하루에 넣을 ‘핵심 개수’를 결정해요.",
-    options: ["느슨", "보통", "빡빡"],
-  },
+  // G 기본 정보
+  { id: "g_tripNights", section: "G", orderInSection: 1, title: "여행 기간(박/일)", help: "예: 2박 3일", type: "numberPair" },
+  { id: "g_groupSize", section: "G", orderInSection: 2, title: "인원 수", help: "예: 1~4+", type: "numberOne" },
+  { id: "g_companionType", section: "G", orderInSection: 3, title: "동행 유형", type: "segmented", options: ["혼자", "친구", "가족", "연인", "기타"] },
 
-  // B (음식/웨이팅)
-  {
-    id: "b_allergyTags",
-    section: "B",
-    orderInSection: 1,
-    type: "tagInput",
-    title: "못 먹는 음식/알러지가 있나요?",
-    help: "필터링 + 대체 메뉴 추천에 쓰여요.",
-    placeholder: "예: 유제품, 갑각류",
-  },
-  {
-    id: "b_waitingPreset",
-    section: "B",
-    orderInSection: 2,
-    type: "waitingPreset",
-    title: "맛집 웨이팅, 최대 몇 분까지 괜찮나요?",
-    help: "웨이팅 긴 식당을 자동 배제/완화해요.",
-  },
+  // A
+  { id: "a_rhythm", section: "A", orderInSection: 1, title: "활동 선호 시간대", help: "주로 컨디션이 좋은 시간대를 고른다.", type: "segmented", options: ["새벽", "아침", "오후", "저녁"] },
+  { id: "a_density", section: "A", orderInSection: 2, title: "일정 밀도", help: "예: 느슨(하루 2~3) / 보통(4~5) / 빡빡(5~6)", type: "segmented", options: ["느슨", "보통", "빡빡"] },
 
-  // C (이동)
-  {
-    id: "c_transportPrefs",
-    section: "C",
-    orderInSection: 1,
-    type: "multiChips",
-    title: "이동 수단 선호를 골라주세요 (복수 가능)",
-    help: "동선 계산에서 가중치로 반영돼요.",
-    options: ["도보", "대중교통", "택시", "렌트"],
-  },
-  {
-    id: "c_mobilityConstraint",
-    section: "C",
-    orderInSection: 2,
-    type: "toggle",
-    title: "유모차/휠체어 등 이동 제약이 있나요?",
-    help: "엘리베이터/완만한 길/휴식 빈도 우선순위에 반영돼요.",
-    options: ["없음", "있음"],
-  },
+  // B
+  { id: "b_waitingPreset", section: "B", orderInSection: 1, title: "대기 허용 상한", help: "예: 20분 정도까지는 허용", type: "waitingPreset", options: ["짧게(10~15)", "보통(20~30)", "여유(40+)", "직접"] },
+  { id: "b_allergyTags", section: "B", orderInSection: 2, title: "알레르기(있다면)", help: "입력 후 추가. 없으면 비워둔다.", type: "tagInput", placeholder: "예: 땅콩, 갑각류" },
+  { id: "b_avoidTags", section: "B", orderInSection: 3, title: "회피 음식/요소(있다면)", help: "입력 후 추가. 없으면 비워둔다.", type: "tagInput", placeholder: "예: 내장, 느끼한 고기" },
 
-  // D (숙소)
-  {
-    id: "d_lodgingStrategy",
-    section: "D",
-    orderInSection: 1,
-    type: "segmented",
-    title: "숙소는 1곳 고정이 좋아요, 이동해도 괜찮아요?",
-    help: "체크인/체크아웃 비용(시간·피로)을 모델링해요.",
-    options: ["1곳 고정", "2곳까지", "상관없음"],
-  },
-  {
-    id: "d_lodgingRank",
-    section: "D",
-    orderInSection: 2,
-    type: "rank",
-    title: "숙소 우선순위를 정렬해 주세요",
-    help: "추천 후보의 점수 계산에 들어가요.",
-    options: ["위치", "가격", "청결", "조식", "욕장/샤워"],
-  },
+  // C
+  { id: "c_walkCap", section: "C", orderInSection: 1, title: "도보 이동 허용", help: "대략적인 체력 기준을 고른다.", type: "segmented", options: ["짧게", "보통", "길게"] },
+  { id: "c_stairs", section: "C", orderInSection: 2, title: "계단/경사", help: "동선 후보 필터링에 사용된다.", type: "segmented", options: ["가능", "가급적 피함"] },
+  { id: "c_nightMove", section: "C", orderInSection: 3, title: "야간 이동", help: "늦은 시간 이동을 포함해도 되는지.", type: "segmented", options: ["가능", "피함"] },
 
-  // E (동행/규칙)
-  {
-    id: "e_groupMode",
-    section: "E",
-    orderInSection: 1,
-    type: "segmented",
-    title: "이번 여행은 혼자/여럿 중 어느 쪽인가요?",
-    help: "여럿이면 ‘충돌 해결’ 로직이 활성화돼요.",
-    options: ["혼자", "여럿"],
-  },
-  {
-    id: "e_conflictRule",
-    section: "E",
-    orderInSection: 2,
-    type: "segmented",
-    title: "충돌 해결 규칙을 골라주세요",
-    help: "일정 생성 시 ‘누구 기준’을 결정해요.",
-    options: ["다수결", "최약자 우선", "번갈아"],
-  },
+  // D
+  { id: "d_lodgingStrategy", section: "D", orderInSection: 1, title: "숙소 우선 전략", help: "숙소 선택의 1차 기준.", type: "segmented", options: ["접근성", "가성비", "분위기", "휴식"] },
+  { id: "d_lodgingPriority", section: "D", orderInSection: 2, title: "숙소 우선순위(1~5)", help: "모바일: 각 항목에 1~5순위를 지정(중복 불가).", type: "rankAssign", options: ["역/대중교통", "조용함", "가격", "침대/휴식", "주변 식당/편의"] },
 
-  // F (장소/이유)
-  {
-    id: "f_places",
-    section: "F",
-    orderInSection: 1,
-    type: "places",
-    title: "꼭 가고 싶은 장소를 1개 이상 적어주세요",
-    help: "장소는 ‘제약 조건’이라서 결과 품질이 크게 올라가요.",
-  },
-  {
-    id: "f_placeReasonOneLine",
-    section: "F",
-    orderInSection: 2,
-    type: "textarea",
-    title: "그중 가장 중요한 이유를 한 줄로 적어주세요",
-    help: "요약 화면에서 ‘여행의 핵’으로 표시돼요.",
-    placeholder: "예: 부모님이 꼭 보고 싶어 하셔서 / 이번 여행의 목표라서",
-  },
+  // E
+  { id: "e_groupMode", section: "E", orderInSection: 1, title: "여행 형태", help: "여럿이면 ‘의견 충돌 처리’가 추가된다.", type: "segmented", options: ["혼자", "여럿"] },
+  { id: "e_conflictRule", section: "E", orderInSection: 2, title: "의견 충돌 처리 방식", help: "동행자 선호가 다를 때 일정을 결정하는 정책.", type: "segmented", options: ["균형(번갈아)", "다수결", "대표 1인", "부분 분리"] },
+
+  // F
+  { id: "f_places", section: "F", orderInSection: 1, title: "꼭 가고 싶은 장소", help: "장소 + 이유 + 중요도를 입력한다. ‘지도에서 찾기’로 검색 가능.", type: "places" },
+  { id: "f_placeReasonOneLine", section: "F", orderInSection: 2, title: "추가로 남길 한 줄(선택)", help: "예: 이번 여행의 핵심은 ‘야경 + 로컬 음식’", type: "textarea", placeholder: "선택 입력" },
 ];
