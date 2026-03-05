@@ -1,5 +1,6 @@
 /* app/secondary/secondary.css
-   Token-only via CSS vars coming from SecondaryMiniApp
+   Goal: 설문1 카드 비율/부드러움으로 설문2 프레임 통일
+   Rule: transition/boxShadow/fontSize/border 하드코딩 금지 → CSS vars만 사용
 */
 
 .tp2-screen{
@@ -18,6 +19,7 @@
   gap: calc(var(--tp2-space-12) * 1px);
 }
 
+/* 카드: 내용 높이 기반 + 설문1 느낌 */
 .tp2-card{
   border-radius: calc(var(--tp2-radius-xl) * 1px);
   border: var(--tp2-glass-border);
@@ -37,24 +39,12 @@
     filter calc(var(--tp2-dur-page) * 1ms) var(--tp2-ease);
 }
 
+/* 헤더/푸터 구분선도 border 하드코딩 금지 → glass border 재사용 */
 .tp2-cardHeader{
   padding: calc(var(--tp2-pad-y) * 1px) calc(var(--tp2-pad-x) * 1px);
   border-bottom: var(--tp2-glass-border);
   display: grid;
   gap: calc(var(--tp2-space-8) * 1px);
-}
-
-.tp2-controls{
-  padding: calc(var(--tp2-pad-y) * 1px) calc(var(--tp2-pad-x) * 1px);
-  display: grid;
-  gap: calc(var(--tp2-rowgap) * 1px);
-}
-
-/* places 같이 길어질 때만 스크롤 */
-.tp2-controlsScrollable{
-  max-height: calc(var(--tp2-controls-maxh) * 1px);
-  overflow: auto;
-  -webkit-overflow-scrolling: touch;
 }
 
 .tp2-footer{
@@ -66,6 +56,7 @@
   gap: calc(var(--tp2-space-10) * 1px);
 }
 
+/* 텍스트 */
 .tp2-meta{
   color: var(--tp2-muted);
   font-size: calc(var(--tp2-caption-size) * 1px);
@@ -88,9 +79,25 @@
   font-weight: var(--tp2-body-w);
 }
 
-.tp2-help{ margin: 0; color: var(--tp2-muted); }
+.tp2-help{
+  margin: 0;
+  color: var(--tp2-muted);
+}
 
-/* 버튼: 파란 primary 금지. 구조(라인/쉐도우)로만 구분 */
+/* controls: 기본은 auto. 길 때만 scroll 클래스 추가 */
+.tp2-controls{
+  padding: calc(var(--tp2-pad-y) * 1px) calc(var(--tp2-pad-x) * 1px);
+  display: grid;
+  gap: calc(var(--tp2-rowgap) * 1px);
+}
+
+.tp2-controlsScrollable{
+  max-height: calc(var(--tp2-controls-maxh) * 1px);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Buttons */
 .tp2-btn,
 .tp2-btnPrimary{
   height: calc(var(--tp2-btn-h) * 1px);
@@ -117,10 +124,14 @@
 }
 
 .tp2-btn:disabled,
-.tp2-btnPrimary:disabled{ opacity: 0.55; }
+.tp2-btnPrimary:disabled{
+  opacity: 0.55;
+}
 
 .tp2-btn:active,
-.tp2-btnPrimary:active{ transform: scale(0.99); }
+.tp2-btnPrimary:active{
+  transform: scale(0.99);
+}
 
 .tp2-btn:focus-visible,
 .tp2-btnPrimary:focus-visible{
@@ -128,8 +139,12 @@
   box-shadow: var(--tp2-focus), var(--tp2-shadow-2);
 }
 
-/* segmented */
-.tp2-seg{ display: flex; flex-wrap: wrap; gap: calc(var(--tp2-space-8) * 1px); }
+/* Segmented */
+.tp2-seg{
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--tp2-space-8) * 1px);
+}
 
 .tp2-segBtn{
   height: calc(var(--tp2-btn-h) * 1px);
@@ -150,11 +165,21 @@
     opacity calc(var(--tp2-dur-base) * 1ms) var(--tp2-ease);
 }
 
-.tp2-segBtnActive{ background: var(--tp2-line); box-shadow: var(--tp2-shadow-2); }
-.tp2-segBtn:active{ transform: scale(0.99); }
-.tp2-segBtn:focus-visible{ outline: none; box-shadow: var(--tp2-focus), var(--tp2-shadow-2); }
+.tp2-segBtnActive{
+  background: var(--tp2-line);
+  box-shadow: var(--tp2-shadow-2);
+}
 
-/* inputs */
+.tp2-segBtn:active{
+  transform: scale(0.99);
+}
+
+.tp2-segBtn:focus-visible{
+  outline: none;
+  box-shadow: var(--tp2-focus), var(--tp2-shadow-2);
+}
+
+/* Inputs */
 .tp2-input{
   height: calc(var(--tp2-btn-h) * 1px);
   padding-inline: calc(var(--tp2-space-12) * 1px);
@@ -187,27 +212,42 @@
 }
 
 .tp2-input:focus-visible,
-.tp2-textarea:focus-visible{ outline: none; box-shadow: var(--tp2-focus), var(--tp2-shadow-2); }
+.tp2-textarea:focus-visible{
+  outline: none;
+  box-shadow: var(--tp2-focus), var(--tp2-shadow-2);
+}
 
-/* subcard / chips */
+/* subcard */
 .tp2-subcard{
   border-radius: calc(var(--tp2-radius-lg) * 1px);
   border: var(--tp2-glass-border);
   background: var(--tp2-glass-bg);
   box-shadow: var(--tp2-shadow-2);
   padding: calc(var(--tp2-space-12) * 1px);
+
   display: grid;
   gap: calc(var(--tp2-space-10) * 1px);
 }
 
-.tp2-row{ display: flex; align-items: center; justify-content: space-between; gap: calc(var(--tp2-space-10) * 1px); }
-.tp2-wrapChips{ display: flex; flex-wrap: wrap; gap: calc(var(--tp2-space-8) * 1px); }
+.tp2-row{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(var(--tp2-space-10) * 1px);
+}
+
+.tp2-wrapChips{
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--tp2-space-8) * 1px);
+}
 
 .tp2-chip,
 .tp2-chipActive{
   height: calc(var(--tp2-btn-h) * 1px);
   padding-inline: calc(var(--tp2-space-12) * 1px);
   border-radius: calc(var(--tp2-radius-pill) * 1px);
+
   border: var(--tp2-glass-border);
   box-shadow: var(--tp2-shadow-1);
 
@@ -219,8 +259,6 @@
   transition:
     transform calc(var(--tp2-dur-base) * 1ms) var(--tp2-ease),
     opacity calc(var(--tp2-dur-base) * 1ms) var(--tp2-ease);
-
-  touch-action: manipulation;
 }
 
 .tp2-chip{ background: var(--tp2-glass-bg); }
@@ -230,9 +268,53 @@
 .tp2-chipActive:active{ transform: scale(0.99); }
 
 .tp2-chip:focus-visible,
-.tp2-chipActive:focus-visible{ outline: none; box-shadow: var(--tp2-focus), var(--tp2-shadow-2); }
+.tp2-chipActive:focus-visible{
+  outline: none;
+  box-shadow: var(--tp2-focus), var(--tp2-shadow-2);
+}
 
-/* 모바일 double-tap 확대 완화 */
+/* badge */
+.tp2-badge{
+  height: calc(var(--tp2-chip-h) * 1px);
+  padding-inline: calc(var(--tp2-space-10) * 1px);
+  border-radius: calc(var(--tp2-radius-pill) * 1px);
+  border: var(--tp2-glass-border);
+  background: var(--tp2-line);
+  box-shadow: var(--tp2-shadow-1);
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  color: var(--tp2-text);
+  font-size: calc(var(--tp2-caption-size) * 1px);
+  line-height: var(--tp2-caption-lh);
+  font-weight: var(--tp2-caption-w);
+}
+
+/* rank */
+.tp2-rankGrid{
+  display: grid;
+  gap: calc(var(--tp2-space-10) * 1px);
+}
+
+.tp2-rankItem{
+  border-radius: calc(var(--tp2-radius-lg) * 1px);
+  border: var(--tp2-glass-border);
+  background: var(--tp2-glass-bg);
+  box-shadow: var(--tp2-shadow-1);
+  padding: calc(var(--tp2-space-12) * 1px);
+
+  display: grid;
+  gap: calc(var(--tp2-space-10) * 1px);
+}
+
+/* mobile double-tap zoom 완화 + drag 대신 tap 기반 */
 .tp2-btn,
 .tp2-btnPrimary,
-.tp2-segBtn{ touch-action: manipulation; }
+.tp2-segBtn,
+.tp2-chip,
+.tp2-chipActive,
+.tp2-rankItem{
+  touch-action: manipulation;
+}
