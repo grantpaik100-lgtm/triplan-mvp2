@@ -1,28 +1,44 @@
 // src/lib/secondaryStorage.ts
-// 로컬 임시 저장 (옵션 A)
+
+type SecondaryDraft = {
+  mode?: "intro" | "question" | "summary";
+  idx?: number;
+  answers?: Record<string, any>;
+  returnToSummary?: boolean;
+  editSection?: string;
+  savedAt?: number;
+};
+
 const KEY = "triplan_secondary_draft_v1";
 
-export function loadSecondaryDraft(): any | null {
+function safeParse(json: string | null): SecondaryDraft | null {
+  if (!json) return null;
   try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
+    return JSON.parse(json) as SecondaryDraft;
   } catch {
     return null;
   }
 }
 
-export function saveSecondaryDraft(draft: any) {
+export function loadSecondaryDraft(): SecondaryDraft | null {
+  if (typeof window === "undefined") return null;
+  return safeParse(window.localStorage.getItem(KEY));
+}
+
+export function saveSecondaryDraft(draft: SecondaryDraft): void {
+  if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(KEY, JSON.stringify(draft));
+    const payload: SecondaryDraft = { ...draft, savedAt: Date.now() };
+    window.localStorage.setItem(KEY, JSON.stringify(payload));
   } catch {
     // ignore
   }
 }
 
-export function clearSecondaryDraft() {
+export function clearSecondaryDraft(): void {
+  if (typeof window === "undefined") return;
   try {
-    localStorage.removeItem(KEY);
+    window.localStorage.removeItem(KEY);
   } catch {
     // ignore
   }
