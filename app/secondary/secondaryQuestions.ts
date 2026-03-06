@@ -9,6 +9,7 @@ import type {
 
 export type CountryCode = "KR" | "JP";
 
+export type SecondarySection = any;
 export type SecondaryQuestionType =
   | "country"
   | "city"
