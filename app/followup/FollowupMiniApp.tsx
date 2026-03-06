@@ -52,9 +52,11 @@ export default function FollowupMiniApp() {
     }
   }, []);
 
-  // 질문 생성 요청
+    // 질문 생성 요청
   useEffect(() => {
     if (!seed) return;
+
+    const seedSummary = seed.summary;
 
     async function fetchQuestions() {
       try {
@@ -66,7 +68,7 @@ export default function FollowupMiniApp() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            seedSummary: seed.summary,
+            seedSummary,
           }),
         });
 
