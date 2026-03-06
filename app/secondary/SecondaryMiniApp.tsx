@@ -161,8 +161,7 @@ export default function SecondaryMiniApp() {
     });
   }, [state.answers]);
 
-  const current = filteredQuestions[state.idx];
-
+  const current = filteredQuestions[state.idx] ?? filteredQuestions[0];
   function setAnswer(id: string, value: any) {
     setState((s) => ({
       ...s,
@@ -238,6 +237,17 @@ export default function SecondaryMiniApp() {
 
     return { ok: true };
   }
+  return (
+    <SecondaryMiniAppRender
+      state={state}
+      filteredQuestions={filteredQuestions}
+      current={current}
+      validation={validation}
+      setAnswer={setAnswer}
+      setOther={setOther}
+      setState={setState}
+    />
+  );
 }
 /* =========================
    Country Control
