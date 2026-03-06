@@ -1,46 +1,216 @@
-// app/secondary/secondarySchema.ts
-import type { CountryCode } from "@/lib/geo/cities_kr_jp";
+export type SecondarySection = "G" | "A" | "B" | "C" | "D" | "E" | "F" | "H";
 
-export type SecondaryAnswers = {
-  // G: 기본 정보(컨텍스트)
-  g_countryCode: CountryCode; // KR | JP
-  g_cityId: string;
-  g_cityName: string;
-  g_cityAdmin1: string;
-  g_cityLat: number;
-  g_cityLng: number;
+export type SingleValueQuestionId =
+  | "country"
+  | "city"
+  | "companionType"
+  | "budgetLevel"
+  | "firstDayStart"
+  | "lastDayEnd"
+  | "pace"
+  | "chronotype"
+  | "restFrequency"
+  | "dailyActivityTolerance"
+  | "walkTolerance"
+  | "transferTolerance"
+  | "stayMode"
+  | "foodRole"
+  | "waitingTolerance"
+  | "primaryGoal"
+  | "mustStayTogether"
+  | "conflictRule";
 
-  g_tripNights: number; // n박
-  g_tripDays: number; // n일
-  g_groupSize: number; // 인원
-  g_companionType: "혼자" | "친구" | "가족" | "연인" | "기타";
+export type MultiValueQuestionId =
+  | "moveStyle"
+  | "lodgingPriorities"
+  | "foodRestrictions"
+  | "mustDoTypes"
+  | "avoidTypes";
 
-  // A: 시간/리듬
-  a_rhythm: "새벽" | "아침" | "오후" | "저녁";
-  a_density: "느슨" | "보통" | "빡빡";
+export type TextQuestionId =
+  | "specialCare"
+  | "specialContext"
+  | "successFeeling";
 
-  // B: 음식 리스크
-  b_waitingPreset: "짧게(10~15)" | "보통(20~30)" | "여유(40+)" | "직접";
-  b_waitingCustomMinutes?: number;
-  b_allergyTags: string[];
-  b_avoidTags: string[];
+export type TextListQuestionId =
+  | "mustExperiences"
+  | "mustFoods";
 
-  // C: 이동 제약
-  c_walkCap: "짧게" | "보통" | "길게";
-  c_stairs: "가능" | "가급적 피함";
-  c_nightMove: "가능" | "피함";
+export type SingleAnswerValue = string;
+export type MultiAnswerValue = string[];
 
-  // D: 숙소 전략
-  d_lodgingStrategy: "접근성" | "가성비" | "분위기" | "휴식";
-  d_lodgingPriority: string[]; // 1~5순위(정렬된 배열)
-
-  // E: 동행 조율
-  e_groupMode: "혼자" | "여럿";
-  e_conflictRule?: "균형(번갈아)" | "다수결" | "대표 1인" | "부분 분리";
-
-  // F: 핵심 장소
-  f_places: Array<{ name: string; reason: string; importance: "낮" | "중" | "높" }>;
-  f_placeReasonOneLine: string;
+export type PlaceItem = {
+  name: string;
+  reason: string;
+  importance: "낮" | "중" | "높";
 };
 
-export const secondarySchema = {} as const;
+export type SecondaryAnswers = {
+  country: SingleAnswerValue;
+  countryOther: string;
+
+  city: SingleAnswerValue;
+  cityOther: string;
+
+  tripDays: number;
+
+  companionType: SingleAnswerValue;
+  companionTypeOther: string;
+
+  partySize: number;
+
+  budgetLevel: SingleAnswerValue;
+  budgetLevelOther: string;
+
+  firstDayStart: SingleAnswerValue;
+  firstDayStartOther: string;
+
+  lastDayEnd: SingleAnswerValue;
+  lastDayEndOther: string;
+
+  pace: SingleAnswerValue;
+  paceOther: string;
+
+  chronotype: SingleAnswerValue;
+  chronotypeOther: string;
+
+  restFrequency: SingleAnswerValue;
+  restFrequencyOther: string;
+
+  dailyActivityTolerance: SingleAnswerValue;
+  dailyActivityToleranceOther: string;
+
+  moveStyle: MultiAnswerValue;
+  moveStyleOther: string;
+
+  walkTolerance: SingleAnswerValue;
+  walkToleranceOther: string;
+
+  transferTolerance: SingleAnswerValue;
+  transferToleranceOther: string;
+
+  stayMode: SingleAnswerValue;
+  stayModeOther: string;
+
+  lodgingPriorities: MultiAnswerValue;
+  lodgingPrioritiesOther: string;
+
+  foodRole: SingleAnswerValue;
+  foodRoleOther: string;
+
+  foodRestrictions: MultiAnswerValue;
+  foodRestrictionsOther: string;
+
+  waitingTolerance: SingleAnswerValue;
+  waitingToleranceOther: string;
+
+  primaryGoal: SingleAnswerValue;
+  primaryGoalOther: string;
+
+  mustDoTypes: MultiAnswerValue;
+  mustDoTypesOther: string;
+
+  avoidTypes: MultiAnswerValue;
+  avoidTypesOther: string;
+
+  mustPlaces: PlaceItem[];
+  mustExperiences: string[];
+  mustFoods: string[];
+
+  mustStayTogether: SingleAnswerValue;
+  mustStayTogetherOther: string;
+
+  conflictRule: SingleAnswerValue;
+  conflictRuleOther: string;
+
+  specialCare: string;
+  specialContext: string;
+  successFeeling: string;
+};
+
+export const secondaryInitialAnswers: SecondaryAnswers = {
+  country: "",
+  countryOther: "",
+
+  city: "",
+  cityOther: "",
+
+  tripDays: 3,
+
+  companionType: "",
+  companionTypeOther: "",
+
+  partySize: 1,
+
+  budgetLevel: "",
+  budgetLevelOther: "",
+
+  firstDayStart: "",
+  firstDayStartOther: "",
+
+  lastDayEnd: "",
+  lastDayEndOther: "",
+
+  pace: "",
+  paceOther: "",
+
+  chronotype: "",
+  chronotypeOther: "",
+
+  restFrequency: "",
+  restFrequencyOther: "",
+
+  dailyActivityTolerance: "",
+  dailyActivityToleranceOther: "",
+
+  moveStyle: [],
+  moveStyleOther: "",
+
+  walkTolerance: "",
+  walkToleranceOther: "",
+
+  transferTolerance: "",
+  transferToleranceOther: "",
+
+  stayMode: "",
+  stayModeOther: "",
+
+  lodgingPriorities: [],
+  lodgingPrioritiesOther: "",
+
+  foodRole: "",
+  foodRoleOther: "",
+
+  foodRestrictions: [],
+  foodRestrictionsOther: "",
+
+  waitingTolerance: "",
+  waitingToleranceOther: "",
+
+  primaryGoal: "",
+  primaryGoalOther: "",
+
+  mustDoTypes: [],
+  mustDoTypesOther: "",
+
+  avoidTypes: [],
+  avoidTypesOther: "",
+
+  mustPlaces: [],
+  mustExperiences: [],
+  mustFoods: [],
+
+  mustStayTogether: "",
+  mustStayTogetherOther: "",
+
+  conflictRule: "",
+  conflictRuleOther: "",
+
+  specialCare: "",
+  specialContext: "",
+  successFeeling: "",
+};
+
+export function cloneSecondaryInitialAnswers(): SecondaryAnswers {
+  return JSON.parse(JSON.stringify(secondaryInitialAnswers)) as SecondaryAnswers;
+}
