@@ -1,7 +1,7 @@
 // src/lib/secondaryStorage.ts
 
 type SecondaryDraft = {
-  mode?: "intro" | "question" | "summary";
+  mode?: "intro" | "question" | "summary"| "handoff";
   idx?: number;
   answers?: Record<string, any>;
   returnToSummary?: boolean;
