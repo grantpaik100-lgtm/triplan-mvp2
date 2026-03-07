@@ -1,7 +1,7 @@
 "use client";
 
-import type { SecondaryAnswers } from "./secondarySchema";
-import type { SecondaryQuestion, SecondarySection } from "./secondaryQuestions";
+import type { SecondaryAnswers, SecondarySection } from "./secondarySchema";
+import type { SecondaryQuestion } from "./secondaryQuestions";
 
 type Section = SecondarySection;
 
@@ -13,47 +13,73 @@ const SECTION_LABEL: Record<Section, string> = {
   D: "숙소 전략",
   E: "동행 조율",
   F: "핵심 장소 · 이유",
+  H: "특별 맥락 · 성공 기준",
 };
 
 function groupBySection(questions: SecondaryQuestion[]) {
   const map = new Map<Section, SecondaryQuestion[]>();
+
   for (const q of questions) {
-    const sec = q.section as Section;
+    const sec = q.section;
     if (!map.has(sec)) map.set(sec, []);
     map.get(sec)!.push(q);
   }
-  const order: Section[] = ["G", "A", "B", "C", "D", "E", "F"];
+
+  const order: Section[] = ["G", "A", "B", "C", "D", "E", "F", "H"];
+
   return order
     .filter((s) => map.has(s))
-    .map((s) => [s, (map.get(s) || []).slice().sort((a, b) => a.orderInSection - b.orderInSection)] as const);
+    .map((s) => [s, (map.get(s) || []).slice()] as const);
+}
+
+function formatPlaceItems(value: unknown) {
+  if (!Array.isArray(value) || value.length === 0) return "—";
+
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") return "";
+      const place = item as Record<string, unknown>;
+      const name = typeof place.name === "string" ? place.name : "";
+      const reason = typeof place.reason === "string" ? place.reason : "";
+      const importance =
+        typeof place.importance === "string" ? place.importance : "";
+
+      const parts = [name, reason, importance].filter(Boolean);
+      return parts.join(" / ");
+    })
+    .filter(Boolean)
+    .join(", ");
 }
 
 function formatAnswer(q: SecondaryQuestion, answers: Record<string, any>) {
-  const v = answers[q.id];
+  const value = answers[q.id];
 
-  if (v == null || v === "" || (Array.isArray(v) && v.length === 0)) return "—";
+  if (value == null) return "—";
 
-  if (q.type === "numberPair") {
-    const nights = Number(answers["g_tripNights"]);
-    const days = Number(answers["g_tripDays"]);
-    if (Number.isFinite(nights) && Number.isFinite(days)) return `${nights}박 ${days}일`;
-    return "—";
+  if (q.type === "number") {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return "—";
+    if (q.id === "partySize") return `${n}명`;
+    return String(n);
   }
 
-  if (q.type === "numberOne") {
-    const n = Number(v);
-    return Number.isFinite(n) ? `${n}명` : "—";
+  if (q.type === "multi" || q.type === "textList") {
+    return Array.isArray(value) && value.length > 0 ? value.join(", ") : "—";
   }
 
-  if (q.type === "tagInput") return Array.isArray(v) ? v.join(", ") : "—";
+  if (q.type === "places") {
+    return formatPlaceItems(value);
+  }
 
-  if (q.type === "rankAssign") return Array.isArray(v) ? v.map((x: string, i: number) => `${i + 1}순위:${x}`).join(" / ") : "—";
+  if (q.type === "textarea") {
+    return typeof value === "string" && value.trim() ? value : "—";
+  }
 
-  if (q.type === "places") return Array.isArray(v) ? `${v.length}개` : "—";
+  if (q.type === "country" || q.type === "city" || q.type === "single") {
+    return typeof value === "string" && value.trim() ? value : "—";
+  }
 
-  if (Array.isArray(v)) return v.join(", ");
-
-  return String(v);
+  return Array.isArray(value) ? value.join(", ") : String(value);
 }
 
 export default function SecondarySummaryView(props: {
@@ -71,7 +97,9 @@ export default function SecondarySummaryView(props: {
       <header className="tp2-cardHeader">
         <div className="tp2-meta">설정값 확인</div>
         <h2 className="tp2-h2">여행 설계 입력</h2>
-        <p className="tp2-body tp2-help">섹션 단위로 수정하고, 완료되면 다시 여기로 돌아온다.</p>
+        <p className="tp2-body tp2-help">
+          섹션 단위로 수정하고, 완료되면 다시 여기로 돌아온다.
+        </p>
       </header>
 
       <div className="tp2-controls tp2-controlsScrollable">
@@ -79,7 +107,11 @@ export default function SecondarySummaryView(props: {
           <div key={sec} className="tp2-subcard">
             <div className="tp2-row">
               <div className="tp2-body">{SECTION_LABEL[sec]}</div>
-              <button type="button" className="tp2-btn" onClick={() => onEditSection(sec)}>
+              <button
+                type="button"
+                className="tp2-btn"
+                onClick={() => onEditSection(sec)}
+              >
                 수정
               </button>
             </div>
@@ -87,7 +119,9 @@ export default function SecondarySummaryView(props: {
             {qs.map((q) => (
               <div key={q.id} className="tp2-row">
                 <div className="tp2-meta">{q.title}</div>
-                <div className="tp2-meta">{formatAnswer(q, answers as any)}</div>
+                <div className="tp2-meta">
+                  {formatAnswer(q, answers as Record<string, any>)}
+                </div>
               </div>
             ))}
           </div>
