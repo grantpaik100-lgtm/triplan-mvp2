@@ -999,17 +999,21 @@ function TextArea({
   );
 }
 
+let content: React.ReactNode;
+
 if (state.mode === "intro") {
-  return renderIntro();
+  content = renderIntro();
+} else if (state.mode === "summary") {
+  content = renderSummary();
+} else if (state.mode === "handoff") {
+  content = renderHandoff();
+} else {
+  content = renderQuestionCard();
 }
 
-if (state.mode === "summary") {
-  return renderSummary();
-}
-
-if (state.mode === "handoff") {
-  return renderHandoff();
-}
-
-return renderQuestionCard();
+return (
+  <main className="tp2-page">
+    <div className="tp2-shell">{content}</div>
+  </main>
+);
 }
