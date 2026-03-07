@@ -7,13 +7,13 @@ import {
   secondaryQuestions,
   getCityOptions,
   type SecondaryQuestion,
-  type SecondarySection,
 } from "./secondaryQuestions";
 
 import {
   cloneSecondaryInitialAnswers,
   type SecondaryAnswers,
   type PlaceItem,
+  type SecondarySection,
 } from "./secondarySchema";
 
 import SecondarySummaryView from "./SecondarySummaryView";
