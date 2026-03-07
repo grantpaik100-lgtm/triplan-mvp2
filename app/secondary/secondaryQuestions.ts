@@ -245,7 +245,6 @@ export const secondaryQuestions: SecondaryQuestion[] = [
     options: ["유명 관광지", "자연/풍경", "쇼핑", "카페", "골목/로컬 거리", "전시/박물관", "야경/밤거리", "기타"],
     maxSelect: 3,
   },
-
   {
     id: "mustPlaces",
     section: "F",
