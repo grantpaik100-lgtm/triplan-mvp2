@@ -1,31 +1,34 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
-  FollowupQuestion,
-  FollowupAnswers,
+  ChatMessage,
+  ExtractedSlots,
+  FinalizeChatResponse,
   FollowupSeed,
-  FollowupQuestionsResponse,
-  FollowupFinalizeResponse,
-} from "@/types/tripPlanning";
+  StartChatResponse,
+  TurnChatResponse,
+} from "@/types/followupChat";
 
 export default function FollowupMiniApp() {
   const [seed, setSeed] = useState<FollowupSeed | null>(null);
-  const [questions, setQuestions] = useState<FollowupQuestion[]>([]);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [extractedSlots, setExtractedSlots] = useState<ExtractedSlots>({});
+  const [missingSlots, setMissingSlots] = useState<string[]>([]);
+  const [turnCount, setTurnCount] = useState(0);
 
-  const [loading, setLoading] = useState(true);
-  const [fetchingQuestions, setFetchingQuestions] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [loadingSeed, setLoadingSeed] = useState(true);
+  const [startingChat, setStartingChat] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [finalizing, setFinalizing] = useState(false);
 
-  const [questionSource, setQuestionSource] = useState<
-    "openai" | "fallback" | null
-  >(null);
   const [finalizeSource, setFinalizeSource] = useState<
     "openai" | "rule_based_fallback" | null
   >(null);
-
   const [error, setError] = useState<string | null>(null);
+
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     try {
@@ -33,17 +36,17 @@ export default function FollowupMiniApp() {
 
       if (!raw) {
         setError("이전 단계 데이터가 없습니다. 설문을 다시 시작해주세요.");
-        setLoading(false);
+        setLoadingSeed(false);
         return;
       }
 
       const parsed = JSON.parse(raw) as FollowupSeed;
       setSeed(parsed);
-      setLoading(false);
+      setLoadingSeed(false);
     } catch (e) {
       console.error("seed parse error", e);
       setError("데이터를 불러오는 중 문제가 발생했습니다.");
-      setLoading(false);
+      setLoadingSeed(false);
     }
   }, []);
 
@@ -52,12 +55,12 @@ export default function FollowupMiniApp() {
 
     const currentSeed = seed;
 
-    async function fetchQuestions() {
+    async function startChat() {
       try {
-        setFetchingQuestions(true);
+        setStartingChat(true);
         setError(null);
 
-        const res = await fetch("/api/followup-questions", {
+        const res = await fetch("/api/followup-chat/start", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -68,79 +71,63 @@ export default function FollowupMiniApp() {
         });
 
         if (!res.ok) {
-          throw new Error("question fetch failed");
+          throw new Error("start chat failed");
         }
 
-        const data = (await res.json()) as FollowupQuestionsResponse;
+        const data = (await res.json()) as StartChatResponse;
 
-        if (!data?.questions || !Array.isArray(data.questions)) {
-          throw new Error("invalid response");
-        }
-
-        setQuestions(data.questions);
-        setQuestionSource(data.source ?? null);
-
-        if (data.source === "fallback") {
-          console.warn("followup questions fallback:", data.error);
-        }
-      } catch (err) {
-        console.error(err);
-        setError("질문을 생성하는 중 문제가 발생했습니다.");
+        setMessages([
+          {
+            role: "assistant",
+            content: data.assistantMessage,
+          },
+        ]);
+        setExtractedSlots(data.extractedSlots ?? {});
+        setMissingSlots(Array.isArray(data.missingSlots) ? data.missingSlots : []);
+        setTurnCount(typeof data.turnCount === "number" ? data.turnCount : 0);
+      } catch (e) {
+        console.error("start chat error", e);
+        setError("대화를 시작하는 중 문제가 발생했습니다.");
       } finally {
-        setFetchingQuestions(false);
+        setStartingChat(false);
       }
     }
 
-    fetchQuestions();
+    startChat();
   }, [seed]);
 
-  function updateAnswer(id: string, value: string) {
-    setAnswers((prev) => ({
-      ...prev,
-      [id]: value,
-    }));
-  }
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, sending, finalizing]);
 
-  const allAnswered = useMemo(() => {
-    if (questions.length === 0) return false;
-
-    return questions.every((q) => {
-      const v = answers[q.id];
-      return Boolean(v && v.trim().length > 0);
-    });
-  }, [answers, questions]);
+  const canSend = useMemo(() => {
+    return input.trim().length > 0 && !sending && !finalizing && !startingChat;
+  }, [input, sending, finalizing, startingChat]);
 
   function handleRestart() {
     window.location.href = "/";
   }
 
-  async function handleSubmit() {
-    if (!seed || !allAnswered || submitting) return;
-
-    const currentSeed = seed;
+  async function finalizeChat(params: {
+    seed: FollowupSeed;
+    nextMessages: ChatMessage[];
+    nextSlots: ExtractedSlots;
+  }) {
+    const { seed: currentSeed, nextMessages, nextSlots } = params;
 
     try {
-      setSubmitting(true);
+      setFinalizing(true);
       setError(null);
 
-      const payload: FollowupAnswers = {
-        raw: answers,
-      };
-
-      sessionStorage.setItem(
-        "triplan_followup_answers",
-        JSON.stringify(payload)
-      );
-
-      const res = await fetch("/api/followup-finalize", {
+      const res = await fetch("/api/followup-chat/finalize", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           seed: currentSeed,
-          followupAnswers: answers,
-          followupSource: questionSource ?? "fallback",
+          messages: nextMessages,
+          extractedSlots: nextSlots,
         }),
       });
 
@@ -148,7 +135,7 @@ export default function FollowupMiniApp() {
         throw new Error("finalize failed");
       }
 
-      const data = (await res.json()) as FollowupFinalizeResponse;
+      const data = (await res.json()) as FinalizeChatResponse;
 
       if (!data?.planningInput) {
         throw new Error("invalid finalize response");
@@ -157,94 +144,124 @@ export default function FollowupMiniApp() {
       setFinalizeSource(data.source ?? null);
 
       sessionStorage.setItem(
+        "triplan_followup_messages",
+        JSON.stringify(nextMessages)
+      );
+      sessionStorage.setItem(
+        "triplan_followup_slots",
+        JSON.stringify(nextSlots)
+      );
+      sessionStorage.setItem(
         "triplan_planning_input",
         JSON.stringify(data.planningInput)
       );
 
       window.location.href = "/trip/generate";
     } catch (e) {
-      console.error("followup finalize error", e);
-      setError("추천 알고리즘용 데이터를 정리하는 중 문제가 발생했습니다.");
-      setSubmitting(false);
+      console.error("finalize chat error", e);
+      setError("대화 내용을 일정 설계용 데이터로 정리하는 중 문제가 발생했습니다.");
+      setFinalizing(false);
     }
   }
 
-  function renderQuestion(q: FollowupQuestion, index: number) {
-    const value = answers[q.id] ?? "";
+  async function handleSend() {
+    if (!seed || !canSend) return;
+
+    const currentSeed = seed;
+    const userMessage = input.trim();
+    const nextMessagesAfterUser: ChatMessage[] = [
+      ...messages,
+      { role: "user", content: userMessage },
+    ];
+
+    setInput("");
+    setMessages(nextMessagesAfterUser);
+    setSending(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/followup-chat/turn", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messages: nextMessagesAfterUser,
+          extractedSlots,
+          userMessage,
+          turnCount,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error("turn request failed");
+      }
+
+      const data = (await res.json()) as TurnChatResponse;
+
+      const assistantMessage: ChatMessage = {
+        role: "assistant",
+        content: data.assistantMessage,
+      };
+
+      const nextMessages = [...nextMessagesAfterUser, assistantMessage];
+      const nextSlots = data.extractedSlots ?? extractedSlots;
+
+      setMessages(nextMessages);
+      setExtractedSlots(nextSlots);
+      setMissingSlots(Array.isArray(data.missingSlots) ? data.missingSlots : []);
+      setTurnCount(typeof data.turnCount === "number" ? data.turnCount : turnCount + 1);
+
+      if (data.shouldFinalize) {
+        await finalizeChat({
+          seed: currentSeed,
+          nextMessages,
+          nextSlots,
+        });
+        return;
+      }
+    } catch (e) {
+      console.error("send message error", e);
+      setError("메시지를 처리하는 중 문제가 발생했습니다.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function renderBubble(message: ChatMessage, index: number) {
+    const isAssistant = message.role === "assistant";
 
     return (
-      <section key={q.id} className="tp2-card" style={{ marginBottom: 16 }}>
-        <div className="tp2-cardHeader">
-          <div
-            style={{
-              fontSize: 12,
-              opacity: 0.7,
-              marginBottom: 6,
-            }}
-          >
-            추가 질문 {index + 1}
-          </div>
-
-          <h2
-            style={{
-              margin: 0,
-              fontSize: 18,
-              lineHeight: 1.5,
-            }}
-          >
-            {q.question}
-          </h2>
+      <div
+        key={`${message.role}-${index}`}
+        style={{
+          display: "flex",
+          justifyContent: isAssistant ? "flex-start" : "flex-end",
+          marginBottom: 12,
+        }}
+      >
+        <div
+          style={{
+            maxWidth: "82%",
+            padding: "14px 16px",
+            borderRadius: 18,
+            lineHeight: 1.6,
+            whiteSpace: "pre-wrap",
+            background: isAssistant ? "rgba(255,255,255,0.88)" : "#111111",
+            color: isAssistant ? "#111111" : "#ffffff",
+            border: isAssistant ? "1px solid rgba(0,0,0,0.08)" : "none",
+            boxShadow: isAssistant
+              ? "0 10px 30px rgba(20,35,60,0.08)"
+              : "0 10px 24px rgba(17,17,17,0.18)",
+          }}
+        >
+          {message.content}
         </div>
-
-        <div className="tp2-controls" style={{ marginTop: 16 }}>
-          {q.type === "shortText" && (
-            <input
-              className="tp2-input"
-              type="text"
-              value={value}
-              placeholder="짧게 입력해주세요"
-              onChange={(e) => updateAnswer(q.id, e.target.value)}
-            />
-          )}
-
-          {q.type === "single" && (
-            <div
-              style={{
-                display: "grid",
-                gap: 10,
-              }}
-            >
-              {(q.options ?? []).map((option) => {
-                const selected = value === option;
-
-                return (
-                  <button
-                    key={option}
-                    type="button"
-                    onClick={() => updateAnswer(q.id, option)}
-                    className={selected ? "tp2-btnPrimary" : ""}
-                    style={{
-                      textAlign: "left",
-                      padding: "14px 16px",
-                      borderRadius: 14,
-                      border: "1px solid rgba(0,0,0,0.12)",
-                      background: selected ? undefined : "transparent",
-                      cursor: "pointer",
-                      font: "inherit",
-                    }}
-                  >
-                    {option}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </section>
+      </div>
     );
   }
 
-  if (loading) {
+  if (loadingSeed) {
     return (
       <main
         style={{
@@ -254,7 +271,7 @@ export default function FollowupMiniApp() {
           padding: 20,
         }}
       >
-        <div className="tp2-card" style={{ width: "100%", maxWidth: 720 }}>
+        <div className="tp2-card" style={{ width: "100%", maxWidth: 760 }}>
           <div className="tp2-cardHeader">
             <h1 style={{ margin: 0, fontSize: 22 }}>데이터 불러오는 중</h1>
             <p style={{ marginTop: 10, opacity: 0.72 }}>
@@ -276,11 +293,9 @@ export default function FollowupMiniApp() {
           padding: 20,
         }}
       >
-        <div className="tp2-card" style={{ width: "100%", maxWidth: 720 }}>
+        <div className="tp2-card" style={{ width: "100%", maxWidth: 760 }}>
           <div className="tp2-cardHeader">
-            <h1 style={{ margin: 0, fontSize: 22 }}>
-              진행 정보를 찾을 수 없음
-            </h1>
+            <h1 style={{ margin: 0, fontSize: 22 }}>진행 정보를 찾을 수 없음</h1>
             <p style={{ marginTop: 10, opacity: 0.72 }}>{error}</p>
           </div>
 
@@ -302,13 +317,13 @@ export default function FollowupMiniApp() {
     <main
       style={{
         minHeight: "100vh",
-        padding: "24px 16px 40px",
+        padding: "24px 16px 32px",
       }}
     >
       <div
         style={{
           width: "100%",
-          maxWidth: 720,
+          maxWidth: 760,
           margin: "0 auto",
         }}
       >
@@ -321,7 +336,7 @@ export default function FollowupMiniApp() {
                 marginBottom: 6,
               }}
             >
-              Follow-up
+              Follow-up Chat
             </div>
 
             <h1
@@ -331,7 +346,7 @@ export default function FollowupMiniApp() {
                 lineHeight: 1.35,
               }}
             >
-              일정 생성을 위해 몇 가지만 더 확인할게요
+              일정 설계를 위해 몇 가지만 더 확인할게요
             </h1>
 
             <p
@@ -341,38 +356,77 @@ export default function FollowupMiniApp() {
                 lineHeight: 1.6,
               }}
             >
-              이전 설문을 바탕으로, 실제 일정 설계에 중요한 부분만 짧게
-              보강합니다. 1~2분 안에 끝납니다.
+              대화처럼 편하게 답하면 됩니다. 궁금한 점이 있으면 중간에 바로
+              물어봐도 됩니다.
             </p>
 
-            {(questionSource || finalizeSource) && (
-              <div
-                style={{
-                  marginTop: 12,
-                  fontSize: 12,
-                  opacity: 0.65,
-                }}
-              >
-                질문 생성: {questionSource ?? "-"} / 최종 변환:{" "}
-                {finalizeSource ?? "-"}
-              </div>
-            )}
+            <div
+              style={{
+                marginTop: 12,
+                fontSize: 12,
+                opacity: 0.62,
+              }}
+            >
+              현재 턴: {turnCount} / 누락 슬롯: {missingSlots.length}
+              {finalizeSource ? ` / 최종 변환: ${finalizeSource}` : ""}
+            </div>
           </div>
         </section>
 
-        {fetchingQuestions && (
-          <section className="tp2-card" style={{ marginBottom: 16 }}>
-            <div className="tp2-cardHeader">
-              <h2 style={{ margin: 0, fontSize: 18 }}>질문 생성 중</h2>
-              <p style={{ marginTop: 10, opacity: 0.72 }}>
-                이전 답변을 바탕으로 필요한 질문만 추리고 있습니다.
-              </p>
-            </div>
-          </section>
-        )}
+        <section
+          className="tp2-card"
+          style={{
+            marginBottom: 16,
+            minHeight: 420,
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          <div
+            style={{
+              padding: 16,
+              flex: 1,
+              overflowY: "auto",
+            }}
+          >
+            {startingChat && (
+              <div style={{ opacity: 0.72, lineHeight: 1.6 }}>
+                대화를 시작하는 중입니다...
+              </div>
+            )}
 
-        {!fetchingQuestions &&
-          questions.map((q, index) => renderQuestion(q, index))}
+            {!startingChat && messages.map(renderBubble)}
+
+            {(sending || finalizing) && (
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-start",
+                  marginBottom: 12,
+                }}
+              >
+                <div
+                  style={{
+                    maxWidth: "82%",
+                    padding: "14px 16px",
+                    borderRadius: 18,
+                    lineHeight: 1.6,
+                    background: "rgba(255,255,255,0.88)",
+                    color: "#111111",
+                    border: "1px solid rgba(0,0,0,0.08)",
+                    boxShadow: "0 10px 30px rgba(20,35,60,0.08)",
+                  }}
+                >
+                  {finalizing
+                    ? "대화 내용을 일정 설계 기준으로 정리하고 있어요..."
+                    : "생각 중..."}
+                </div>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
+        </section>
 
         {error && seed && (
           <section className="tp2-card" style={{ marginBottom: 16 }}>
@@ -391,23 +445,58 @@ export default function FollowupMiniApp() {
         )}
 
         <section className="tp2-card">
-          <div className="tp2-footer">
+          <div
+            className="tp2-cardHeader"
+            style={{
+              display: "flex",
+              gap: 12,
+              alignItems: "flex-end",
+            }}
+          >
+            <div style={{ flex: 1 }}>
+              <label
+                htmlFor="followup-chat-input"
+                style={{
+                  display: "block",
+                  fontSize: 12,
+                  opacity: 0.7,
+                  marginBottom: 8,
+                }}
+              >
+                답변 입력
+              </label>
+              <textarea
+                id="followup-chat-input"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="예: 너무 빡빡하지 않았으면 좋겠고, 맛집은 중요하지만 웨이팅은 길면 싫어요."
+                rows={3}
+                style={{
+                  width: "100%",
+                  resize: "vertical",
+                  borderRadius: 16,
+                  border: "1px solid rgba(0,0,0,0.12)",
+                  padding: "14px 16px",
+                  font: "inherit",
+                  lineHeight: 1.6,
+                  outline: "none",
+                }}
+                disabled={sending || finalizing || startingChat}
+              />
+            </div>
+
             <button
               type="button"
               className="tp2-btnPrimary"
-              onClick={handleSubmit}
-              disabled={!allAnswered || submitting || fetchingQuestions}
+              onClick={handleSend}
+              disabled={!canSend}
               style={{
-                width: "100%",
-                opacity:
-                  !allAnswered || submitting || fetchingQuestions ? 0.6 : 1,
-                cursor:
-                  !allAnswered || submitting || fetchingQuestions
-                    ? "not-allowed"
-                    : "pointer",
+                minWidth: 110,
+                opacity: canSend ? 1 : 0.6,
+                cursor: canSend ? "pointer" : "not-allowed",
               }}
             >
-              {submitting ? "정리 중..." : "답변 완료하고 일정 생성으로 이동"}
+              보내기
             </button>
           </div>
         </section>
