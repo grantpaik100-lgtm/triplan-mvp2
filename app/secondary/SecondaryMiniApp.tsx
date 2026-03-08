@@ -70,7 +70,8 @@ function buildFollowupSeed(answers: SecondaryAnswers) {
         answers.budgetLevel === "기타"
           ? answers.budgetLevelOther
           : answers.budgetLevel,
-
+      budgetSplit: answers.budgetSplit,
+      
       firstDayStart:
         answers.firstDayStart === "기타"
           ? answers.firstDayStartOther
@@ -1009,69 +1010,7 @@ function PlacesInput({
   );
 }
 
-function TextListInput({
-  value,
-  maxItems,
-  placeholder,
-  onChange,
-}: {
-  value: string[];
-  maxItems: number;
-  placeholder: string;
-  onChange: (v: string[]) => void;
-}) {
-  const [text, setText] = useState("");
 
-  const add = () => {
-    const t = text.trim();
-    if (!t) return;
-    if (value.includes(t)) return;
-    if (value.length >= maxItems) return;
-
-    onChange([...value, t]);
-    setText("");
-  };
-
-  const remove = (item: string) => {
-    onChange(value.filter((x) => x !== item));
-  };
-
-  return (
-    <div>
-      <div className="tp2-row">
-        <input
-          className="tp2-input"
-          placeholder={placeholder}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              add();
-            }
-          }}
-        />
-
-        <button type="button" className="tp2-btn" onClick={add}>
-          추가
-        </button>
-      </div>
-
-      <div className="tp2-wrapChips">
-        {value.map((v) => (
-          <button
-            key={v}
-            className="tp2-chip"
-            type="button"
-            onClick={() => remove(v)}
-          >
-            {v}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 function TextArea({
   value,
@@ -1089,7 +1028,7 @@ function TextArea({
       className="tp2-textarea"
       value={value}
       placeholder={placeholder}
-      maxLength={maxLength}
+      maxLength={200}
       onChange={(e) => onChange(e.target.value)}
     />
   );
