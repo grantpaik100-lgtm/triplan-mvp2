@@ -40,7 +40,6 @@ export type MultiAnswerValue = string[];
 export type PlaceItem = {
   name: string;
   reason: string;
-  importance: "낮" | "중" | "높";
 };
 
 export type BudgetSplit = {
