@@ -126,27 +126,38 @@ function fallbackAssistantMessage(missingSlots: string[]): string {
 }
 
 function buildPrompt(params: {
+  seed: {
+    source?: string;
+    createdAt?: string;
+    summary?: unknown;
+    rawAnswers?: unknown;
+  } | null;
   messages: ChatMessage[];
   currentSlots: ExtractedSlots;
   userMessage: string;
   turnCount: number;
 }) {
-  const { messages, currentSlots, userMessage, turnCount } = params;
+  const { seed, messages, currentSlots, userMessage, turnCount } = params;
 
   return `
 You are the follow-up chat interviewer for a travel planning service called TriPlan.
 
 Your job:
-1. Read the conversation.
-2. Extract or update slot values conservatively.
-3. Answer the user's question if they asked one.
-4. Ask only one short, useful next question.
-5. Keep the tone calm, helpful, concise.
-6. Language: Korean.
-7. Do not ask multiple questions at once.
-8. Prefer missing high-value slots.
-9. If enough information is collected, you may signal shouldFinalize=true.
-10. Return JSON only.
+1. Read the original survey summary and raw answers.
+2. Read the conversation so far.
+3. Update slot values conservatively.
+4. If the user asked a direct question, answer it briefly first.
+5. Then ask exactly one natural next question in Korean.
+6. Ask only about information that is still important and unclear.
+7. Do not sound like a rigid questionnaire.
+8. Keep the tone calm, concise, helpful.
+9. Return JSON only.
+
+Important:
+- You are not starting from scratch.
+- You already know the survey context.
+- Use the survey context to avoid asking redundant questions.
+- Ask one short but high-value next question only.
 
 Slots:
 - pacePreference
@@ -176,6 +187,9 @@ Return format:
 
 Current turnCount: ${turnCount}
 
+Survey seed:
+${JSON.stringify(seed)}
+
 Current slots:
 ${JSON.stringify(currentSlots)}
 
@@ -191,14 +205,21 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    const messages = Array.isArray(body?.messages)
-      ? (body.messages as ChatMessage[])
-      : [];
-    const currentSlots = normalizeSlots(body?.extractedSlots);
-    const userMessage =
-      typeof body?.userMessage === "string" ? body.userMessage : "";
-    const rawTurnCount =
-      typeof body?.turnCount === "number" ? body.turnCount : 0;
+    const seed = (body?.seed ?? null) as {
+  source?: string;
+  createdAt?: string;
+  summary?: unknown;
+  rawAnswers?: unknown;
+} | null;
+
+const messages = Array.isArray(body?.messages)
+  ? (body.messages as ChatMessage[])
+  : [];
+const currentSlots = normalizeSlots(body?.extractedSlots);
+const userMessage =
+  typeof body?.userMessage === "string" ? body.userMessage : "";
+const rawTurnCount =
+  typeof body?.turnCount === "number" ? body.turnCount : 0;
 
     const nextTurnCount = rawTurnCount + 1;
 
@@ -229,6 +250,7 @@ export async function POST(req: Request) {
           {
             role: "user",
             content: buildPrompt({
+              seed,
               messages,
               currentSlots,
               userMessage,
