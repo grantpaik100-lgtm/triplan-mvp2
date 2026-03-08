@@ -62,6 +62,13 @@ export type SecondaryAnswers = {
   budgetLevel: SingleAnswerValue;
   budgetLevelOther: string;
 
+  budgetSplit: {
+  food: number
+  activity: number
+  stay: number
+  shopping: number
+  }
+
   firstDayStart: SingleAnswerValue;
   firstDayStartOther: string;
 
@@ -144,6 +151,12 @@ export const secondaryInitialAnswers: SecondaryAnswers = {
 
   budgetLevel: "",
   budgetLevelOther: "",
+  budgetSplit: {
+  food: 3,
+  activity: 3,
+  stay: 3,
+  shopping: 1,
+  },
 
   firstDayStart: "",
   firstDayStartOther: "",
