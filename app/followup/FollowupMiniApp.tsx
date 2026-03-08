@@ -29,7 +29,7 @@ export default function FollowupMiniApp() {
   const [error, setError] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
-
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => {
     try {
       const raw = sessionStorage.getItem("triplan_followup_seed");
@@ -49,7 +49,13 @@ export default function FollowupMiniApp() {
       setLoadingSeed(false);
     }
   }, []);
+  useEffect(() => {
+  const el = textareaRef.current;
+  if (!el) return;
 
+  el.style.height = "0px";
+  el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+}, [input]);
   useEffect(() => {
     if (!seed) return;
 
@@ -66,7 +72,7 @@ export default function FollowupMiniApp() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            seedSummary: currentSeed.summary,
+            seed: currentSeed,
           }),
         });
 
@@ -186,6 +192,7 @@ export default function FollowupMiniApp() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          seed: currentSeed,
           messages: nextMessagesAfterUser,
           extractedSlots,
           userMessage,
@@ -372,134 +379,149 @@ export default function FollowupMiniApp() {
             </div>
           </div>
         </section>
-
         <section
-          className="tp2-card"
+  className="tp2-card"
+  style={{
+    marginBottom: 16,
+    height: "calc(100vh - 260px)",
+    minHeight: 520,
+    maxHeight: 820,
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+  }}
+>
+  <div
+    style={{
+      padding: 16,
+      flex: 1,
+      overflowY: "auto",
+      overscrollBehavior: "contain",
+      background: "rgba(255,255,255,0.42)",
+    }}
+  >
+    {startingChat && (
+      <div style={{ opacity: 0.72, lineHeight: 1.6 }}>
+        대화를 시작하는 중입니다...
+      </div>
+    )}
+
+    {!startingChat && messages.map(renderBubble)}
+
+    {(sending || finalizing) && (
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "flex-start",
+          marginBottom: 12,
+        }}
+      >
+        <div
           style={{
-            marginBottom: 16,
-            minHeight: 420,
-            display: "flex",
-            flexDirection: "column",
+            maxWidth: "82%",
+            padding: "14px 16px",
+            borderRadius: 18,
+            lineHeight: 1.6,
+            background: "rgba(255,255,255,0.88)",
+            color: "#111111",
+            border: "1px solid rgba(0,0,0,0.08)",
+            boxShadow: "0 10px 30px rgba(20,35,60,0.08)",
           }}
         >
-          <div
-            style={{
-              padding: 16,
-              flex: 1,
-              overflowY: "auto",
-            }}
-          >
-            {startingChat && (
-              <div style={{ opacity: 0.72, lineHeight: 1.6 }}>
-                대화를 시작하는 중입니다...
-              </div>
-            )}
+          {finalizing
+            ? "대화 내용을 일정 설계 기준으로 정리하고 있어요..."
+            : "생각 중..."}
+        </div>
+      </div>
+    )}
 
-            {!startingChat && messages.map(renderBubble)}
+    <div ref={messagesEndRef} />
+  </div>
 
-            {(sending || finalizing) && (
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "flex-start",
-                  marginBottom: 12,
-                }}
-              >
-                <div
-                  style={{
-                    maxWidth: "82%",
-                    padding: "14px 16px",
-                    borderRadius: 18,
-                    lineHeight: 1.6,
-                    background: "rgba(255,255,255,0.88)",
-                    color: "#111111",
-                    border: "1px solid rgba(0,0,0,0.08)",
-                    boxShadow: "0 10px 30px rgba(20,35,60,0.08)",
-                  }}
-                >
-                  {finalizing
-                    ? "대화 내용을 일정 설계 기준으로 정리하고 있어요..."
-                    : "생각 중..."}
-                </div>
-              </div>
-            )}
+  <div
+    style={{
+      borderTop: "1px solid rgba(0,0,0,0.08)",
+      padding: 14,
+      background: "rgba(255,255,255,0.82)",
+      backdropFilter: "blur(10px)",
+      position: "sticky",
+      bottom: 0,
+    }}
+  >
+    <label
+      htmlFor="followup-chat-input"
+      style={{
+        display: "block",
+        fontSize: 12,
+        opacity: 0.7,
+        marginBottom: 8,
+      }}
+    >
+      답변 입력
+    </label>
 
-            <div ref={messagesEndRef} />
-          </div>
-        </section>
+    <div
+      style={{
+        display: "flex",
+        gap: 10,
+        alignItems: "flex-end",
+        padding: 10,
+        borderRadius: 22,
+        border: "1px solid rgba(0,0,0,0.10)",
+        background: "#ffffff",
+        boxShadow: "0 8px 24px rgba(20,35,60,0.06)",
+      }}
+    >
+      <textarea
+        ref={textareaRef}
+        id="followup-chat-input"
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            if (canSend) {
+              void handleSend();
+            }
+          }
+        }}
+        placeholder="편하게 입력하세요. 궁금한 점이 있으면 같이 물어봐도 됩니다."
+        rows={1}
+        style={{
+          width: "100%",
+          minHeight: 28,
+          maxHeight: 140,
+          resize: "none",
+          border: "none",
+          padding: "8px 10px",
+          font: "inherit",
+          lineHeight: 1.6,
+          outline: "none",
+          background: "transparent",
+        }}
+        disabled={sending || finalizing || startingChat}
+      />
 
-        {error && seed && (
-          <section className="tp2-card" style={{ marginBottom: 16 }}>
-            <div className="tp2-cardHeader">
-              <p
-                style={{
-                  margin: 0,
-                  color: "#b42318",
-                  lineHeight: 1.6,
-                }}
-              >
-                {error}
-              </p>
-            </div>
-          </section>
-        )}
+      <button
+        type="button"
+        className="tp2-btnPrimary"
+        onClick={() => void handleSend()}
+        disabled={!canSend}
+        style={{
+          minWidth: 92,
+          flexShrink: 0,
+          opacity: canSend ? 1 : 0.6,
+          cursor: canSend ? "pointer" : "not-allowed",
+          borderRadius: 16,
+        }}
+      >
+        보내기
+      </button>
+    </div>
+  </div>
+</section>
 
-        <section className="tp2-card">
-          <div
-            className="tp2-cardHeader"
-            style={{
-              display: "flex",
-              gap: 12,
-              alignItems: "flex-end",
-            }}
-          >
-            <div style={{ flex: 1 }}>
-              <label
-                htmlFor="followup-chat-input"
-                style={{
-                  display: "block",
-                  fontSize: 12,
-                  opacity: 0.7,
-                  marginBottom: 8,
-                }}
-              >
-                답변 입력
-              </label>
-              <textarea
-                id="followup-chat-input"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="예: 너무 빡빡하지 않았으면 좋겠고, 맛집은 중요하지만 웨이팅은 길면 싫어요."
-                rows={3}
-                style={{
-                  width: "100%",
-                  resize: "vertical",
-                  borderRadius: 16,
-                  border: "1px solid rgba(0,0,0,0.12)",
-                  padding: "14px 16px",
-                  font: "inherit",
-                  lineHeight: 1.6,
-                  outline: "none",
-                }}
-                disabled={sending || finalizing || startingChat}
-              />
-            </div>
-
-            <button
-              type="button"
-              className="tp2-btnPrimary"
-              onClick={handleSend}
-              disabled={!canSend}
-              style={{
-                minWidth: 110,
-                opacity: canSend ? 1 : 0.6,
-                cursor: canSend ? "pointer" : "not-allowed",
-              }}
-            >
-              보내기
-            </button>
-          </div>
-        </section>
+        
       </div>
     </main>
   );
