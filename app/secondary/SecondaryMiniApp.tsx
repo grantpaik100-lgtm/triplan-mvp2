@@ -212,6 +212,24 @@ function validateQuestion(
     return { ok: true };
   }
 
+  if (q.type === "budgetSplit") {
+  const b = v as
+    | { food: number; activity: number; stay: number; shopping: number }
+    | undefined;
+
+  if (!b) {
+    return { ok: false, msg: "예산 분배 입력" };
+  }
+
+  const total = b.food + b.activity + b.stay + b.shopping;
+
+  if (total !== 10) {
+    return { ok: false, msg: "총합이 10이 되도록 입력하세요" };
+  }
+
+  return { ok: true };
+}
+
   if (q.type === "places") {
     if (!Array.isArray(v) || v.length === 0) {
       return { ok: false, msg: "장소 최소 1개 입력" };
