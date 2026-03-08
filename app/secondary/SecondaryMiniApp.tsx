@@ -435,15 +435,7 @@ export default function SecondaryMiniApp() {
           />
         );
 
-      case "textList":
-        return (
-          <TextListInput
-            value={Array.isArray(value) ? value : []}
-            maxItems={q.maxItems ?? 5}
-            placeholder={q.placeholder ?? ""}
-            onChange={(v) => setAnswer(q.id, v)}
-          />
-        );
+    
 
       case "textarea":
         return (
