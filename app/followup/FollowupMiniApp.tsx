@@ -1,24 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-
-type FollowupQuestion = {
-  id: string;
-  question: string;
-  type: "shortText" | "single";
-  options?: string[];
-};
-
-type FollowupAnswers = {
-  raw: Record<string, string>;
-};
-
-type FollowupSeed = {
-  source: string;
-  createdAt: string;
-  summary: unknown;
-  rawAnswers: unknown;
-};
+import type {
+  FollowupQuestion,
+  FollowupAnswers,
+  FollowupSeed,
+  FollowupQuestionsResponse,
+  FollowupFinalizeResponse,
+} from "@/types/tripPlanning";
 
 export default function FollowupMiniApp() {
   const [seed, setSeed] = useState<FollowupSeed | null>(null);
@@ -27,11 +16,13 @@ export default function FollowupMiniApp() {
 
   const [loading, setLoading] = useState(true);
   const [fetchingQuestions, setFetchingQuestions] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
   const [submitting, setSubmitting] = useState(false);
 
-  // seed 로딩
+  const [questionSource, setQuestionSource] = useState<"openai" | "fallback" | null>(null);
+  const [finalizeSource, setFinalizeSource] = useState<"openai" | "rule_based_fallback" | null>(null);
+
+  const [error, setError] = useState<string | null>(null);
+
   useEffect(() => {
     try {
       const raw = sessionStorage.getItem("triplan_followup_seed");
@@ -52,15 +43,13 @@ export default function FollowupMiniApp() {
     }
   }, []);
 
-    // 질문 생성 요청
   useEffect(() => {
     if (!seed) return;
-
-    const seedSummary = seed.summary;
 
     async function fetchQuestions() {
       try {
         setFetchingQuestions(true);
+        setError(null);
 
         const res = await fetch("/api/followup-questions", {
           method: "POST",
@@ -68,7 +57,7 @@ export default function FollowupMiniApp() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            seedSummary,
+            seedSummary: seed.summary,
           }),
         });
 
@@ -76,13 +65,18 @@ export default function FollowupMiniApp() {
           throw new Error("question fetch failed");
         }
 
-        const data = await res.json();
+        const data = (await res.json()) as FollowupQuestionsResponse;
 
-        if (!data?.questions) {
+        if (!data?.questions || !Array.isArray(data.questions)) {
           throw new Error("invalid response");
         }
 
         setQuestions(data.questions);
+        setQuestionSource(data.source ?? null);
+
+        if (data.source === "fallback") {
+          console.warn("followup questions fallback:", data.error);
+        }
       } catch (err) {
         console.error(err);
         setError("질문을 생성하는 중 문제가 발생했습니다.");
@@ -94,7 +88,6 @@ export default function FollowupMiniApp() {
     fetchQuestions();
   }, [seed]);
 
-  // 답변 업데이트
   function updateAnswer(id: string, value: string) {
     setAnswers((prev) => ({
       ...prev,
@@ -102,7 +95,6 @@ export default function FollowupMiniApp() {
     }));
   }
 
-  // 모든 질문 답변 여부
   const allAnswered = useMemo(() => {
     if (questions.length === 0) return false;
 
@@ -111,15 +103,17 @@ export default function FollowupMiniApp() {
       return v && v.trim().length > 0;
     });
   }, [answers, questions]);
-    function handleRestart() {
+
+  function handleRestart() {
     window.location.href = "/";
   }
 
   async function handleSubmit() {
-    if (!allAnswered || submitting) return;
+    if (!seed || !allAnswered || submitting) return;
 
     try {
       setSubmitting(true);
+      setError(null);
 
       const payload: FollowupAnswers = {
         raw: answers,
@@ -130,10 +124,39 @@ export default function FollowupMiniApp() {
         JSON.stringify(payload)
       );
 
+      const res = await fetch("/api/followup-finalize", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          seed,
+          followupAnswers: answers,
+          followupSource: questionSource ?? "fallback",
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error("finalize failed");
+      }
+
+      const data = (await res.json()) as FollowupFinalizeResponse;
+
+      if (!data?.planningInput) {
+        throw new Error("invalid finalize response");
+      }
+
+      setFinalizeSource(data.source ?? null);
+
+      sessionStorage.setItem(
+        "triplan_planning_input",
+        JSON.stringify(data.planningInput)
+      );
+
       window.location.href = "/trip/generate";
     } catch (e) {
-      console.error("followup save error", e);
-      setError("답변을 저장하는 중 문제가 발생했습니다.");
+      console.error("followup finalize error", e);
+      setError("추천 알고리즘용 데이터를 정리하는 중 문제가 발생했습니다.");
       setSubmitting(false);
     }
   }
@@ -311,6 +334,18 @@ export default function FollowupMiniApp() {
               이전 설문을 바탕으로, 실제 일정 설계에 중요한 부분만 짧게
               보강합니다. 1~2분 안에 끝납니다.
             </p>
+
+            {(questionSource || finalizeSource) && (
+              <div
+                style={{
+                  marginTop: 12,
+                  fontSize: 12,
+                  opacity: 0.65,
+                }}
+              >
+                질문 생성: {questionSource ?? "-"} / 최종 변환: {finalizeSource ?? "-"}
+              </div>
+            )}
           </div>
         </section>
 
@@ -325,7 +360,8 @@ export default function FollowupMiniApp() {
           </section>
         )}
 
-        {!fetchingQuestions && questions.map((q, index) => renderQuestion(q, index))}
+        {!fetchingQuestions &&
+          questions.map((q, index) => renderQuestion(q, index))}
 
         {error && seed && (
           <section className="tp2-card" style={{ marginBottom: 16 }}>
@@ -360,7 +396,7 @@ export default function FollowupMiniApp() {
                     : "pointer",
               }}
             >
-              {submitting ? "저장 중..." : "답변 완료하고 일정 생성으로 이동"}
+              {submitting ? "정리 중..." : "답변 완료하고 일정 생성으로 이동"}
             </button>
           </div>
         </section>
