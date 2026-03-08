@@ -18,8 +18,12 @@ export default function FollowupMiniApp() {
   const [fetchingQuestions, setFetchingQuestions] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const [questionSource, setQuestionSource] = useState<"openai" | "fallback" | null>(null);
-  const [finalizeSource, setFinalizeSource] = useState<"openai" | "rule_based_fallback" | null>(null);
+  const [questionSource, setQuestionSource] = useState<
+    "openai" | "fallback" | null
+  >(null);
+  const [finalizeSource, setFinalizeSource] = useState<
+    "openai" | "rule_based_fallback" | null
+  >(null);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -46,6 +50,8 @@ export default function FollowupMiniApp() {
   useEffect(() => {
     if (!seed) return;
 
+    const currentSeed = seed;
+
     async function fetchQuestions() {
       try {
         setFetchingQuestions(true);
@@ -57,7 +63,7 @@ export default function FollowupMiniApp() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            seedSummary: seed.summary,
+            seedSummary: currentSeed.summary,
           }),
         });
 
@@ -100,7 +106,7 @@ export default function FollowupMiniApp() {
 
     return questions.every((q) => {
       const v = answers[q.id];
-      return v && v.trim().length > 0;
+      return Boolean(v && v.trim().length > 0);
     });
   }, [answers, questions]);
 
@@ -110,6 +116,8 @@ export default function FollowupMiniApp() {
 
   async function handleSubmit() {
     if (!seed || !allAnswered || submitting) return;
+
+    const currentSeed = seed;
 
     try {
       setSubmitting(true);
@@ -130,7 +138,7 @@ export default function FollowupMiniApp() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          seed,
+          seed: currentSeed,
           followupAnswers: answers,
           followupSource: questionSource ?? "fallback",
         }),
@@ -270,7 +278,9 @@ export default function FollowupMiniApp() {
       >
         <div className="tp2-card" style={{ width: "100%", maxWidth: 720 }}>
           <div className="tp2-cardHeader">
-            <h1 style={{ margin: 0, fontSize: 22 }}>진행 정보를 찾을 수 없음</h1>
+            <h1 style={{ margin: 0, fontSize: 22 }}>
+              진행 정보를 찾을 수 없음
+            </h1>
             <p style={{ marginTop: 10, opacity: 0.72 }}>{error}</p>
           </div>
 
@@ -343,7 +353,8 @@ export default function FollowupMiniApp() {
                   opacity: 0.65,
                 }}
               >
-                질문 생성: {questionSource ?? "-"} / 최종 변환: {finalizeSource ?? "-"}
+                질문 생성: {questionSource ?? "-"} / 최종 변환:{" "}
+                {finalizeSource ?? "-"}
               </div>
             )}
           </div>
