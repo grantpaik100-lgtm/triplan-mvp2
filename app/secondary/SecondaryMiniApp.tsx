@@ -454,21 +454,30 @@ export default function SecondaryMiniApp() {
             onChange={(v) => setAnswer(q.id, v)}
           />
         );
+
       case "budgetSplit": {
-        const bs = answers.budgetSplit;
-        const update = (key: keyof typeof bs, value: number) => {
-  setAnswer("budgetSplit", {
-    ...answers.budgetSplit,
-    [key]: value,
-  });
-};
+  const bs = answers.budgetSplit;
+
+  const update = (key: keyof typeof bs, value: number) => {
+    setAnswer("budgetSplit", {
+      ...bs,
+      [key]: value,
+    });
+  };
 
   const total =
     bs.food + bs.activity + bs.stay + bs.shopping;
 
   return (
-    <div style={{ display: "grid", gap: 12 }}>
-      <div>총합: {total} / 10</div>
+    <div style={{ display: "grid", gap: 16 }}>
+      <div
+        style={{
+          fontSize: 14,
+          opacity: 0.7,
+        }}
+      >
+        총합 {total} / 10
+      </div>
 
       <label>
         음식
@@ -484,7 +493,7 @@ export default function SecondaryMiniApp() {
       </label>
 
       <label>
-        활동
+        활동 / 경험
         <input
           type="number"
           min={0}
@@ -524,6 +533,7 @@ export default function SecondaryMiniApp() {
     </div>
   );
 }
+      
       
 
       default:
