@@ -29,6 +29,7 @@ export default function FollowupMiniApp() {
   const [error, setError] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const [readyToFinalize, setReadyToFinalize] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => {
     try {
@@ -106,6 +107,14 @@ export default function FollowupMiniApp() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, sending, finalizing]);
 
+  useEffect(() => {
+  const el = textareaRef.current;
+  if (!el) return;
+
+  el.style.height = "0px";
+  el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+}, [input]);
+
   const canSend = useMemo(() => {
     return input.trim().length > 0 && !sending && !finalizing && !startingChat;
   }, [input, sending, finalizing, startingChat]);
@@ -171,70 +180,78 @@ export default function FollowupMiniApp() {
   }
 
   async function handleSend() {
-    if (!seed || !canSend) return;
+  if (!seed || !canSend) return;
 
-    const currentSeed = seed;
-    const userMessage = input.trim();
-    const nextMessagesAfterUser: ChatMessage[] = [
-      ...messages,
-      { role: "user", content: userMessage },
-    ];
+  const currentSeed = seed;
+  const userMessage = input.trim();
+  const nextMessagesAfterUser: ChatMessage[] = [
+    ...messages,
+    { role: "user", content: userMessage },
+  ];
 
-    setInput("");
-    setMessages(nextMessagesAfterUser);
-    setSending(true);
-    setError(null);
+  setInput("");
+  setMessages(nextMessagesAfterUser);
+  setSending(true);
+  setError(null);
 
-    try {
-      const res = await fetch("/api/followup-chat/turn", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          seed: currentSeed,
-          messages: nextMessagesAfterUser,
-          extractedSlots,
-          userMessage,
-          turnCount,
-        }),
-      });
+  try {
+    const res = await fetch("/api/followup-chat/turn", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        seed: currentSeed,
+        messages: nextMessagesAfterUser,
+        extractedSlots,
+        userMessage,
+        turnCount,
+      }),
+    });
 
-      if (!res.ok) {
-        throw new Error("turn request failed");
-      }
-
-      const data = (await res.json()) as TurnChatResponse;
-
-      const assistantMessage: ChatMessage = {
-        role: "assistant",
-        content: data.assistantMessage,
-      };
-
-      const nextMessages = [...nextMessagesAfterUser, assistantMessage];
-      const nextSlots = data.extractedSlots ?? extractedSlots;
-
-      setMessages(nextMessages);
-      setExtractedSlots(nextSlots);
-      setMissingSlots(Array.isArray(data.missingSlots) ? data.missingSlots : []);
-      setTurnCount(typeof data.turnCount === "number" ? data.turnCount : turnCount + 1);
-
-      if (data.shouldFinalize) {
-        await finalizeChat({
-          seed: currentSeed,
-          nextMessages,
-          nextSlots,
-        });
-        return;
-      }
-    } catch (e) {
-      console.error("send message error", e);
-      setError("메시지를 처리하는 중 문제가 발생했습니다.");
-    } finally {
-      setSending(false);
+    if (!res.ok) {
+      throw new Error("turn request failed");
     }
-  }
 
+    const data = (await res.json()) as TurnChatResponse;
+
+    const assistantMessage: ChatMessage = {
+      role: "assistant",
+      content: data.assistantMessage,
+    };
+
+    const nextMessages = [...nextMessagesAfterUser, assistantMessage];
+    const nextSlots = data.extractedSlots ?? extractedSlots;
+
+    setMessages(nextMessages);
+    setExtractedSlots(nextSlots);
+    setMissingSlots(
+      Array.isArray(data.missingSlots) ? data.missingSlots : []
+    );
+    setTurnCount(
+      typeof data.turnCount === "number" ? data.turnCount : turnCount + 1
+    );
+
+    if (data.shouldFinalize) {
+      setReadyToFinalize(true);
+    }
+  } catch (e) {
+    console.error("send message error", e);
+    setError("메시지를 처리하는 중 문제가 발생했습니다.");
+  } finally {
+    setSending(false);
+  }
+}
+  
+async function handleManualFinalize() {
+  if (!seed || finalizing) return;
+
+  await finalizeChat({
+    seed,
+    nextMessages: messages,
+    nextSlots: extractedSlots,
+  });
+}
   function renderBubble(message: ChatMessage, index: number) {
     const isAssistant = message.role === "assistant";
 
@@ -435,6 +452,31 @@ export default function FollowupMiniApp() {
       </div>
     )}
 
+    {readyToFinalize && !finalizing && (
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "flex-start",
+          marginBottom: 12,
+        }}
+      >
+        <div
+          style={{
+            maxWidth: "82%",
+            padding: "14px 16px",
+            borderRadius: 18,
+            lineHeight: 1.6,
+            background: "rgba(17,17,17,0.04)",
+            color: "#111111",
+            border: "1px solid rgba(0,0,0,0.08)",
+          }}
+        >
+          핵심 정보가 어느 정도 정리됐어요. 더 이야기해도 되고, 바로 일정
+          생성으로 넘어가도 됩니다.
+        </div>
+      </div>
+    )}
+
     <div ref={messagesEndRef} />
   </div>
 
@@ -444,8 +486,7 @@ export default function FollowupMiniApp() {
       padding: 14,
       background: "rgba(255,255,255,0.82)",
       backdropFilter: "blur(10px)",
-      position: "sticky",
-      bottom: 0,
+      flexShrink: 0,
     }}
   >
     <label
@@ -462,14 +503,10 @@ export default function FollowupMiniApp() {
 
     <div
       style={{
-        display: "flex",
+        display: "grid",
+        gridTemplateColumns: "1fr 96px",
         gap: 10,
-        alignItems: "flex-end",
-        padding: 10,
-        borderRadius: 22,
-        border: "1px solid rgba(0,0,0,0.10)",
-        background: "#ffffff",
-        boxShadow: "0 8px 24px rgba(20,35,60,0.06)",
+        alignItems: "end",
       }}
     >
       <textarea
@@ -489,35 +526,67 @@ export default function FollowupMiniApp() {
         rows={1}
         style={{
           width: "100%",
-          minHeight: 28,
+          minHeight: 88,
           maxHeight: 140,
           resize: "none",
-          border: "none",
-          padding: "8px 10px",
+          borderRadius: 18,
+          border: "1px solid rgba(0,0,0,0.10)",
+          padding: "14px 16px",
           font: "inherit",
           lineHeight: 1.6,
           outline: "none",
-          background: "transparent",
+          background: "#ffffff",
+          boxShadow: "0 8px 24px rgba(20,35,60,0.06)",
         }}
         disabled={sending || finalizing || startingChat}
       />
 
       <button
         type="button"
-        className="tp2-btnPrimary"
         onClick={() => void handleSend()}
         disabled={!canSend}
         style={{
-          minWidth: 92,
-          flexShrink: 0,
-          opacity: canSend ? 1 : 0.6,
-          cursor: canSend ? "pointer" : "not-allowed",
+          height: 52,
+          border: "none",
           borderRadius: 16,
+          background: canSend ? "#111111" : "rgba(17,17,17,0.35)",
+          color: "#ffffff",
+          font: "inherit",
+          fontWeight: 600,
+          cursor: canSend ? "pointer" : "not-allowed",
         }}
       >
         보내기
       </button>
     </div>
+
+    {readyToFinalize && !finalizing && (
+      <div
+        style={{
+          marginTop: 10,
+          display: "flex",
+          justifyContent: "flex-end",
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => void handleManualFinalize()}
+          style={{
+            minWidth: 140,
+            height: 46,
+            border: "1px solid rgba(0,0,0,0.12)",
+            borderRadius: 14,
+            background: "#ffffff",
+            color: "#111111",
+            font: "inherit",
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          일정 생성하기
+        </button>
+      </div>
+    )}
   </div>
 </section>
 
