@@ -63,7 +63,7 @@ function formatAnswer(q: SecondaryQuestion, answers: Record<string, any>) {
     return String(n);
   }
 
-  if (q.type === "multi" || q.type === "textList") {
+  if (q.type === "multi" ) {
     return Array.isArray(value) && value.length > 0 ? value.join(", ") : "—";
   }
 
