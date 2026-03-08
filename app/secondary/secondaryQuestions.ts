@@ -136,7 +136,13 @@ export const secondaryQuestions: SecondaryQuestion[] = [
     title: "하루 일정은 어느 정도 밀도가 좋나요?",
     type: "single",
     required: true,
-    options: ["여유 있게", "적당히 균형 있게", "많이 담는 편", "잘 모르겠음", "기타"],
+    options: [
+  "여유롭게 (1~2곳)",
+  "적당히 (3~4곳)",
+  "밀도 있게 (5~6곳)",
+  "날마다 다름",
+  "기타",
+],
   },
   {
     id: "chronotype",
