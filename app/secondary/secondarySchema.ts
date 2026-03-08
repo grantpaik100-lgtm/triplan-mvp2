@@ -1,10 +1,53 @@
-// secondarySchema.ts
+export type SecondarySection = "G" | "A" | "B" | "C" | "D" | "E" | "F" | "H";
+
+export type SingleValueQuestionId =
+  | "country"
+  | "city"
+  | "companionType"
+  | "budgetLevel"
+  | "firstDayStart"
+  | "lastDayEnd"
+  | "pace"
+  | "chronotype"
+  | "restFrequency"
+  | "dailyActivityTolerance"
+  | "walkTolerance"
+  | "transferTolerance"
+  | "stayMode"
+  | "foodRole"
+  | "waitingTolerance"
+  | "primaryGoal"
+  | "mustStayTogether"
+  | "conflictRule";
+
+export type MultiValueQuestionId =
+  | "moveStyle"
+  | "lodgingPriorities"
+  | "foodRestrictions"
+  | "mustDoTypes"
+  | "avoidTypes";
+
+export type TextQuestionId =
+  | "mustExperiences"
+  | "mustFoods"
+  | "specialCare"
+  | "specialContext"
+  | "successFeeling";
 
 export type SingleAnswerValue = string;
+export type MultiAnswerValue = string[];
 
 export type PlaceItem = {
   name: string;
-  note?: string;
+  reason: string;
+  importance: "낮" | "중" | "높";
+};
+
+export type BudgetSplit = {
+  food: number;
+  activity: number;
+  stay: number;
+  shopping: number;
 };
 
 export type SecondaryAnswers = {
@@ -24,13 +67,7 @@ export type SecondaryAnswers = {
   budgetLevel: SingleAnswerValue;
   budgetLevelOther: string;
 
-  // 🔵 추가된 예산 분배
-  budgetSplit: {
-    food: number;
-    activity: number;
-    stay: number;
-    shopping: number;
-  };
+  budgetSplit: BudgetSplit;
 
   firstDayStart: SingleAnswerValue;
   firstDayStartOther: string;
@@ -38,47 +75,71 @@ export type SecondaryAnswers = {
   lastDayEnd: SingleAnswerValue;
   lastDayEndOther: string;
 
-  dailyDensity: SingleAnswerValue;
-  dailyDensityOther: string;
+  pace: SingleAnswerValue;
+  paceOther: string;
 
-  paceStyle: SingleAnswerValue;
-  paceStyleOther: string;
+  chronotype: SingleAnswerValue;
+  chronotypeOther: string;
 
   restFrequency: SingleAnswerValue;
   restFrequencyOther: string;
 
-  moveStyle: SingleAnswerValue;
+  dailyActivityTolerance: SingleAnswerValue;
+  dailyActivityToleranceOther: string;
+
+  moveStyle: MultiAnswerValue;
   moveStyleOther: string;
 
-  moveTolerance: SingleAnswerValue;
-  moveToleranceOther: string;
+  walkTolerance: SingleAnswerValue;
+  walkToleranceOther: string;
 
-  foodImportance: SingleAnswerValue;
-  foodImportanceOther: string;
+  transferTolerance: SingleAnswerValue;
+  transferToleranceOther: string;
 
-  foodRestriction: string[];
+  stayMode: SingleAnswerValue;
+  stayModeOther: string;
+
+  lodgingPriorities: MultiAnswerValue;
+  lodgingPrioritiesOther: string;
+
+  foodRole: SingleAnswerValue;
+  foodRoleOther: string;
+
+  foodRestrictions: MultiAnswerValue;
+  foodRestrictionsOther: string;
 
   waitingTolerance: SingleAnswerValue;
   waitingToleranceOther: string;
 
+  primaryGoal: SingleAnswerValue;
+  primaryGoalOther: string;
+
+  mustDoTypes: MultiAnswerValue;
+  mustDoTypesOther: string;
+
+  avoidTypes: MultiAnswerValue;
+  avoidTypesOther: string;
+
   mustPlaces: PlaceItem[];
-
   mustExperiences: string;
-
   mustFoods: string;
 
+  mustStayTogether: SingleAnswerValue;
+  mustStayTogetherOther: string;
+
+  conflictRule: SingleAnswerValue;
+  conflictRuleOther: string;
+
   specialCare: string;
-
   specialContext: string;
-
   successFeeling: string;
 };
 
 export const secondaryInitialAnswers: SecondaryAnswers = {
-  country: "",
+  country: "KR",
   countryOther: "",
 
-  city: "",
+  city: "서울",
   cityOther: "",
 
   tripDays: 3,
@@ -91,7 +152,6 @@ export const secondaryInitialAnswers: SecondaryAnswers = {
   budgetLevel: "",
   budgetLevelOther: "",
 
-  // 🔵 예산 분배 기본값
   budgetSplit: {
     food: 3,
     activity: 3,
@@ -105,45 +165,66 @@ export const secondaryInitialAnswers: SecondaryAnswers = {
   lastDayEnd: "",
   lastDayEndOther: "",
 
-  dailyDensity: "",
-  dailyDensityOther: "",
+  pace: "",
+  paceOther: "",
 
-  paceStyle: "",
-  paceStyleOther: "",
+  chronotype: "",
+  chronotypeOther: "",
 
   restFrequency: "",
   restFrequencyOther: "",
 
-  moveStyle: "",
+  dailyActivityTolerance: "",
+  dailyActivityToleranceOther: "",
+
+  moveStyle: [],
   moveStyleOther: "",
 
-  moveTolerance: "",
-  moveToleranceOther: "",
+  walkTolerance: "",
+  walkToleranceOther: "",
 
-  foodImportance: "",
-  foodImportanceOther: "",
+  transferTolerance: "",
+  transferToleranceOther: "",
 
-  foodRestriction: [],
+  stayMode: "",
+  stayModeOther: "",
+
+  lodgingPriorities: [],
+  lodgingPrioritiesOther: "",
+
+  foodRole: "",
+  foodRoleOther: "",
+
+  foodRestrictions: [],
+  foodRestrictionsOther: "",
 
   waitingTolerance: "",
   waitingToleranceOther: "",
 
+  primaryGoal: "",
+  primaryGoalOther: "",
+
+  mustDoTypes: [],
+  mustDoTypesOther: "",
+
+  avoidTypes: [],
+  avoidTypesOther: "",
+
   mustPlaces: [],
-
-  // 🔵 UX 개선 (textList → textarea)
   mustExperiences: "",
-
   mustFoods: "",
 
+  mustStayTogether: "",
+  mustStayTogetherOther: "",
+
+  conflictRule: "",
+  conflictRuleOther: "",
+
   specialCare: "",
-
   specialContext: "",
-
   successFeeling: "",
 };
 
 export function cloneSecondaryInitialAnswers(): SecondaryAnswers {
-  return JSON.parse(
-    JSON.stringify(secondaryInitialAnswers)
-  ) as SecondaryAnswers;
+  return JSON.parse(JSON.stringify(secondaryInitialAnswers)) as SecondaryAnswers;
 }
