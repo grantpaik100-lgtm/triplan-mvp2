@@ -232,18 +232,21 @@ function validateQuestion(
 }
 
   if (q.type === "places") {
-    if (!Array.isArray(v) || v.length === 0) {
-      return { ok: false, msg: "장소 최소 1개 입력" };
-    }
-
-    for (const p of v as PlaceItem[]) {
-      if (!p.name?.trim()) return { ok: false, msg: "장소 이름 입력" };
-      if (!p.reason?.trim()) return { ok: false, msg: "이유 입력" };
-      if (!p.importance) return { ok: false, msg: "중요도 선택" };
-    }
-
+  if (!Array.isArray(v) || v.length === 0) {
     return { ok: true };
   }
+
+  for (const p of v as PlaceItem[]) {
+    const hasName = String(p.name ?? "").trim().length > 0;
+    const hasReason = String(p.reason ?? "").trim().length > 0;
+
+    if (!hasName && !hasReason) continue;
+
+    if (!hasName) return { ok: false, msg: "장소 이름 입력" };
+  }
+
+  return { ok: true };
+}
 
   return { ok: true };
 }
@@ -956,8 +959,8 @@ function PlacesInput({
   onChange: (v: PlaceItem[]) => void;
 }) {
   const add = () => {
-    onChange([...value, { name: "", reason: "", importance: "중" }]);
-  };
+  onChange([...value, { name: "", reason: "" }]);
+};
 
   const update = (i: number, patch: Partial<PlaceItem>) => {
     const next = value.map((p, idx) => (idx === i ? { ...p, ...patch } : p));
@@ -973,8 +976,7 @@ function PlacesInput({
       <button type="button" className="tp2-btn" onClick={add}>
         + 장소 추가
       </button>
-
-      {value.length === 0 ? <div className="tp2-meta">최소 1개 입력</div> : null}
+      {value.length === 0 ? <div className="tp2-meta">없으면 건너뛰어도 된다</div> : null}
 
       {value.map((p, i) => (
         <div key={i} className="tp2-subcard">
@@ -988,18 +990,12 @@ function PlacesInput({
           <textarea
             className="tp2-textarea"
             placeholder="왜 가고 싶은지"
-            
+            maxLength={200}
             value={p.reason}
             onChange={(e) => update(i, { reason: e.target.value })}
           />
 
-          <SingleSelect
-            options={["낮", "중", "높"]}
-            value={p.importance}
-            other=""
-            onChange={(v) => update(i, { importance: v as "낮" | "중" | "높" })}
-            onChangeOther={() => {}}
-          />
+          
 
           <button type="button" className="tp2-btn" onClick={() => remove(i)}>
             삭제
