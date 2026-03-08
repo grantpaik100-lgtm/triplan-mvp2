@@ -450,7 +450,7 @@ export default function SecondaryMiniApp() {
           <TextArea
             value={String(value ?? "")}
             placeholder={q.placeholder ?? ""}
-            maxLength={120}
+            maxLength={200}
             onChange={(v) => setAnswer(q.id, v)}
           />
         );
@@ -723,7 +723,7 @@ export default function SecondaryMiniApp() {
   value: string;
   onChange: (v: "KR" | "JP") => void;
 }) {
-  const options: ("KR" | "JP")[] = ["KR", "JP"];
+  const options: ("KR" | "JP")[] = ["KR"];
 
   return (
     <div className="tp2-seg">
@@ -1071,6 +1071,7 @@ function TextArea({
 }: {
   value: string;
   placeholder: string;
+  maxLength?: number;
   onChange: (v: string) => void;
 }) {
   return (
@@ -1078,6 +1079,7 @@ function TextArea({
       className="tp2-textarea"
       value={value}
       placeholder={placeholder}
+      maxLength={maxLength}
       onChange={(e) => onChange(e.target.value)}
     />
   );
