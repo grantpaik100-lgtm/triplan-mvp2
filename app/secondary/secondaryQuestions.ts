@@ -1,13 +1,6 @@
-import type {
-  MultiValueQuestionId,
-  SecondaryAnswers,
-  SecondarySection,
-  SingleValueQuestionId,
-  TextListQuestionId,
-  TextQuestionId,
-} from "./secondarySchema";
+// secondaryQuestions.ts
 
-export type CountryCode = "KR" | "JP";
+import { PlaceItem } from "./secondarySchema";
 
 export type SecondaryQuestionType =
   | "country"
@@ -16,313 +9,230 @@ export type SecondaryQuestionType =
   | "multi"
   | "number"
   | "places"
-  | "textList"
-  | "textarea";
+  | "textarea"
+  | "budgetSplit";
 
-export type SecondaryQuestionId =
-  | SingleValueQuestionId
-  | MultiValueQuestionId
-  | TextQuestionId
-  | TextListQuestionId
-  | "tripDays"
-  | "partySize"
-  | "mustPlaces";
+export type SecondarySection =
+  | "A"
+  | "B"
+  | "C"
+  | "D"
+  | "E"
+  | "F"
+  | "G"
+  | "H";
 
 export type SecondaryQuestion = {
-  id: SecondaryQuestionId;
+  id: string;
+  type: SecondaryQuestionType;
+
   section: SecondarySection;
+
   title: string;
   help?: string;
-  type: SecondaryQuestionType;
-  options?: string[];
-  required?: boolean;
+
+  options?: { value: string; label: string }[];
+
   placeholder?: string;
+
+  required?: boolean;
+
   maxSelect?: number;
-  maxItems?: number;
-  showWhen?: (answers: Partial<SecondaryAnswers> & Record<string, any>) => boolean;
 };
-
-export const CITY_OPTIONS: Record<CountryCode, string[]> = {
-  KR: ["서울", "부산", "제주", "강릉", "경주", "여수", "속초", "인천"],
-  JP: ["도쿄", "오사카", "교토", "후쿠오카", "삿포로", "고베", "요코하마", "나가사키"],
-};
-
-export function getCityOptions(country?: string): string[] {
-  if (country === "KR" || country === "JP") return CITY_OPTIONS[country];
-  return [];
-}
 
 export const secondaryQuestions: SecondaryQuestion[] = [
   {
     id: "country",
-    section: "G",
-    title: "어느 나라로 여행 가나요?",
-    help: "현재 MVP에서는 한국/일본만 지원한다.",
     type: "country",
+    section: "A",
+    title: "어느 나라로 여행 가시나요?",
     required: true,
   },
+
   {
     id: "city",
-    section: "G",
-    title: "어느 도시로 가나요?",
-    help: "선택한 국가 기준으로 도시 목록이 바뀐다.",
     type: "city",
+    section: "A",
+    title: "도시는 어디인가요?",
     required: true,
   },
+
   {
     id: "tripDays",
-    section: "G",
-    title: "여행은 총 며칠인가요?",
     type: "number",
-    required: true,
+    section: "A",
+    title: "여행 기간은 며칠인가요?",
   },
+
   {
     id: "companionType",
-    section: "G",
-    title: "누구와 함께 여행하나요?",
     type: "single",
-    required: true,
-    options: ["혼자", "연인", "친구", "가족", "부모님", "여러 명", "기타"],
+    section: "B",
+    title: "누구와 여행하시나요?",
+    options: [
+      { value: "solo", label: "혼자" },
+      { value: "friends", label: "친구" },
+      { value: "couple", label: "연인" },
+      { value: "family", label: "가족" },
+    ],
   },
+
   {
     id: "partySize",
-    section: "G",
-    title: "총 인원은 몇 명인가요?",
     type: "number",
-    required: true,
+    section: "B",
+    title: "총 인원은 몇 명인가요?",
   },
+
   {
     id: "budgetLevel",
-    section: "G",
-    title: "이번 여행의 예산 수준은 어느 정도인가요?",
     type: "single",
-    required: true,
-    options: ["가볍게 아끼는 편", "적당히 균형 있게", "좋은 곳에는 쓰는 편", "꽤 투자해도 괜찮음", "아직 잘 모르겠음", "기타"],
+    section: "G",
+    title: "전체 예산 수준은 어느 정도인가요?",
+    options: [
+      { value: "low", label: "절약 여행" },
+      { value: "mid", label: "적당히 여유" },
+      { value: "high", label: "비용보다 경험" },
+    ],
   },
 
+  // 🔵 새로 추가된 질문
   {
-  id: "budgetSplit",
-  section: "G",
-  type: "budgetSplit",
-  title: "여행 예산을 어디에 더 쓰고 싶나요?",
-  description: "총 10점을 나눠주세요",
+    id: "budgetSplit",
+    type: "budgetSplit",
+    section: "G",
+    title: "예산을 어디에 더 쓰고 싶나요?",
+    help: "총 10점을 나눠 주세요",
   },
 
-  
   {
     id: "firstDayStart",
-    section: "A",
-    title: "첫날 몇 시부터 여행이 가능하나요?",
     type: "single",
-    required: true,
-    options: ["09시 이전", "09~11시", "11~14시", "14시 이후", "아직 잘 모르겠음", "기타"],
-  },
-  {
-    id: "lastDayEnd",
-    section: "A",
-    title: "마지막 날 몇 시까지 여행이 가능한가요?",
-    type: "single",
-    required: true,
-    options: ["12시 이전", "12~15시", "15~18시", "18시 이후", "아직 잘 모르겠음", "기타"],
-  },
-  {
-    id: "pace",
-    section: "A",
-    title: "하루 일정은 어느 정도 밀도가 좋나요?",
-    type: "single",
-    required: true,
-    options: ["여유 있게", "적당히 균형 있게", "많이 담는 편", "잘 모르겠음", "기타"],
-  },
-  {
-    id: "chronotype",
-    section: "A",
-    title: "여행할 때 어느 시간대가 더 잘 맞나요?",
-    type: "single",
-    required: true,
-    options: ["아침형", "중간", "저녁형", "딱히 상관 없음", "기타"],
-  },
-  {
-    id: "restFrequency",
-    section: "A",
-    title: "여행 중 카페나 숙소에서 쉬는 시간을 어느 정도 갖고 싶나요?",
-    type: "single",
-    required: true,
-    options: ["거의 필요 없음", "하루 1번 정도", "하루 2번 정도", "자주 쉬는 편이 좋음", "기타"],
-  },
-  {
-    id: "dailyActivityTolerance",
-    section: "A",
-    title: "하루에 어느 정도 돌아다니는 일정이 가장 잘 맞나요?",
-    type: "single",
-    required: true,
-    options: ["1~2곳만 여유 있게", "3~4곳 정도", "5곳 이상도 괜찮음", "날마다 다름", "기타"],
+    section: "C",
+    title: "첫날 여행은 언제 시작하나요?",
+    options: [
+      { value: "morning", label: "아침" },
+      { value: "noon", label: "점심 이후" },
+      { value: "evening", label: "저녁" },
+    ],
   },
 
   {
-    id: "foodRole",
-    section: "B",
-    title: "이번 여행에서 음식은 어떤 위치인가요?",
+    id: "lastDayEnd",
     type: "single",
-    required: true,
-    options: ["크게 중요하지 않음", "있으면 즐기고 싶음", "맛집 몇 곳은 꼭 넣고 싶음", "음식이 여행의 핵심임", "기타"],
+    section: "C",
+    title: "마지막 날은 언제까지 여행 가능한가요?",
+    options: [
+      { value: "morning", label: "아침까지만" },
+      { value: "noon", label: "점심까지" },
+      { value: "evening", label: "저녁까지" },
+    ],
   },
+
   {
-    id: "foodRestrictions",
-    section: "B",
-    title: "피하거나 조심해야 할 음식이 있나요?",
-    type: "multi",
-    required: true,
-    options: ["날것", "느끼한 음식", "매운 음식", "해산물", "특정 재료/알레르기", "딱히 없음", "기타"],
-    maxSelect: 5,
-  },
-  {
-    id: "waitingTolerance",
-    section: "B",
-    title: "인기 맛집 대기를 어느 정도까지 괜찮게 생각하나요?",
+    id: "dailyDensity",
     type: "single",
-    required: true,
-    options: ["웨이팅은 피하고 싶음", "15분까지 가능", "30분까지 가능", "1시간까지 가능", "상황에 따라 다름", "기타"],
+    section: "D",
+    title: "하루 일정 밀도는 어떤가요?",
+    options: [
+      { value: "light", label: "여유롭게" },
+      { value: "medium", label: "보통" },
+      { value: "dense", label: "꽉 채우기" },
+    ],
   },
 
   {
     id: "moveStyle",
-    section: "C",
-    title: "어떤 이동 방식이 괜찮나요?",
-    type: "multi",
-    required: true,
-    options: ["도보", "대중교통", "택시", "렌터카", "기타"],
-    maxSelect: 3,
-  },
-  {
-    id: "walkTolerance",
-    section: "C",
-    title: "한 번에 걷는 이동은 어느 정도까지 괜찮나요?",
     type: "single",
-    required: true,
-    options: ["10분 이내", "10~20분", "20~40분", "40분 이상도 괜찮음", "기타"],
-  },
-  {
-    id: "transferTolerance",
-    section: "C",
-    title: "장소 사이 이동 시간이 길어지는 건 어느 정도까지 괜찮나요?",
-    type: "single",
-    required: true,
-    options: ["15분 이내", "30분 정도", "1시간 정도", "1시간 이상도 괜찮음", "기타"],
+    section: "E",
+    title: "이동 방식은 어떤 걸 선호하나요?",
+    options: [
+      { value: "walk", label: "도보 위주" },
+      { value: "transit", label: "대중교통" },
+      { value: "taxi", label: "택시" },
+      { value: "mixed", label: "상황에 따라" },
+    ],
   },
 
   {
-    id: "stayMode",
-    section: "D",
-    title: "이번 여행에서는 숙소를 어떻게 잡는 게 좋나요?",
+    id: "moveTolerance",
     type: "single",
-    required: true,
-    options: ["한 숙소에 계속 머물고 싶음", "필요하면 옮겨도 괜찮음", "지역이 바뀌면 이동도 괜찮음", "아직 잘 모르겠음", "기타"],
-  },
-  {
-    id: "lodgingPriorities",
-    section: "D",
-    title: "숙소에서 중요한 요소를 골라주세요",
-    type: "multi",
-    required: true,
-    options: ["위치", "가격", "청결", "조식", "뷰", "욕장/스파", "기타"],
-    maxSelect: 3,
+    section: "E",
+    title: "한 번 이동할 때 어느 정도까지 괜찮나요?",
+    options: [
+      { value: "short", label: "20분 이내" },
+      { value: "medium", label: "40분 이내" },
+      { value: "long", label: "1시간도 가능" },
+    ],
   },
 
   {
-    id: "primaryGoal",
-    section: "F",
-    title: "이번 여행에서 가장 중요하게 챙기고 싶은 것은 무엇인가요?",
+    id: "foodImportance",
     type: "single",
-    required: true,
-    options: ["편하게 쉬기", "여러 곳 둘러보기", "좋은 분위기와 감정", "동선 효율과 알찬 구성", "음식", "쇼핑", "기타"],
-  },
-  {
-    id: "mustDoTypes",
     section: "F",
-    title: "꼭 넣고 싶은 활동/장소 유형을 골라주세요",
-    type: "multi",
-    required: true,
-    options: ["유명 관광지", "자연/풍경", "쇼핑", "카페", "골목/로컬 거리", "전시/박물관", "야경/밤거리", "기타"],
-    maxSelect: 3,
+    title: "음식은 여행에서 얼마나 중요한가요?",
+    options: [
+      { value: "low", label: "보통" },
+      { value: "mid", label: "중요" },
+      { value: "high", label: "매우 중요" },
+    ],
   },
+
   {
-    id: "avoidTypes",
+    id: "waitingTolerance",
+    type: "single",
     section: "F",
-    title: "가능하면 피하고 싶은 활동/장소 유형을 골라주세요",
-    type: "multi",
-    required: true,
-    options: ["유명 관광지", "자연/풍경", "쇼핑", "카페", "골목/로컬 거리", "전시/박물관", "야경/밤거리", "기타"],
-    maxSelect: 3,
+    title: "맛집 웨이팅은 어느 정도까지 괜찮나요?",
+    options: [
+      { value: "none", label: "기다리기 싫음" },
+      { value: "short", label: "10~20분" },
+      { value: "long", label: "1시간도 가능" },
+    ],
   },
+
   {
     id: "mustPlaces",
-    section: "F",
-    title: "꼭 가고 싶은 장소가 있다면 적어주세요",
-    help: "최소 1개는 입력해야 한다.",
     type: "places",
-    required: true,
+    section: "H",
+    title: "꼭 가고 싶은 장소가 있다면 적어주세요",
   },
+
+  // 🔵 UX 수정 (textList → textarea)
+
   {
     id: "mustExperiences",
-    section: "F",
+    type: "textarea",
+    section: "H",
     title: "꼭 하고 싶은 경험이 있다면 적어주세요",
-    type: "textList",
-    required: false,
-    maxItems: 5,
-    placeholder: "예: 온천, 야경 보기",
-  },
-  {
-    id: "mustFoods",
-    section: "F",
-    title: "꼭 먹고 싶은 음식이 있다면 적어주세요",
-    type: "textList",
-    required: false,
-    maxItems: 5,
-    placeholder: "예: 라멘, 스시",
+    placeholder: "예: 온천, 야경 보기, 자전거 타기",
   },
 
   {
-    id: "mustStayTogether",
-    section: "E",
-    title: "여행 중 대부분 함께 다니는 편이 좋나요?",
-    type: "single",
-    required: true,
-    options: ["대부분 함께", "가끔 나눠서도 괜찮음", "자유롭게 나눠도 괜찮음", "잘 모르겠음", "기타"],
-    showWhen: (answers) => answers.companionType !== "혼자",
+    id: "mustFoods",
+    type: "textarea",
+    section: "H",
+    title: "꼭 먹고 싶은 음식이 있다면 적어주세요",
+    placeholder: "예: 라멘, 스시, 오코노미야키",
   },
-  {
-    id: "conflictRule",
-    section: "E",
-    title: "의견이 다를 때는 어떤 방식이 가장 좋나요?",
-    type: "single",
-    required: true,
-    options: ["다수결", "가장 힘든 사람 기준", "번갈아 우선하기", "계획 짜는 사람이 정리", "상황마다 대화해서 결정", "기타"],
-    showWhen: (answers) => answers.companionType !== "혼자",
-  },
+
   {
     id: "specialCare",
-    section: "E",
-    title: "일정 짤 때 특히 배려해야 할 사람이 있거나 상황이 있나요?",
     type: "textarea",
-    required: false,
-    placeholder: "예: 부모님이 오래 걷는 걸 힘들어함 / 아이 낮잠 시간이 필요함",
-    showWhen: (answers) => answers.companionType !== "혼자",
+    section: "H",
+    title: "여행 설계 시 고려해야 할 점이 있다면 적어주세요",
   },
 
   {
     id: "specialContext",
-    section: "H",
-    title: "이번 여행이 특별한 이유가 있다면 알려주세요",
     type: "textarea",
-    required: false,
-    placeholder: "예: 생일 여행, 첫 해외여행, 전역 기념",
+    section: "H",
+    title: "이번 여행에 특별한 의미가 있나요?",
   },
+
   {
     id: "successFeeling",
-    section: "H",
-    title: "이번 여행이 잘 됐다고 느끼려면 어떤 느낌이어야 하나요?",
     type: "textarea",
-    required: false,
-    placeholder: "예: 안 피곤하고 여유로웠으면 좋겠음 / 후회 없이 알찼으면 좋겠음",
+    section: "H",
+    title: "이 여행이 잘 되었다고 느끼려면 어떤 느낌이어야 할까요?",
   },
 ];
