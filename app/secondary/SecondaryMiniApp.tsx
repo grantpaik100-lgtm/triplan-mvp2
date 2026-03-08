@@ -450,9 +450,81 @@ export default function SecondaryMiniApp() {
           <TextArea
             value={String(value ?? "")}
             placeholder={q.placeholder ?? ""}
+            maxLength={120}
             onChange={(v) => setAnswer(q.id, v)}
           />
         );
+      case "budgetSplit": {
+        const bs = answers.budgetSplit;
+        const update = (key: keyof typeof bs, value: number) => {
+  setAnswer("budgetSplit", {
+    ...answers.budgetSplit,
+    [key]: value,
+  });
+};
+
+  const total =
+    bs.food + bs.activity + bs.stay + bs.shopping;
+
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div>총합: {total} / 10</div>
+
+      <label>
+        음식
+        <input
+          type="number"
+          min={0}
+          max={10}
+          value={bs.food}
+          onChange={(e) =>
+            update("food", Number(e.target.value))
+          }
+        />
+      </label>
+
+      <label>
+        활동
+        <input
+          type="number"
+          min={0}
+          max={10}
+          value={bs.activity}
+          onChange={(e) =>
+            update("activity", Number(e.target.value))
+          }
+        />
+      </label>
+
+      <label>
+        숙소
+        <input
+          type="number"
+          min={0}
+          max={10}
+          value={bs.stay}
+          onChange={(e) =>
+            update("stay", Number(e.target.value))
+          }
+        />
+      </label>
+
+      <label>
+        쇼핑
+        <input
+          type="number"
+          min={0}
+          max={10}
+          value={bs.shopping}
+          onChange={(e) =>
+            update("shopping", Number(e.target.value))
+          }
+        />
+      </label>
+    </div>
+  );
+}
+      
 
       default:
         return null;
@@ -895,6 +967,7 @@ function PlacesInput({
           <textarea
             className="tp2-textarea"
             placeholder="왜 가고 싶은지"
+            
             value={p.reason}
             onChange={(e) => update(i, { reason: e.target.value })}
           />
@@ -983,6 +1056,7 @@ function TextListInput({
 function TextArea({
   value,
   placeholder,
+  maxLength,
   onChange,
 }: {
   value: string;
