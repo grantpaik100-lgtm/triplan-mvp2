@@ -101,6 +101,15 @@ export const secondaryQuestions: SecondaryQuestion[] = [
   },
 
   {
+  id: "budgetSplit",
+  section: "G",
+  type: "budgetSplit",
+  title: "여행 예산을 어디에 더 쓰고 싶나요?",
+  description: "총 10점을 나눠주세요",
+  },
+
+  
+  {
     id: "firstDayStart",
     section: "A",
     title: "첫날 몇 시부터 여행이 가능하나요?",
