@@ -297,9 +297,9 @@ export const secondaryQuestions: SecondaryQuestion[] = [
     id: "mustPlaces",
     section: "F",
     title: "꼭 가고 싶은 장소가 있다면 적어주세요",
-    help: "최소 1개는 입력해야 한다.",
+    help: "없으면 건너뛰어도 된다.",
     type: "places",
-    required: true,
+    required: false,
   },
   {
     id: "mustExperiences",
