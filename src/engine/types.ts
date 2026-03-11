@@ -1,62 +1,138 @@
+export type PrimaryAxis = "rest" | "schedule" | "mood" | "strategy";
+
+export type PlaceAxis =
+  | "food"
+  | "culture"
+  | "nature"
+  | "shopping"
+  | "activity"
+  | "atmosphere"
+  | "tourism"
+  | "price"
+  | "crowd"
+  | "duration";
+
 export type PlaceVector = {
-  food: number | null
-  culture: number | null
-  nature: number | null
-  shopping: number | null
-  activity: number | null
-  atmosphere: number | null
-  tourism: number | null
-  price: number | null
-  crowd: number | null
-  duration: number | null
-}
+  food: number;
+  culture: number;
+  nature: number;
+  shopping: number;
+  activity: number;
+  atmosphere: number;
+  tourism: number;
+  price: number;
+  crowd: number;
+  duration: number;
+};
 
 export type Place = {
-  id: string
-  name: string
-  region: string | null
-  category: string | null
-  avg_duration_min: number | null
-  vector: PlaceVector | null
-}
+  id: string;
+  name: string;
+  region: string | null;
+  category: string | null;
+  lat: number | null;
+  lng: number | null;
+  avg_duration_min: number | null;
+  price_level: number | null;
+  crowd_level: number | null;
+  status: string | null;
+  vector: PlaceVector | null;
+};
 
-export type UserVector = {
-  food: number
-  culture: number
-  nature: number
-  shopping: number
-  activity: number
-  atmosphere: number
-  tourism: number
-  price: number
-  crowd: number
-  duration: number
-}
+export type PrimarySurveyResult = {
+  rest: number;
+  schedule: number;
+  mood: number;
+  strategy: number;
+};
+
+export type SecondarySurveyResult = {
+  city?: string;
+  days: number;
+  companion?: string;
+  budget_level?: number;
+  pace?: number;
+  chronotype?: "morning" | "neutral" | "night";
+  walk_tolerance?: number;
+  waiting_tolerance?: number;
+  food_importance?: number;
+  daily_density: number;
+  must_place_ids?: string[];
+  must_foods?: string[];
+  must_experiences?: string[];
+};
+
+export type UserPreferenceVector = {
+  food: number;
+  culture: number;
+  nature: number;
+  shopping: number;
+  activity: number;
+  atmosphere: number;
+  tourism: number;
+  price: number;
+  crowd: number;
+  duration: number;
+};
+
+export type UserModel = {
+  city: string;
+  days: number;
+  companion: string | null;
+  primary: PrimarySurveyResult;
+  secondary: SecondarySurveyResult;
+  preferenceVector: UserPreferenceVector;
+  constraints: {
+    dailyDensity: number;
+    placesPerDay: number;
+    budgetLevel: number;
+    walkTolerance: number;
+    waitingTolerance: number;
+    pace: number;
+    chronotype: "morning" | "neutral" | "night";
+  };
+  must: {
+    placeIds: string[];
+    foods: string[];
+    experiences: string[];
+  };
+};
+
+export type ScoreBreakdown = {
+  axisAffinity: number;
+  budgetPenalty: number;
+  crowdPenalty: number;
+  durationPenalty: number;
+  finalScore: number;
+};
 
 export type ScoredPlace = {
-  place: Place
-  score: number
-}
-
-export type TripUserInput = {
-  days: number
-  daily_density: number
-  userVector: UserVector
-}
+  place: Place;
+  score: number;
+  breakdown: ScoreBreakdown;
+};
 
 export type DayPlan = {
-  day: number
-  places: ScoredPlace[]
-  total_estimated_duration_min: number
-}
+  day: number;
+  places: ScoredPlace[];
+  total_estimated_duration_min: number;
+  regions: string[];
+  categories: string[];
+};
 
 export type TripPlanResult = {
-  candidates: ScoredPlace[]
-  schedule: DayPlan[]
+  userModel: UserModel;
+  candidates: ScoredPlace[];
+  schedule: DayPlan[];
   meta: {
-    days: number
-    daily_density: number
-    places_per_day: number
-    total_selected: number
-  }
-}
+    candidate_count: number;
+    total_selected: number;
+    places_per_day: number;
+    days: number;
+  };
+};
+
+export type PlanTripInput = {
+  primary: PrimarySurveyResult;
+  secondary: SecondarySurveyResult;
+};
