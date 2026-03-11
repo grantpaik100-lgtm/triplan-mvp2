@@ -1,13 +1,17 @@
-import { ScoredPlace } from "./types"
+import type { ScoredPlace, UserModel } from "./types";
 
 export function selectCandidates(
   scored: ScoredPlace[],
-  k: number = 20
+  user: UserModel
 ): ScoredPlace[] {
+  const totalSlots = user.days * user.constraints.placesPerDay;
+  const candidateK = Math.max(totalSlots * 3, 12);
 
-  const sorted = [...scored].sort(
-    (a, b) => b.score - a.score
-  )
+  const filtered = scored.filter(
+    (item) => item.place.vector !== null && item.score > 0
+  );
 
-  return sorted.slice(0, k)
+  const sorted = [...filtered].sort((a, b) => b.score - a.score);
+
+  return sorted.slice(0, candidateK);
 }
