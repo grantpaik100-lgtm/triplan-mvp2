@@ -1,36 +1,45 @@
-import { getPlacesWithVectors } from "@/lib/places"
-import { selectCandidates } from "./candidate"
-import { scorePlaces } from "./scoring"
-import { buildSchedule, densityToPlaces } from "./schedule"
-import { TripPlanResult, TripUserInput } from "./types"
+import { getPlaceByIds, getPlacesWithVectors } from "@/lib/places";
+import { buildUserModel } from "./userModel";
+import { scorePlaces } from "./scoring";
+import { selectCandidates } from "./candidate";
+import { buildSchedule } from "./schedule";
+import type { PlanTripInput, TripPlanResult } from "./types";
 
-export async function planTrip(input: TripUserInput): Promise<TripPlanResult> {
-  const { days, daily_density, userVector } = input
+export async function planTrip(input: PlanTripInput): Promise<TripPlanResult> {
+  // 1. user model 생성
+  const userModel = buildUserModel(input);
 
-  const places = await getPlacesWithVectors()
+  // 2. place 로드
+  const places = await getPlacesWithVectors();
 
-  const scored = scorePlaces(places, userVector)
+  // 3. scoring
+  const scored = scorePlaces(places, userModel);
 
-  const placesPerDay = densityToPlaces(daily_density)
-  const totalSlots = days * placesPerDay
-  const candidateK = Math.max(totalSlots * 3, 10)
+  // 4. candidate selection
+  const candidates = selectCandidates(scored, userModel);
 
-  const candidates = selectCandidates(scored, candidateK)
+  // 5. must place 로드
+  const mustPlaces =
+    userModel.must.placeIds.length > 0
+      ? await getPlaceByIds(userModel.must.placeIds)
+      : [];
 
+  // 6. schedule
   const schedule = buildSchedule({
     candidates,
-    days,
-    dailyDensity: daily_density,
-  })
+    mustPlaces,
+    user: userModel,
+  });
 
   return {
+    userModel,
     candidates,
     schedule,
     meta: {
-      days,
-      daily_density,
-      places_per_day: placesPerDay,
+      candidate_count: candidates.length,
       total_selected: schedule.reduce((acc, day) => acc + day.places.length, 0),
+      places_per_day: userModel.constraints.placesPerDay,
+      days: userModel.days,
     },
-  }
+  };
 }
