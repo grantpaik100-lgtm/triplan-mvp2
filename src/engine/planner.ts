@@ -1,21 +1,36 @@
 import { getPlacesWithVectors } from "@/lib/places"
-import { scorePlaces } from "./scoring"
 import { selectCandidates } from "./candidate"
-import { UserVector } from "./types"
+import { scorePlaces } from "./scoring"
+import { buildSchedule, densityToPlaces } from "./schedule"
+import { TripPlanResult, TripUserInput } from "./types"
 
-export async function planTrip(user: UserVector) {
+export async function planTrip(input: TripUserInput): Promise<TripPlanResult> {
+  const { days, daily_density, userVector } = input
 
-  // 1 places load
   const places = await getPlacesWithVectors()
 
-  // 2 scoring
-  const scored = scorePlaces(places, user)
+  const scored = scorePlaces(places, userVector)
 
-  // 3 candidate selection
-  const candidates = selectCandidates(scored, 10)
+  const placesPerDay = densityToPlaces(daily_density)
+  const totalSlots = days * placesPerDay
+  const candidateK = Math.max(totalSlots * 3, 10)
+
+  const candidates = selectCandidates(scored, candidateK)
+
+  const schedule = buildSchedule({
+    candidates,
+    days,
+    dailyDensity: daily_density,
+  })
 
   return {
-    candidates
+    candidates,
+    schedule,
+    meta: {
+      days,
+      daily_density,
+      places_per_day: placesPerDay,
+      total_selected: schedule.reduce((acc, day) => acc + day.places.length, 0),
+    },
   }
-
 }
