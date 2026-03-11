@@ -37,3 +37,26 @@ export type ScoredPlace = {
   place: Place
   score: number
 }
+
+export type TripUserInput = {
+  days: number
+  daily_density: number
+  userVector: UserVector
+}
+
+export type DayPlan = {
+  day: number
+  places: ScoredPlace[]
+  total_estimated_duration_min: number
+}
+
+export type TripPlanResult = {
+  candidates: ScoredPlace[]
+  schedule: DayPlan[]
+  meta: {
+    days: number
+    daily_density: number
+    places_per_day: number
+    total_selected: number
+  }
+}
