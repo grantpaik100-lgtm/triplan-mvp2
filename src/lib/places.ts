@@ -1,6 +1,19 @@
 import { supabase } from "@/lib/supabase";
 import type { Place, PlaceVector } from "@/engine/types";
 
+type DbPlaceVectorRow = {
+  food: number | null;
+  culture: number | null;
+  nature: number | null;
+  shopping: number | null;
+  activity: number | null;
+  atmosphere: number | null;
+  tourism: number | null;
+  price: number | null;
+  crowd: number | null;
+  duration: number | null;
+};
+
 type PlaceRow = {
   id: string;
   name: string;
@@ -12,21 +25,10 @@ type PlaceRow = {
   price_level: number | null;
   crowd_level: number | null;
   status: string | null;
-  place_vectors: Array<{
-    food: number | null;
-    culture: number | null;
-    nature: number | null;
-    shopping: number | null;
-    activity: number | null;
-    atmosphere: number | null;
-    tourism: number | null;
-    price: number | null;
-    crowd: number | null;
-    duration: number | null;
-  }> | null;
+  place_vectors: DbPlaceVectorRow[] | null;
 };
 
-function normalizeVector(raw?: PlaceRow["place_vectors"][number] | null): PlaceVector | null {
+function normalizeVector(raw?: DbPlaceVectorRow | null): PlaceVector | null {
   if (!raw) return null;
 
   return {
@@ -40,6 +42,22 @@ function normalizeVector(raw?: PlaceRow["place_vectors"][number] | null): PlaceV
     price: raw.price ?? 0,
     crowd: raw.crowd ?? 0,
     duration: raw.duration ?? 0,
+  };
+}
+
+function mapPlaceRow(row: PlaceRow): Place {
+  return {
+    id: row.id,
+    name: row.name,
+    region: row.region,
+    category: row.category,
+    lat: row.lat,
+    lng: row.lng,
+    avg_duration_min: row.avg_duration_min,
+    price_level: row.price_level,
+    crowd_level: row.crowd_level,
+    status: row.status,
+    vector: normalizeVector(row.place_vectors?.[0] ?? null),
   };
 }
 
@@ -77,24 +95,13 @@ export async function getPlacesWithVectors(): Promise<Place[]> {
   }
 
   const rows = (data ?? []) as PlaceRow[];
-
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    region: row.region,
-    category: row.category,
-    lat: row.lat,
-    lng: row.lng,
-    avg_duration_min: row.avg_duration_min,
-    price_level: row.price_level,
-    crowd_level: row.crowd_level,
-    status: row.status,
-    vector: normalizeVector(row.place_vectors?.[0] ?? null),
-  }));
+  return rows.map(mapPlaceRow);
 }
 
 export async function getPlaceByIds(placeIds: string[]): Promise<Place[]> {
-  if (placeIds.length === 0) return [];
+  if (placeIds.length === 0) {
+    return [];
+  }
 
   const { data, error } = await supabase
     .from("places")
@@ -129,18 +136,5 @@ export async function getPlaceByIds(placeIds: string[]): Promise<Place[]> {
   }
 
   const rows = (data ?? []) as PlaceRow[];
-
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    region: row.region,
-    category: row.category,
-    lat: row.lat,
-    lng: row.lng,
-    avg_duration_min: row.avg_duration_min,
-    price_level: row.price_level,
-    crowd_level: row.crowd_level,
-    status: row.status,
-    vector: normalizeVector(row.place_vectors?.[0] ?? null),
-  }));
+  return rows.map(mapPlaceRow);
 }
