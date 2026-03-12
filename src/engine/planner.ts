@@ -24,12 +24,11 @@ export async function planTrip(input: PlanTripInput): Promise<TripPlanResult> {
       ? await getPlaceByIds(userModel.must.placeIds)
       : [];
 
-  // 6. schedule
-  const schedule = buildSchedule({
-    candidates,
-    mustPlaces,
-    user: userModel,
-  });
+ // 6. schedule
+const schedule = buildSchedule(
+  candidates,
+  userModel.constraints
+);
 
   return {
     userModel,
