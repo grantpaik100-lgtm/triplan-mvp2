@@ -1,6 +1,13 @@
 // src/engine/schedule.ts
 
-import type { DayPlan, Place, ScoredPlace, ThemeAxis, UserModel } from "./types";
+import type {
+  DayPlan,
+  DaySlot,
+  Place,
+  ScoredPlace,
+  ThemeAxis,
+  UserModel,
+} from "./types";
 
 type BuildScheduleParams = {
   candidates: ScoredPlace[];
@@ -8,6 +15,14 @@ type BuildScheduleParams = {
   user: UserModel;
   maxDayDurationMin?: number;
 };
+
+const SLOT_ORDER: DaySlot[] = ["morning", "midday", "afternoon", "evening"];
+
+function activeSlotsByDensity(placesPerDay: number): DaySlot[] {
+  if (placesPerDay <= 2) return ["midday", "afternoon"];
+  if (placesPerDay === 3) return ["morning", "afternoon", "evening"];
+  return ["morning", "midday", "afternoon", "evening"];
+}
 
 function defaultDuration(place: Place): number {
   return place.avg_duration_min ?? 90;
@@ -40,11 +55,6 @@ function firstToken(name: string): string {
   return name.trim().split(/\s+/)[0] ?? name.trim();
 }
 
-/**
- * 더 강한 micro-cluster key
- * - 첫 토큰 기준
- * - 특정 고유 prefix를 강하게 묶음
- */
 function getMicroClusterKey(name: string): string {
   const normalized = normalizeName(name);
   const token = firstToken(name);
@@ -80,13 +90,15 @@ function microClusterCount(dayPlaces: ScoredPlace[], candidate: ScoredPlace): nu
   return dayPlaces.filter((item) => getMicroClusterKey(item.place.name) === key).length;
 }
 
+function microClusterHardBlocked(dayPlaces: ScoredPlace[], candidate: ScoredPlace): boolean {
+  return microClusterCount(dayPlaces, candidate) >= 2;
+}
+
 function microClusterPenalty(dayPlaces: ScoredPlace[], candidate: ScoredPlace): number {
   const count = microClusterCount(dayPlaces, candidate);
 
   if (count === 0) return 0;
   if (count === 1) return 0.22;
-
-  // 2개째부터는 강하게 억제
   return 0.65;
 }
 
@@ -109,9 +121,11 @@ function categoryFamily(category: string | null): string {
 function categoryFamilyCount(dayPlaces: ScoredPlace[], candidate: ScoredPlace): number {
   const family = categoryFamily(candidate.place.category);
 
-  return dayPlaces.filter(
-    (item) => categoryFamily(item.place.category) === family
-  ).length;
+  return dayPlaces.filter((item) => categoryFamily(item.place.category) === family).length;
+}
+
+function categoryHardBlocked(dayPlaces: ScoredPlace[], candidate: ScoredPlace): boolean {
+  return categoryFamilyCount(dayPlaces, candidate) >= 2;
 }
 
 function categoryCapPenalty(dayPlaces: ScoredPlace[], candidate: ScoredPlace): number {
@@ -119,7 +133,6 @@ function categoryCapPenalty(dayPlaces: ScoredPlace[], candidate: ScoredPlace): n
 
   if (count === 0) return 0;
   if (count === 1) return 0.12;
-
   return 0.3;
 }
 
@@ -142,24 +155,14 @@ function themeFitBonus(theme: ThemeAxis, candidate: ScoredPlace): number {
 
 function sameRegionBonus(region: string | null, candidate: ScoredPlace): number {
   if (!region) return 0;
-
   return candidate.place.region === region ? 0.18 : -0.35;
 }
 
-/**
- * anchor와 성격이 다르면 support로서 보너스
- * 너무 비슷하면 보너스 적음
- */
 function complementBonus(anchor: ScoredPlace, candidate: ScoredPlace): number {
-  const av = anchor.place.vector;
   const cv = candidate.place.vector;
-
-  if (!av || !cv) return 0;
+  if (!cv) return 0;
 
   const anchorTheme = getThemeAxisFromPlace(anchor.place);
-
-  // anchor와 같은 축이면 보너스 적고,
-  // 다른 축에서 의미 있는 값이 있으면 더 좋게 본다.
   const sameAxisStrength = cv[anchorTheme] ?? 0;
 
   const otherAxes: ThemeAxis[] = [
@@ -265,13 +268,101 @@ function computeRegionStrength(
   return topScoreSum + mustBonus + diversityBonus;
 }
 
+function anchorRepresentativeBonus(item: ScoredPlace): number {
+  const tourism = item.place.vector?.tourism ?? 0;
+  const culture = item.place.vector?.culture ?? 0;
+  const atmosphere = item.place.vector?.atmosphere ?? 0;
+
+  let bonus = tourism * 0.35 + culture * 0.08;
+
+  const family = categoryFamily(item.place.category);
+
+  if (family === "tourism_family") bonus += 0.18;
+  if (family === "nature_family") bonus += 0.08;
+  if (family === "shopping_family") bonus += 0.05;
+  if (family === "cafe_family") bonus -= 0.06;
+
+  if (atmosphere >= 0.8) bonus += 0.03;
+
+  return bonus;
+}
+
 function selectAnchor(regionCandidates: ScoredPlace[], mustPlaceIds: Set<string>): ScoredPlace {
   const mustAnchor = regionCandidates.find((item) => mustPlaceIds.has(item.place.id));
   if (mustAnchor) return mustAnchor;
 
-  // 최고점 + 대표성
-  const sorted = [...regionCandidates].sort((a, b) => b.score - a.score);
-  return sorted[0];
+  let best: ScoredPlace | null = null;
+  let bestScore = -Infinity;
+
+  for (const item of regionCandidates) {
+    const score = item.score + anchorRepresentativeBonus(item);
+    if (score > bestScore) {
+      bestScore = score;
+      best = item;
+    }
+  }
+
+  return best ?? regionCandidates[0];
+}
+
+function slotAffinity(candidate: ScoredPlace, slot: DaySlot, theme: ThemeAxis): number {
+  const family = categoryFamily(candidate.place.category);
+  const v = candidate.place.vector;
+
+  if (!v) return 0;
+
+  let score = 0;
+
+  if (slot === "morning") {
+    if (family === "tourism_family") score += 0.22;
+    if (family === "nature_family") score += 0.18;
+    if (family === "exhibition_family") score += 0.15;
+    if (family === "activity_family") score += 0.08;
+    score += (v.tourism ?? 0) * 0.08;
+    score += (v.culture ?? 0) * 0.06;
+  }
+
+  if (slot === "midday") {
+    if (family === "food_family") score += 0.24;
+    if (family === "cafe_family") score += 0.16;
+    if (family === "shopping_family") score += 0.08;
+    score += (v.food ?? 0) * 0.08;
+  }
+
+  if (slot === "afternoon") {
+    if (family === "shopping_family") score += 0.18;
+    if (family === "activity_family") score += 0.16;
+    if (family === "nature_family") score += 0.14;
+    if (family === "exhibition_family") score += 0.1;
+    score += (v.activity ?? 0) * 0.08;
+    score += (v.shopping ?? 0) * 0.08;
+  }
+
+  if (slot === "evening") {
+    if (family === "cafe_family") score += 0.18;
+    if (family === "food_family") score += 0.16;
+    if (family === "shopping_family") score += 0.08;
+    score += (v.atmosphere ?? 0) * 0.1;
+  }
+
+  score += (v[theme] ?? 0) * 0.05;
+
+  return score;
+}
+
+function bestSlotForAnchor(anchor: ScoredPlace, activeSlots: DaySlot[], theme: ThemeAxis): DaySlot {
+  let bestSlot = activeSlots[0];
+  let bestScore = -Infinity;
+
+  for (const slot of activeSlots) {
+    const score = slotAffinity(anchor, slot, theme);
+    if (score > bestScore) {
+      bestScore = score;
+      bestSlot = slot;
+    }
+  }
+
+  return bestSlot;
 }
 
 function supportGain(
@@ -280,6 +371,7 @@ function supportGain(
   candidate: ScoredPlace,
   theme: ThemeAxis,
   dayRegion: string | null,
+  slot: DaySlot,
   currentDuration: number,
   maxDayDurationMin: number,
   placesPerDay: number
@@ -289,7 +381,8 @@ function supportGain(
     themeFitBonus(theme, candidate) +
     categoryNoveltyBonus(dayPlaces, candidate) +
     complementBonus(anchor, candidate) +
-    sameRegionBonus(dayRegion, candidate) -
+    sameRegionBonus(dayRegion, candidate) +
+    slotAffinity(candidate, slot, theme) -
     microClusterPenalty(dayPlaces, candidate) -
     categoryCapPenalty(dayPlaces, candidate) -
     durationPressurePenalty(
@@ -309,6 +402,8 @@ export function buildSchedule({
   maxDayDurationMin = 8 * 60,
 }: BuildScheduleParams): DayPlan[] {
   const placesPerDay = user.constraints.placesPerDay;
+  const activeSlots = activeSlotsByDensity(placesPerDay);
+
   const usedPlaceIds = new Set<string>();
   const usedRegions = new Set<string>();
   const schedule: DayPlan[] = [];
@@ -325,6 +420,7 @@ export function buildSchedule({
         day,
         theme: "tourism",
         places: [],
+        slottedPlaces: [],
         total_estimated_duration_min: 0,
         regions: [],
         categories: [],
@@ -359,6 +455,7 @@ export function buildSchedule({
         day,
         theme: "tourism",
         places: [],
+        slottedPlaces: [],
         total_estimated_duration_min: 0,
         regions: [],
         categories: [],
@@ -370,17 +467,23 @@ export function buildSchedule({
     const theme = getThemeAxisFromPlace(anchor.place);
 
     const dayPlaces: ScoredPlace[] = [];
+    const slottedPlaces: Array<{ slot: DaySlot; item: ScoredPlace }> = [];
     let dayDuration = 0;
 
-    // 1. anchor 삽입
+    const anchorSlot = bestSlotForAnchor(anchor, activeSlots, theme);
+
     if (dayDuration + defaultDuration(anchor.place) <= maxDayDurationMin) {
       dayPlaces.push(anchor);
+      slottedPlaces.push({ slot: anchorSlot, item: anchor });
       usedPlaceIds.add(anchor.place.id);
       dayDuration += defaultDuration(anchor.place);
     }
 
-    // 2. support 삽입
-    while (dayPlaces.length < placesPerDay) {
+    const remainingSlots = activeSlots.filter((slot) => slot !== anchorSlot);
+
+    for (const slot of remainingSlots) {
+      if (dayPlaces.length >= placesPerDay) break;
+
       const remaining = regionCandidates.filter((item) => !usedPlaceIds.has(item.place.id));
 
       if (remaining.length === 0) break;
@@ -389,12 +492,16 @@ export function buildSchedule({
       let bestGain = -Infinity;
 
       for (const candidate of remaining) {
+        if (microClusterHardBlocked(dayPlaces, candidate)) continue;
+        if (categoryHardBlocked(dayPlaces, candidate)) continue;
+
         const gain = supportGain(
           anchor,
           dayPlaces,
           candidate,
           theme,
           dayRegion,
+          slot,
           dayDuration,
           maxDayDurationMin,
           placesPerDay
@@ -406,21 +513,26 @@ export function buildSchedule({
         }
       }
 
-      if (!bestCandidate) break;
-      if (bestGain < -100) break;
+      if (!bestCandidate) continue;
+      if (bestGain < -100) continue;
 
       const duration = defaultDuration(bestCandidate.place);
-      if (dayDuration + duration > maxDayDurationMin) break;
+      if (dayDuration + duration > maxDayDurationMin) continue;
 
       dayPlaces.push(bestCandidate);
+      slottedPlaces.push({ slot, item: bestCandidate });
       usedPlaceIds.add(bestCandidate.place.id);
       dayDuration += duration;
     }
 
+    const slotIndex = new Map<DaySlot, number>(SLOT_ORDER.map((slot, idx) => [slot, idx]));
+    slottedPlaces.sort((a, b) => (slotIndex.get(a.slot)! - slotIndex.get(b.slot)!));
+
     schedule.push({
       day,
       theme,
-      places: dayPlaces,
+      places: slottedPlaces.map((entry) => entry.item),
+      slottedPlaces,
       total_estimated_duration_min: dayDuration,
       regions: Array.from(
         new Set(dayPlaces.map((p) => p.place.region).filter(Boolean) as string[])
