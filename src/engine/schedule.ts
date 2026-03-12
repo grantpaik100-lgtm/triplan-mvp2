@@ -560,40 +560,60 @@ export function buildSchedule({
       if (remaining.length === 0) break;
 
       // 1차: micro-cluster cap + category cap 둘 다 적용
-      let bestCandidate = pickBestCandidateForSlot(
-        remaining,
-        anchor,
-        dayPlaces,
-        theme,
-        dayRegion,
-        slot,
-        dayDuration,
-        maxDayDurationMin,
-        placesPerDay,
-        {
-          enforceMicroClusterCap: true,
-          enforceCategoryCap: true,
-        }
-      );
+      // 1차: micro-cluster cap + category cap 둘 다 적용
+let bestCandidate = pickBestCandidateForSlot(
+  remaining,
+  anchor,
+  dayPlaces,
+  theme,
+  dayRegion,
+  slot,
+  dayDuration,
+  maxDayDurationMin,
+  placesPerDay,
+  {
+    enforceMicroClusterCap: true,
+    enforceCategoryCap: true,
+  }
+);
 
-      // 2차 fallback: micro-cluster cap은 유지, category cap만 완화
-      if (!bestCandidate) {
-        bestCandidate = pickBestCandidateForSlot(
-          remaining,
-          anchor,
-          dayPlaces,
-          theme,
-          dayRegion,
-          slot,
-          dayDuration,
-          maxDayDurationMin,
-          placesPerDay,
-          {
-            enforceMicroClusterCap: true,
-            enforceCategoryCap: false,
-          }
-        );
-      }
+// 2차 fallback: category cap만 완화
+if (!bestCandidate) {
+  bestCandidate = pickBestCandidateForSlot(
+    remaining,
+    anchor,
+    dayPlaces,
+    theme,
+    dayRegion,
+    slot,
+    dayDuration,
+    maxDayDurationMin,
+    placesPerDay,
+    {
+      enforceMicroClusterCap: true,
+      enforceCategoryCap: false,
+    }
+  );
+}
+
+// 3차 fallback: 정말 없으면 micro-cluster도 완화
+if (!bestCandidate) {
+  bestCandidate = pickBestCandidateForSlot(
+    remaining,
+    anchor,
+    dayPlaces,
+    theme,
+    dayRegion,
+    slot,
+    dayDuration,
+    maxDayDurationMin,
+    placesPerDay,
+    {
+      enforceMicroClusterCap: false,
+      enforceCategoryCap: false,
+    }
+  );
+}
 
       if (!bestCandidate) continue;
 
