@@ -11,6 +11,8 @@ export type ThemeAxis =
   | "atmosphere"
   | "tourism";
 
+export type DaySlot = "morning" | "midday" | "afternoon" | "evening";
+
 export type PlaceVector = {
   food: number;
   culture: number;
@@ -113,10 +115,16 @@ export type ScoredPlace = {
 
 export type Candidate = ScoredPlace;
 
+export type SlottedPlace = {
+  slot: DaySlot;
+  item: ScoredPlace;
+};
+
 export type DayPlan = {
   day: number;
   theme: ThemeAxis;
   places: ScoredPlace[];
+  slottedPlaces: SlottedPlace[];
   total_estimated_duration_min: number;
   regions: string[];
   categories: string[];
@@ -132,10 +140,6 @@ export type TripPlanResult = {
     places_per_day: number;
     days: number;
   };
-};
-
-export type ScheduleResult = {
-  days: DayPlan[];
 };
 
 export type PlanTripInput = {
