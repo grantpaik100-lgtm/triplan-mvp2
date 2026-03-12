@@ -1,3 +1,5 @@
+// src/engine/planner.ts
+
 import { getPlaceByIds, getPlacesWithVectors } from "@/lib/places";
 import { buildUserModel } from "./userModel";
 import { scorePlaces } from "./scoring";
@@ -24,11 +26,12 @@ export async function planTrip(input: PlanTripInput): Promise<TripPlanResult> {
       ? await getPlaceByIds(userModel.must.placeIds)
       : [];
 
- // 6. schedule
-const schedule = buildSchedule(
-  candidates,
-  userModel.constraints
-);
+  // 6. schedule
+  const schedule = buildSchedule({
+    candidates,
+    mustPlaces,
+    user: userModel,
+  });
 
   return {
     userModel,
