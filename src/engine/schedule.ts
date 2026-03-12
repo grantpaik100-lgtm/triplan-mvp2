@@ -1,131 +1,290 @@
-import {
-  ScoredPlace,
+// src/engine/schedule.ts
+
+import type {
   DayPlan,
-  SlotType,
-  Constraints
+  DaySlot,
+  Place,
+  ScoredPlace,
+  ThemeAxis,
+  UserModel,
 } from "./types";
 
-const SLOT_ORDER: SlotType[] = [
-  "morning",
-  "midday",
-  "afternoon",
-  "evening"
-];
+type BuildScheduleParams = {
+  candidates: ScoredPlace[];
+  mustPlaces: Place[];
+  user: UserModel;
+  maxDayDurationMin?: number;
+};
 
-function activeSlotsByDensity(density: number): SlotType[] {
-  if (density <= 2) return ["midday", "evening"];
-  if (density === 3) return ["morning", "afternoon", "evening"];
+const SLOT_ORDER: DaySlot[] = ["morning", "midday", "afternoon", "evening"];
+
+function activeSlotsByPlacesPerDay(placesPerDay: number): DaySlot[] {
+  if (placesPerDay <= 1) return ["afternoon"];
+  if (placesPerDay === 2) return ["midday", "evening"];
+  if (placesPerDay === 3) return ["morning", "afternoon", "evening"];
   return SLOT_ORDER;
 }
 
-function defaultDuration(place: ScoredPlace) {
-  return place.place.avg_duration_min ?? 60;
+function defaultDuration(place: Place): number {
+  return place.avg_duration_min ?? 90;
 }
 
-function uniqueByPlaceId(pool: ScoredPlace[]): ScoredPlace[] {
+function uniqueByPlaceId(items: ScoredPlace[]): ScoredPlace[] {
   const seen = new Set<string>();
   const result: ScoredPlace[] = [];
 
-  for (const p of pool) {
-    if (!seen.has(p.place.id)) {
-      seen.add(p.place.id);
-      result.push(p);
-    }
+  for (const item of items) {
+    if (seen.has(item.place.id)) continue;
+    seen.add(item.place.id);
+    result.push(item);
   }
 
   return result;
 }
 
-function scoreDayFit(
-  place: ScoredPlace,
-  anchor: ScoredPlace,
-  usedCategories: Set<string>
-) {
-  let score = place.score;
+function getThemeAxisFromPlace(place: Place): ThemeAxis {
+  const v = place.vector;
 
-  if (place.place.region === anchor.place.region) {
+  if (!v) return "tourism";
+
+  const axes: Array<{ key: ThemeAxis; value: number }> = [
+    { key: "food", value: v.food ?? 0 },
+    { key: "culture", value: v.culture ?? 0 },
+    { key: "nature", value: v.nature ?? 0 },
+    { key: "shopping", value: v.shopping ?? 0 },
+    { key: "activity", value: v.activity ?? 0 },
+    { key: "atmosphere", value: v.atmosphere ?? 0 },
+    { key: "tourism", value: v.tourism ?? 0 },
+  ];
+
+  axes.sort((a, b) => b.value - a.value);
+  return axes[0]?.key ?? "tourism";
+}
+
+function toScoredMustPlace(place: Place): ScoredPlace {
+  return {
+    place,
+    score: 9999,
+    breakdown: {
+      axisAffinity: 9999,
+      budgetPenalty: 0,
+      crowdPenalty: 0,
+      durationPenalty: 0,
+      finalScore: 9999,
+    },
+  };
+}
+
+function categoryKey(place: Place): string {
+  return (place.category ?? "unknown").trim().toLowerCase();
+}
+
+function regionKey(place: Place): string {
+  return (place.region ?? "unknown").trim().toLowerCase();
+}
+
+function selectAnchor(pool: ScoredPlace[]): ScoredPlace {
+  const sorted = [...pool].sort((a, b) => b.score - a.score);
+  return sorted[0];
+}
+
+function scoreDayFit(params: {
+  candidate: ScoredPlace;
+  anchor: ScoredPlace;
+  selected: ScoredPlace[];
+  selectedRegions: Set<string>;
+  selectedCategories: Set<string>;
+  currentDuration: number;
+  maxDayDurationMin: number;
+}): number {
+  const {
+    candidate,
+    anchor,
+    selected,
+    selectedRegions,
+    selectedCategories,
+    currentDuration,
+    maxDayDurationMin,
+  } = params;
+
+  let score = candidate.score;
+
+  const candidateDuration = defaultDuration(candidate.place);
+  const nextDuration = currentDuration + candidateDuration;
+
+  if (nextDuration > maxDayDurationMin) {
+    return -999999;
+  }
+
+  const anchorRegion = regionKey(anchor.place);
+  const candidateRegion = regionKey(candidate.place);
+
+  if (candidateRegion === anchorRegion) {
     score += 0.15;
   }
 
-  if (usedCategories.has(place.place.category)) {
+  if (selectedRegions.has(candidateRegion)) {
+    score += 0.08;
+  }
+
+  const cKey = categoryKey(candidate.place);
+
+  if (selectedCategories.has(cKey)) {
     score -= 0.1;
+  }
+
+  const usageRatio = nextDuration / maxDayDurationMin;
+
+  if (usageRatio > 0.95) score -= 0.12;
+  else if (usageRatio > 0.85) score -= 0.06;
+
+  if (selected.some((item) => item.place.id === candidate.place.id)) {
+    score -= 999999;
   }
 
   return score;
 }
 
-function selectAnchor(pool: ScoredPlace[]) {
-  const sorted = [...pool].sort((a, b) => b.score - a.score);
-  return sorted[0];
-}
+function buildDayPlan(params: {
+  day: number;
+  pool: ScoredPlace[];
+  placesPerDay: number;
+  maxDayDurationMin: number;
+}): DayPlan {
+  const { day, pool, placesPerDay, maxDayDurationMin } = params;
 
-function buildSimpleDayPlan(
-  day: number,
-  pool: ScoredPlace[],
-  constraints: Constraints
-): DayPlan {
+  const slots = activeSlotsByPlacesPerDay(placesPerDay);
+  const uniquePool = uniqueByPlaceId(pool);
 
-  const slots = activeSlotsByDensity(constraints.dailyDensity);
-  const placesPerDay = constraints.placesPerDay;
-
-  const anchor = selectAnchor(pool);
-
-  const usedCategories = new Set<string>();
-  const selected: ScoredPlace[] = [anchor];
-
-  usedCategories.add(anchor.place.category);
-
-  let totalDuration = defaultDuration(anchor);
-
-  const remaining = pool.filter(p => p.place.id !== anchor.place.id);
-
-  const ranked = remaining
-    .map(p => ({
-      place: p,
-      score: scoreDayFit(p, anchor, usedCategories)
-    }))
-    .sort((a, b) => b.score - a.score);
-
-  for (const r of ranked) {
-    if (selected.length >= placesPerDay) break;
-
-    const duration = defaultDuration(r.place);
-
-    if (totalDuration + duration > 480) continue;
-
-    selected.push(r.place);
-    usedCategories.add(r.place.place.category);
-
-    totalDuration += duration;
+  if (uniquePool.length === 0) {
+    return {
+      day,
+      theme: "tourism",
+      places: [],
+      slottedPlaces: [],
+      total_estimated_duration_min: 0,
+      regions: [],
+      categories: [],
+    };
   }
 
-  const slottedPlaces = slots.map((slot, i) => ({
-    slot,
-    item: selected[i] ?? null
-  }));
+  const anchor = selectAnchor(uniquePool);
+
+  const selected: ScoredPlace[] = [anchor];
+  const selectedRegions = new Set<string>([regionKey(anchor.place)]);
+  const selectedCategories = new Set<string>([categoryKey(anchor.place)]);
+
+  let totalDuration = defaultDuration(anchor.place);
+
+  while (selected.length < placesPerDay) {
+    let bestCandidate: ScoredPlace | null = null;
+    let bestScore = -Infinity;
+
+    for (const candidate of uniquePool) {
+      if (selected.some((item) => item.place.id === candidate.place.id)) {
+        continue;
+      }
+
+      const fitScore = scoreDayFit({
+        candidate,
+        anchor,
+        selected,
+        selectedRegions,
+        selectedCategories,
+        currentDuration: totalDuration,
+        maxDayDurationMin,
+      });
+
+      if (fitScore > bestScore) {
+        bestScore = fitScore;
+        bestCandidate = candidate;
+      }
+    }
+
+    if (!bestCandidate || bestScore < -100000) {
+      break;
+    }
+
+    selected.push(bestCandidate);
+    selectedRegions.add(regionKey(bestCandidate.place));
+    selectedCategories.add(categoryKey(bestCandidate.place));
+    totalDuration += defaultDuration(bestCandidate.place);
+  }
+
+  const slottedPlaces = selected
+    .slice(0, slots.length)
+    .map((item, index) => ({
+      slot: slots[index],
+      item,
+    }));
 
   return {
     day,
-    theme: anchor.place.category,
+    theme: getThemeAxisFromPlace(anchor.place),
     places: selected,
     slottedPlaces,
-    regions: [...new Set(selected.map(p => p.place.region))],
-    categories: [...new Set(selected.map(p => p.place.category))],
-    total_estimated_duration_min: totalDuration
+    total_estimated_duration_min: totalDuration,
+    regions: Array.from(
+      new Set(
+        selected
+          .map((item) => item.place.region)
+          .filter((v): v is string => Boolean(v))
+      )
+    ),
+    categories: Array.from(
+      new Set(
+        selected
+          .map((item) => item.place.category)
+          .filter((v): v is string => Boolean(v))
+      )
+    ),
   };
 }
 
-export function buildSchedule(
-  pool: ScoredPlace[],
-  constraints: Constraints
-): DayPlan[] {
+export function buildSchedule({
+  candidates,
+  mustPlaces,
+  user,
+  maxDayDurationMin = 8 * 60,
+}: BuildScheduleParams): DayPlan[] {
+  const mustScored = mustPlaces.map(toScoredMustPlace);
+  const mergedPool = uniqueByPlaceId([...mustScored, ...candidates]);
 
-  const uniquePool = uniqueByPlaceId(pool);
+  const days = Math.max(1, user.days);
+  const placesPerDay = Math.max(1, user.constraints.placesPerDay);
 
   const schedule: DayPlan[] = [];
+  const usedPlaceIds = new Set<string>();
 
-  for (let day = 1; day <= constraints.days; day++) {
-    const dayPlan = buildSimpleDayPlan(day, uniquePool, constraints);
+  for (let day = 1; day <= days; day++) {
+    const remainingPool = mergedPool.filter(
+      (item) => !usedPlaceIds.has(item.place.id)
+    );
+
+    if (remainingPool.length === 0) {
+      schedule.push({
+        day,
+        theme: "tourism",
+        places: [],
+        slottedPlaces: [],
+        total_estimated_duration_min: 0,
+        regions: [],
+        categories: [],
+      });
+      continue;
+    }
+
+    const dayPlan = buildDayPlan({
+      day,
+      pool: remainingPool,
+      placesPerDay,
+      maxDayDurationMin,
+    });
+
+    for (const item of dayPlan.places) {
+      usedPlaceIds.add(item.place.id);
+    }
+
     schedule.push(dayPlan);
   }
 
