@@ -314,35 +314,38 @@ function slotAffinity(candidate: ScoredPlace, slot: DaySlot, theme: ThemeAxis): 
   let score = 0;
 
   if (slot === "morning") {
-    if (family === "tourism_family") score += 0.22;
-    if (family === "nature_family") score += 0.18;
-    if (family === "exhibition_family") score += 0.15;
+    if (family === "tourism_family") score += 0.28;
+    if (family === "nature_family") score += 0.22;
+    if (family === "exhibition_family") score += 0.18;
     if (family === "activity_family") score += 0.08;
-    score += (v.tourism ?? 0) * 0.08;
-    score += (v.culture ?? 0) * 0.06;
+    if (family === "shopping_family") score -= 0.04;
+    if (family === "cafe_family") score -= 0.06;
+    score += (v.tourism ?? 0) * 0.1;
+    score += (v.culture ?? 0) * 0.08;
   }
 
   if (slot === "midday") {
-    if (family === "food_family") score += 0.24;
-    if (family === "cafe_family") score += 0.16;
-    if (family === "shopping_family") score += 0.08;
-    score += (v.food ?? 0) * 0.08;
+    if (family === "food_family") score += 0.3;
+    if (family === "cafe_family") score += 0.22;
+    if (family === "shopping_family") score += 0.06;
+    score += (v.food ?? 0) * 0.12;
   }
 
   if (slot === "afternoon") {
-    if (family === "shopping_family") score += 0.18;
-    if (family === "activity_family") score += 0.16;
+    if (family === "shopping_family") score += 0.24;
+    if (family === "activity_family") score += 0.22;
     if (family === "nature_family") score += 0.14;
-    if (family === "exhibition_family") score += 0.1;
-    score += (v.activity ?? 0) * 0.08;
-    score += (v.shopping ?? 0) * 0.08;
+    if (family === "exhibition_family") score += 0.12;
+    score += (v.activity ?? 0) * 0.1;
+    score += (v.shopping ?? 0) * 0.1;
   }
 
   if (slot === "evening") {
-    if (family === "cafe_family") score += 0.18;
-    if (family === "food_family") score += 0.16;
-    if (family === "shopping_family") score += 0.08;
-    score += (v.atmosphere ?? 0) * 0.1;
+    if (family === "cafe_family") score += 0.26;
+    if (family === "food_family") score += 0.18;
+    if (family === "shopping_family") score += 0.06;
+    if (family === "nature_family") score -= 0.04;
+    score += (v.atmosphere ?? 0) * 0.14;
   }
 
   score += (v[theme] ?? 0) * 0.05;
@@ -351,6 +354,20 @@ function slotAffinity(candidate: ScoredPlace, slot: DaySlot, theme: ThemeAxis): 
 }
 
 function bestSlotForAnchor(anchor: ScoredPlace, activeSlots: DaySlot[], theme: ThemeAxis): DaySlot {
+  const family = categoryFamily(anchor.place.category);
+
+  if (family === "nature_family" || family === "tourism_family" || family === "exhibition_family") {
+    if (activeSlots.includes("morning")) return "morning";
+  }
+
+  if (family === "shopping_family" || family === "activity_family") {
+    if (activeSlots.includes("afternoon")) return "afternoon";
+  }
+
+  if (family === "cafe_family" || family === "food_family") {
+    if (activeSlots.includes("evening")) return "evening";
+  }
+
   let bestSlot = activeSlots[0];
   let bestScore = -Infinity;
 
@@ -393,6 +410,49 @@ function supportGain(
       dayPlaces.length
     )
   );
+}
+
+function pickBestCandidateForSlot(
+  remaining: ScoredPlace[],
+  anchor: ScoredPlace,
+  dayPlaces: ScoredPlace[],
+  theme: ThemeAxis,
+  dayRegion: string | null,
+  slot: DaySlot,
+  dayDuration: number,
+  maxDayDurationMin: number,
+  placesPerDay: number,
+  useHardRules: boolean
+): ScoredPlace | null {
+  let bestCandidate: ScoredPlace | null = null;
+  let bestGain = -Infinity;
+
+  for (const candidate of remaining) {
+    if (useHardRules) {
+      if (microClusterHardBlocked(dayPlaces, candidate)) continue;
+      if (categoryHardBlocked(dayPlaces, candidate)) continue;
+    }
+
+    const gain = supportGain(
+      anchor,
+      dayPlaces,
+      candidate,
+      theme,
+      dayRegion,
+      slot,
+      dayDuration,
+      maxDayDurationMin,
+      placesPerDay
+    );
+
+    if (gain > bestGain) {
+      bestGain = gain;
+      bestCandidate = candidate;
+    }
+  }
+
+  if (bestGain < -100) return null;
+  return bestCandidate;
 }
 
 export function buildSchedule({
@@ -485,36 +545,39 @@ export function buildSchedule({
       if (dayPlaces.length >= placesPerDay) break;
 
       const remaining = regionCandidates.filter((item) => !usedPlaceIds.has(item.place.id));
-
       if (remaining.length === 0) break;
 
-      let bestCandidate: ScoredPlace | null = null;
-      let bestGain = -Infinity;
+      // 1차: hard rules 적용
+      let bestCandidate = pickBestCandidateForSlot(
+        remaining,
+        anchor,
+        dayPlaces,
+        theme,
+        dayRegion,
+        slot,
+        dayDuration,
+        maxDayDurationMin,
+        placesPerDay,
+        true
+      );
 
-      for (const candidate of remaining) {
-        if (microClusterHardBlocked(dayPlaces, candidate)) continue;
-        if (categoryHardBlocked(dayPlaces, candidate)) continue;
-
-        const gain = supportGain(
+      // 2차 fallback: hard rule 완화
+      if (!bestCandidate) {
+        bestCandidate = pickBestCandidateForSlot(
+          remaining,
           anchor,
           dayPlaces,
-          candidate,
           theme,
           dayRegion,
           slot,
           dayDuration,
           maxDayDurationMin,
-          placesPerDay
+          placesPerDay,
+          false
         );
-
-        if (gain > bestGain) {
-          bestGain = gain;
-          bestCandidate = candidate;
-        }
       }
 
       if (!bestCandidate) continue;
-      if (bestGain < -100) continue;
 
       const duration = defaultDuration(bestCandidate.place);
       if (dayDuration + duration > maxDayDurationMin) continue;
@@ -526,7 +589,7 @@ export function buildSchedule({
     }
 
     const slotIndex = new Map<DaySlot, number>(SLOT_ORDER.map((slot, idx) => [slot, idx]));
-    slottedPlaces.sort((a, b) => (slotIndex.get(a.slot)! - slotIndex.get(b.slot)!));
+    slottedPlaces.sort((a, b) => slotIndex.get(a.slot)! - slotIndex.get(b.slot)!);
 
     schedule.push({
       day,
