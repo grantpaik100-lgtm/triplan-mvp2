@@ -1,137 +1,120 @@
-import type { DayPlan, Place, ScoredPlace, UserModel } from "./types";
+// engine/schedule.ts
 
-type BuildScheduleParams = {
-  candidates: ScoredPlace[];
-  mustPlaces: Place[];
-  user: UserModel;
-  maxDayDurationMin?: number;
-};
+import { Candidate, DayPlan, ThemeAxis } from "./types";
 
-function defaultDuration(place: Place): number {
-  return place.avg_duration_min ?? 90;
+function getThemeAxis(place: any): ThemeAxis {
+  const v = place.vector;
+
+  const axes = [
+    { key: "food", val: v.food },
+    { key: "culture", val: v.culture },
+    { key: "nature", val: v.nature },
+    { key: "shopping", val: v.shopping },
+    { key: "activity", val: v.activity },
+    { key: "atmosphere", val: v.atmosphere },
+    { key: "tourism", val: v.tourism }
+  ];
+
+  axes.sort((a, b) => (b.val ?? 0) - (a.val ?? 0));
+
+  return axes[0].key as ThemeAxis;
 }
 
-function categoryPenalty(dayPlaces: ScoredPlace[], candidate: ScoredPlace): number {
-  const category = candidate.place.category;
-  if (!category) return 0;
+function sameBrandPenalty(a: string, b: string) {
+  const pa = a.split(" ")[0];
+  const pb = b.split(" ")[0];
 
-  const alreadyExists = dayPlaces.some((item) => item.place.category === category);
-  return alreadyExists ? 0.18 : 0;
+  if (pa === pb) return 0.25;
+
+  return 0;
 }
 
-function regionPenalty(dayPlaces: ScoredPlace[], candidate: ScoredPlace): number {
-  const region = candidate.place.region;
-  if (!region || dayPlaces.length === 0) return 0;
+function marginalGain(
+  candidate: Candidate,
+  selected: Candidate[],
+  theme: ThemeAxis
+) {
+  let gain = candidate.score;
 
-  const sameRegionCount = dayPlaces.filter((item) => item.place.region === region).length;
-  if (sameRegionCount > 0) return 0;
+  const place = candidate.place;
 
-  return 0.14;
-}
-
-function adjustedScore(dayPlaces: ScoredPlace[], candidate: ScoredPlace): number {
-  return (
-    candidate.score -
-    categoryPenalty(dayPlaces, candidate) -
-    regionPenalty(dayPlaces, candidate)
-  );
-}
-
-function toScoredMustPlace(place: Place): ScoredPlace {
-  return {
-    place,
-    score: 9999,
-    breakdown: {
-      axisAffinity: 9999,
-      budgetPenalty: 0,
-      crowdPenalty: 0,
-      durationPenalty: 0,
-      finalScore: 9999,
-    },
-  };
-}
-
-function uniqueByPlaceId(items: ScoredPlace[]): ScoredPlace[] {
-  const seen = new Set<string>();
-  const result: ScoredPlace[] = [];
-
-  for (const item of items) {
-    if (seen.has(item.place.id)) continue;
-    seen.add(item.place.id);
-    result.push(item);
+  if (place.vector?.[theme]) {
+    gain += place.vector[theme] * 0.3;
   }
 
-  return result;
+  for (const s of selected) {
+    gain -= sameBrandPenalty(place.name, s.place.name);
+  }
+
+  const catSet = new Set(selected.map((p) => p.place.category));
+
+  if (!catSet.has(place.category)) {
+    gain += 0.15;
+  }
+
+  return gain;
 }
 
-export function buildSchedule({
-  candidates,
-  mustPlaces,
-  user,
-  maxDayDurationMin = 8 * 60,
-}: BuildScheduleParams): DayPlan[] {
-  const placesPerDay = user.constraints.placesPerDay;
-  const usedPlaceIds = new Set<string>();
-  const schedule: DayPlan[] = [];
+export function buildSchedule(
+  candidates: Candidate[],
+  days: number,
+  placesPerDay: number
+): DayPlan[] {
 
-  const candidatePool = uniqueByPlaceId(candidates);
-  const mustPool = uniqueByPlaceId(mustPlaces.map(toScoredMustPlace));
+  const result: DayPlan[] = [];
+  const remaining = [...candidates];
 
-  for (let day = 1; day <= user.days; day += 1) {
-    const dayPlaces: ScoredPlace[] = [];
-    let dayDuration = 0;
+  for (let d = 0; d < days; d++) {
 
-    // 1) must place 먼저 넣기
-    for (const must of mustPool) {
-      if (dayPlaces.length >= placesPerDay) break;
-      if (usedPlaceIds.has(must.place.id)) continue;
+    if (remaining.length === 0) break;
 
-      const duration = defaultDuration(must.place);
-      if (dayDuration + duration > maxDayDurationMin) continue;
+    const anchor = remaining.shift()!;
 
-      dayPlaces.push(must);
-      usedPlaceIds.add(must.place.id);
-      dayDuration += duration;
-    }
+    const theme = getThemeAxis(anchor.place);
 
-    // 2) 남은 슬롯 채우기
-    while (dayPlaces.length < placesPerDay) {
-      let best: ScoredPlace | null = null;
-      let bestAdjusted = -Infinity;
+    const selected: Candidate[] = [anchor];
 
-      for (const candidate of candidatePool) {
-        if (usedPlaceIds.has(candidate.place.id)) continue;
+    while (
+      selected.length < placesPerDay &&
+      remaining.length > 0
+    ) {
+      let bestIdx = 0;
+      let bestGain = -Infinity;
 
-        const duration = defaultDuration(candidate.place);
-        if (dayDuration + duration > maxDayDurationMin) continue;
+      for (let i = 0; i < remaining.length; i++) {
 
-        const score = adjustedScore(dayPlaces, candidate);
+        const g = marginalGain(
+          remaining[i],
+          selected,
+          theme
+        );
 
-        if (score > bestAdjusted) {
-          bestAdjusted = score;
-          best = candidate;
+        if (g > bestGain) {
+          bestGain = g;
+          bestIdx = i;
         }
       }
 
-      if (!best) break;
-
-      dayPlaces.push(best);
-      usedPlaceIds.add(best.place.id);
-      dayDuration += defaultDuration(best.place);
+      selected.push(remaining.splice(bestIdx, 1)[0]);
     }
 
-    schedule.push({
-      day,
-      places: dayPlaces,
-      total_estimated_duration_min: dayDuration,
-      regions: Array.from(
-        new Set(dayPlaces.map((p) => p.place.region).filter(Boolean) as string[])
-      ),
-      categories: Array.from(
-        new Set(dayPlaces.map((p) => p.place.category).filter(Boolean) as string[])
-      ),
+    const regions = [...new Set(selected.map((p) => p.place.region))];
+    const categories = [...new Set(selected.map((p) => p.place.category))];
+
+    const duration = selected.reduce(
+      (sum, p) => sum + (p.place.avg_duration_min ?? 60),
+      0
+    );
+
+    result.push({
+      day: d + 1,
+      theme,
+      places: selected,
+      total_estimated_duration_min: duration,
+      regions,
+      categories
     });
   }
 
-  return schedule;
+  return result;
 }
