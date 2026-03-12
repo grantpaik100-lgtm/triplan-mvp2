@@ -26,5 +26,9 @@ export async function GET() {
     },
   });
 
-  return NextResponse.json(result);
+  
+return NextResponse.json({
+  marker: "generatetrip-new-route",
+  result,
+});
 }
