@@ -32,69 +32,152 @@ function getThemeAxisFromPlace(place: Place): ThemeAxis {
   return axes[0].key;
 }
 
-function firstToken(name: string): string {
-  return name.trim().split(/\s+/)[0] ?? name.trim();
-}
-
 function normalizeName(name: string): string {
   return name.replace(/\s+/g, "").trim();
 }
 
-function duplicateClusterPenalty(dayPlaces: ScoredPlace[], candidate: ScoredPlace): number {
-  const candidateName = candidate.place.name;
-  const candidateToken = firstToken(candidateName);
-  const candidateNormalized = normalizeName(candidateName);
+function firstToken(name: string): string {
+  return name.trim().split(/\s+/)[0] ?? name.trim();
+}
 
-  let penalty = 0;
+/**
+ * 더 강한 micro-cluster key
+ * - 첫 토큰 기준
+ * - 특정 고유 prefix를 강하게 묶음
+ */
+function getMicroClusterKey(name: string): string {
+  const normalized = normalizeName(name);
+  const token = firstToken(name);
 
-  for (const item of dayPlaces) {
-    const selectedName = item.place.name;
-    const selectedToken = firstToken(selectedName);
-    const selectedNormalized = normalizeName(selectedName);
+  const knownPrefixes = [
+    "롯데월드",
+    "블루보틀",
+    "갤러리아",
+    "서울숲",
+    "현대백화점",
+    "더현대",
+    "스타필드",
+    "노티드",
+    "카페어니언",
+    "카페어니언성수",
+    "IFC",
+    "광장시장",
+    "통인시장",
+  ];
 
-    if (candidateToken === selectedToken) {
-      penalty += 0.35;
-    }
-
-    if (
-      candidateNormalized.includes(selectedNormalized) ||
-      selectedNormalized.includes(candidateNormalized)
-    ) {
-      penalty += 0.2;
+  for (const prefix of knownPrefixes) {
+    if (normalized.includes(prefix)) {
+      return prefix;
     }
   }
 
-  return penalty;
+  return token;
 }
 
-function categoryPenalty(dayPlaces: ScoredPlace[], candidate: ScoredPlace): number {
-  const category = candidate.place.category;
-  if (!category) return 0;
+function microClusterCount(dayPlaces: ScoredPlace[], candidate: ScoredPlace): number {
+  const key = getMicroClusterKey(candidate.place.name);
 
-  const sameCategoryCount = dayPlaces.filter((item) => item.place.category === category).length;
+  return dayPlaces.filter((item) => getMicroClusterKey(item.place.name) === key).length;
+}
 
-  if (sameCategoryCount === 0) return 0;
-  if (sameCategoryCount === 1) return 0.12;
-  return 0.25;
+function microClusterPenalty(dayPlaces: ScoredPlace[], candidate: ScoredPlace): number {
+  const count = microClusterCount(dayPlaces, candidate);
+
+  if (count === 0) return 0;
+  if (count === 1) return 0.22;
+
+  // 2개째부터는 강하게 억제
+  return 0.65;
+}
+
+function categoryFamily(category: string | null): string {
+  if (!category) return "unknown";
+
+  const c = category.trim();
+
+  if (["카페", "디저트", "베이커리"].includes(c)) return "cafe_family";
+  if (["음식", "맛집", "식당", "시장"].includes(c)) return "food_family";
+  if (["공원", "자연"].includes(c)) return "nature_family";
+  if (["전시", "박물관", "미술관"].includes(c)) return "exhibition_family";
+  if (["쇼핑", "편집샵"].includes(c)) return "shopping_family";
+  if (["체험", "액티비티"].includes(c)) return "activity_family";
+  if (["관광지", "문화유산"].includes(c)) return "tourism_family";
+
+  return c;
+}
+
+function categoryFamilyCount(dayPlaces: ScoredPlace[], candidate: ScoredPlace): number {
+  const family = categoryFamily(candidate.place.category);
+
+  return dayPlaces.filter(
+    (item) => categoryFamily(item.place.category) === family
+  ).length;
+}
+
+function categoryCapPenalty(dayPlaces: ScoredPlace[], candidate: ScoredPlace): number {
+  const count = categoryFamilyCount(dayPlaces, candidate);
+
+  if (count === 0) return 0;
+  if (count === 1) return 0.12;
+
+  return 0.3;
 }
 
 function categoryNoveltyBonus(dayPlaces: ScoredPlace[], candidate: ScoredPlace): number {
-  const category = candidate.place.category;
-  if (!category) return 0;
+  const family = categoryFamily(candidate.place.category);
 
-  const alreadyExists = dayPlaces.some((item) => item.place.category === category);
-  return alreadyExists ? 0 : 0.12;
+  const alreadyExists = dayPlaces.some(
+    (item) => categoryFamily(item.place.category) === family
+  );
+
+  return alreadyExists ? 0 : 0.14;
 }
 
 function themeFitBonus(theme: ThemeAxis, candidate: ScoredPlace): number {
   const v = candidate.place.vector;
   if (!v) return 0;
-  return (v[theme] ?? 0) * 0.25;
+
+  return (v[theme] ?? 0) * 0.22;
 }
 
 function sameRegionBonus(region: string | null, candidate: ScoredPlace): number {
   if (!region) return 0;
-  return candidate.place.region === region ? 0.18 : -0.25;
+
+  return candidate.place.region === region ? 0.18 : -0.35;
+}
+
+/**
+ * anchor와 성격이 다르면 support로서 보너스
+ * 너무 비슷하면 보너스 적음
+ */
+function complementBonus(anchor: ScoredPlace, candidate: ScoredPlace): number {
+  const av = anchor.place.vector;
+  const cv = candidate.place.vector;
+
+  if (!av || !cv) return 0;
+
+  const anchorTheme = getThemeAxisFromPlace(anchor.place);
+
+  // anchor와 같은 축이면 보너스 적고,
+  // 다른 축에서 의미 있는 값이 있으면 더 좋게 본다.
+  const sameAxisStrength = cv[anchorTheme] ?? 0;
+
+  const otherAxes: ThemeAxis[] = [
+    "food",
+    "culture",
+    "nature",
+    "shopping",
+    "activity",
+    "atmosphere",
+    "tourism",
+  ].filter((axis) => axis !== anchorTheme) as ThemeAxis[];
+
+  const bestOther = Math.max(...otherAxes.map((axis) => cv[axis] ?? 0));
+
+  if (bestOther >= 0.75 && sameAxisStrength < 0.5) return 0.2;
+  if (bestOther >= 0.6 && sameAxisStrength < 0.7) return 0.12;
+
+  return 0;
 }
 
 function durationPressurePenalty(
@@ -111,45 +194,12 @@ function durationPressurePenalty(
   }
 
   const usageRatio = nextDuration / maxDayDurationMin;
-
-  // 슬롯이 아직 많이 남았는데 시간이 너무 빨리 차면 penalty
   const expectedProgress = (currentCount + 1) / placesPerDay;
 
-  if (usageRatio > expectedProgress + 0.25) {
-    return 0.18;
-  }
-
-  if (usageRatio > expectedProgress + 0.15) {
-    return 0.08;
-  }
+  if (usageRatio > expectedProgress + 0.25) return 0.2;
+  if (usageRatio > expectedProgress + 0.15) return 0.08;
 
   return 0;
-}
-
-function adjustedMarginalGain(
-  dayPlaces: ScoredPlace[],
-  candidate: ScoredPlace,
-  theme: ThemeAxis,
-  dayRegion: string | null,
-  currentDuration: number,
-  maxDayDurationMin: number,
-  placesPerDay: number
-): number {
-  return (
-    candidate.score +
-    themeFitBonus(theme, candidate) +
-    categoryNoveltyBonus(dayPlaces, candidate) +
-    sameRegionBonus(dayRegion, candidate) -
-    duplicateClusterPenalty(dayPlaces, candidate) -
-    categoryPenalty(dayPlaces, candidate) -
-    durationPressurePenalty(
-      currentDuration,
-      candidate,
-      maxDayDurationMin,
-      placesPerDay,
-      dayPlaces.length
-    )
-  );
 }
 
 function uniqueByPlaceId(items: ScoredPlace[]): ScoredPlace[] {
@@ -202,17 +252,54 @@ function computeRegionStrength(
   mustPlaceIds: Set<string>,
   placesPerDay: number
 ): number {
-  const top = regionItems.slice(0, Math.min(regionItems.length, placesPerDay + 2));
+  const top = regionItems.slice(0, Math.min(regionItems.length, placesPerDay + 3));
   const topScoreSum = top.reduce((acc, item) => acc + item.score, 0);
 
-  const categories = new Set(
-    top.map((item) => item.place.category).filter(Boolean) as string[]
+  const categoryFamilies = new Set(
+    top.map((item) => categoryFamily(item.place.category))
   );
 
   const mustBonus = top.some((item) => mustPlaceIds.has(item.place.id)) ? 3 : 0;
-  const diversityBonus = categories.size * 0.15;
+  const diversityBonus = categoryFamilies.size * 0.18;
 
   return topScoreSum + mustBonus + diversityBonus;
+}
+
+function selectAnchor(regionCandidates: ScoredPlace[], mustPlaceIds: Set<string>): ScoredPlace {
+  const mustAnchor = regionCandidates.find((item) => mustPlaceIds.has(item.place.id));
+  if (mustAnchor) return mustAnchor;
+
+  // 최고점 + 대표성
+  const sorted = [...regionCandidates].sort((a, b) => b.score - a.score);
+  return sorted[0];
+}
+
+function supportGain(
+  anchor: ScoredPlace,
+  dayPlaces: ScoredPlace[],
+  candidate: ScoredPlace,
+  theme: ThemeAxis,
+  dayRegion: string | null,
+  currentDuration: number,
+  maxDayDurationMin: number,
+  placesPerDay: number
+): number {
+  return (
+    candidate.score +
+    themeFitBonus(theme, candidate) +
+    categoryNoveltyBonus(dayPlaces, candidate) +
+    complementBonus(anchor, candidate) +
+    sameRegionBonus(dayRegion, candidate) -
+    microClusterPenalty(dayPlaces, candidate) -
+    categoryCapPenalty(dayPlaces, candidate) -
+    durationPressurePenalty(
+      currentDuration,
+      candidate,
+      maxDayDurationMin,
+      placesPerDay,
+      dayPlaces.length
+    )
+  );
 }
 
 export function buildSchedule({
@@ -223,13 +310,12 @@ export function buildSchedule({
 }: BuildScheduleParams): DayPlan[] {
   const placesPerDay = user.constraints.placesPerDay;
   const usedPlaceIds = new Set<string>();
+  const usedRegions = new Set<string>();
   const schedule: DayPlan[] = [];
 
   const mustScored = mustPlaces.map(toScoredMustPlace);
   const mergedPool = uniqueByPlaceId([...mustScored, ...candidates]);
-
   const mustPlaceIds = new Set(mustPlaces.map((p) => p.id));
-  const usedRegions = new Set<string>();
 
   for (let day = 1; day <= user.days; day += 1) {
     const availablePool = mergedPool.filter((item) => !usedPlaceIds.has(item.place.id));
@@ -253,9 +339,7 @@ export function buildSchedule({
 
     for (const [region, items] of regionMap.entries()) {
       const strength = computeRegionStrength(items, mustPlaceIds, placesPerDay);
-
-      // 이미 쓴 region은 약하게 penalty
-      const repeatPenalty = usedRegions.has(region) ? 0.6 : 0;
+      const repeatPenalty = usedRegions.has(region) ? 0.7 : 0;
 
       if (strength - repeatPenalty > bestRegionStrength) {
         bestRegionStrength = strength - repeatPenalty;
@@ -282,21 +366,20 @@ export function buildSchedule({
       continue;
     }
 
-    // anchor 선정: must place 우선, 없으면 지역 내 최고점
-    let anchor =
-      regionCandidates.find((item) => mustPlaceIds.has(item.place.id)) ?? regionCandidates[0];
-
+    const anchor = selectAnchor(regionCandidates, mustPlaceIds);
     const theme = getThemeAxisFromPlace(anchor.place);
+
     const dayPlaces: ScoredPlace[] = [];
     let dayDuration = 0;
 
-    // anchor 삽입
+    // 1. anchor 삽입
     if (dayDuration + defaultDuration(anchor.place) <= maxDayDurationMin) {
       dayPlaces.push(anchor);
       usedPlaceIds.add(anchor.place.id);
       dayDuration += defaultDuration(anchor.place);
     }
 
+    // 2. support 삽입
     while (dayPlaces.length < placesPerDay) {
       const remaining = regionCandidates.filter((item) => !usedPlaceIds.has(item.place.id));
 
@@ -306,7 +389,8 @@ export function buildSchedule({
       let bestGain = -Infinity;
 
       for (const candidate of remaining) {
-        const gain = adjustedMarginalGain(
+        const gain = supportGain(
+          anchor,
           dayPlaces,
           candidate,
           theme,
