@@ -1,5 +1,37 @@
 export type PrimaryAxis = "rest" | "schedule" | "mood" | "strategy";
 
+// engine/types.ts
+
+import { Place } from "@/lib/places";
+
+export type Candidate = {
+  place: Place;
+  score: number;
+  breakdown?: any;
+};
+
+export type ThemeAxis =
+  | "food"
+  | "culture"
+  | "nature"
+  | "shopping"
+  | "activity"
+  | "atmosphere"
+  | "tourism";
+
+export type DayPlan = {
+  day: number;
+  theme: ThemeAxis;
+  places: Candidate[];
+  total_estimated_duration_min: number;
+  regions: string[];
+  categories: string[];
+};
+
+export type ScheduleResult = {
+  days: DayPlan[];
+};
+
 export type PlaceAxis =
   | "food"
   | "culture"
