@@ -320,14 +320,16 @@ function slotAffinity(candidate: ScoredPlace, slot: DaySlot, theme: ThemeAxis): 
     if (family === "activity_family") score += 0.08;
     if (family === "shopping_family") score -= 0.04;
     if (family === "cafe_family") score -= 0.06;
+    if (family === "food_family") score -= 0.06;
     score += (v.tourism ?? 0) * 0.1;
     score += (v.culture ?? 0) * 0.08;
   }
 
   if (slot === "midday") {
-    if (family === "food_family") score += 0.3;
+    if (family === "food_family") score += 0.32;
     if (family === "cafe_family") score += 0.22;
     if (family === "shopping_family") score += 0.06;
+    if (family === "nature_family") score -= 0.03;
     score += (v.food ?? 0) * 0.12;
   }
 
@@ -341,11 +343,15 @@ function slotAffinity(candidate: ScoredPlace, slot: DaySlot, theme: ThemeAxis): 
   }
 
   if (slot === "evening") {
-    if (family === "cafe_family") score += 0.26;
-    if (family === "food_family") score += 0.18;
-    if (family === "shopping_family") score += 0.06;
-    if (family === "nature_family") score -= 0.04;
-    score += (v.atmosphere ?? 0) * 0.14;
+    if (family === "cafe_family") score += 0.34;
+    if (family === "food_family") score += 0.26;
+    if (family === "shopping_family") score += 0.04;
+    if (family === "exhibition_family") score -= 0.12;
+    if (family === "nature_family") score -= 0.12;
+    if (family === "tourism_family") score -= 0.08;
+    if (family === "activity_family") score -= 0.06;
+    score += (v.atmosphere ?? 0) * 0.18;
+    score += (v.food ?? 0) * 0.06;
   }
 
   score += (v[theme] ?? 0) * 0.05;
@@ -422,15 +428,21 @@ function pickBestCandidateForSlot(
   dayDuration: number,
   maxDayDurationMin: number,
   placesPerDay: number,
-  useHardRules: boolean
+  options: {
+    enforceMicroClusterCap: boolean;
+    enforceCategoryCap: boolean;
+  }
 ): ScoredPlace | null {
   let bestCandidate: ScoredPlace | null = null;
   let bestGain = -Infinity;
 
   for (const candidate of remaining) {
-    if (useHardRules) {
-      if (microClusterHardBlocked(dayPlaces, candidate)) continue;
-      if (categoryHardBlocked(dayPlaces, candidate)) continue;
+    if (options.enforceMicroClusterCap && microClusterHardBlocked(dayPlaces, candidate)) {
+      continue;
+    }
+
+    if (options.enforceCategoryCap && categoryHardBlocked(dayPlaces, candidate)) {
+      continue;
     }
 
     const gain = supportGain(
@@ -547,7 +559,7 @@ export function buildSchedule({
       const remaining = regionCandidates.filter((item) => !usedPlaceIds.has(item.place.id));
       if (remaining.length === 0) break;
 
-      // 1차: hard rules 적용
+      // 1차: micro-cluster cap + category cap 둘 다 적용
       let bestCandidate = pickBestCandidateForSlot(
         remaining,
         anchor,
@@ -558,10 +570,13 @@ export function buildSchedule({
         dayDuration,
         maxDayDurationMin,
         placesPerDay,
-        true
+        {
+          enforceMicroClusterCap: true,
+          enforceCategoryCap: true,
+        }
       );
 
-      // 2차 fallback: hard rule 완화
+      // 2차 fallback: micro-cluster cap은 유지, category cap만 완화
       if (!bestCandidate) {
         bestCandidate = pickBestCandidateForSlot(
           remaining,
@@ -573,7 +588,10 @@ export function buildSchedule({
           dayDuration,
           maxDayDurationMin,
           placesPerDay,
-          false
+          {
+            enforceMicroClusterCap: true,
+            enforceCategoryCap: false,
+          }
         );
       }
 
