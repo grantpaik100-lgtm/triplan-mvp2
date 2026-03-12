@@ -16,6 +16,11 @@ type BuildScheduleParams = {
   maxDayDurationMin?: number;
 };
 
+type RegionPlanItem = {
+  day: number;
+  region: string;
+};
+
 const SLOT_ORDER: DaySlot[] = ["morning", "midday", "afternoon", "evening"];
 
 function activeSlotsByDensity(placesPerDay: number): DaySlot[] {
@@ -467,6 +472,185 @@ function pickBestCandidateForSlot(
   return bestCandidate;
 }
 
+/**
+ * v8 핵심:
+ * trip 전체에서 먼저 쓸 region sequence를 만든다.
+ */
+function buildTripRegionPlan(
+  regionMap: Map<string, ScoredPlace[]>,
+  days: number,
+  mustPlaceIds: Set<string>,
+  placesPerDay: number
+): RegionPlanItem[] {
+  const scoredRegions = Array.from(regionMap.entries()).map(([region, items]) => ({
+    region,
+    strength: computeRegionStrength(items, mustPlaceIds, placesPerDay),
+  }));
+
+  scoredRegions.sort((a, b) => b.strength - a.strength);
+
+  const result: RegionPlanItem[] = [];
+  const regionCount = scoredRegions.length;
+
+  if (regionCount === 0) return result;
+
+  // 1차: 가능한 한 서로 다른 region 우선 배치
+  for (let i = 0; i < Math.min(days, regionCount); i += 1) {
+    result.push({
+      day: i + 1,
+      region: scoredRegions[i].region,
+    });
+  }
+
+  // 2차: days가 region 수보다 많으면 강한 region부터 반복
+  let cursor = 0;
+  while (result.length < days) {
+    result.push({
+      day: result.length + 1,
+      region: scoredRegions[cursor % regionCount].region,
+    });
+    cursor += 1;
+  }
+
+  return result;
+}
+
+function buildDayScheduleForRegion(
+  day: number,
+  region: string,
+  regionCandidates: ScoredPlace[],
+  mustPlaceIds: Set<string>,
+  usedPlaceIds: Set<string>,
+  placesPerDay: number,
+  maxDayDurationMin: number
+): DayPlan {
+  const activeSlots = activeSlotsByDensity(placesPerDay);
+  const availableRegionCandidates = regionCandidates.filter(
+    (item) => !usedPlaceIds.has(item.place.id)
+  );
+
+  if (availableRegionCandidates.length === 0) {
+    return {
+      day,
+      theme: "tourism",
+      places: [],
+      slottedPlaces: [],
+      total_estimated_duration_min: 0,
+      regions: [],
+      categories: [],
+    };
+  }
+
+  const anchor = selectAnchor(availableRegionCandidates, mustPlaceIds);
+  const theme = getThemeAxisFromPlace(anchor.place);
+
+  const dayPlaces: ScoredPlace[] = [];
+  const slottedPlaces: Array<{ slot: DaySlot; item: ScoredPlace }> = [];
+  let dayDuration = 0;
+
+  const anchorSlot = bestSlotForAnchor(anchor, activeSlots, theme);
+
+  if (dayDuration + defaultDuration(anchor.place) <= maxDayDurationMin) {
+    dayPlaces.push(anchor);
+    slottedPlaces.push({ slot: anchorSlot, item: anchor });
+    usedPlaceIds.add(anchor.place.id);
+    dayDuration += defaultDuration(anchor.place);
+  }
+
+  const remainingSlots = activeSlots.filter((slot) => slot !== anchorSlot);
+
+  for (const slot of remainingSlots) {
+    if (dayPlaces.length >= placesPerDay) break;
+
+    const remaining = availableRegionCandidates.filter(
+      (item) => !usedPlaceIds.has(item.place.id)
+    );
+    if (remaining.length === 0) break;
+
+    // 1차
+    let bestCandidate = pickBestCandidateForSlot(
+      remaining,
+      anchor,
+      dayPlaces,
+      theme,
+      region,
+      slot,
+      dayDuration,
+      maxDayDurationMin,
+      placesPerDay,
+      {
+        enforceMicroClusterCap: true,
+        enforceCategoryCap: true,
+      }
+    );
+
+    // 2차
+    if (!bestCandidate) {
+      bestCandidate = pickBestCandidateForSlot(
+        remaining,
+        anchor,
+        dayPlaces,
+        theme,
+        region,
+        slot,
+        dayDuration,
+        maxDayDurationMin,
+        placesPerDay,
+        {
+          enforceMicroClusterCap: true,
+          enforceCategoryCap: false,
+        }
+      );
+    }
+
+    // 3차
+    if (!bestCandidate) {
+      bestCandidate = pickBestCandidateForSlot(
+        remaining,
+        anchor,
+        dayPlaces,
+        theme,
+        region,
+        slot,
+        dayDuration,
+        maxDayDurationMin,
+        placesPerDay,
+        {
+          enforceMicroClusterCap: false,
+          enforceCategoryCap: false,
+        }
+      );
+    }
+
+    if (!bestCandidate) continue;
+
+    const duration = defaultDuration(bestCandidate.place);
+    if (dayDuration + duration > maxDayDurationMin) continue;
+
+    dayPlaces.push(bestCandidate);
+    slottedPlaces.push({ slot, item: bestCandidate });
+    usedPlaceIds.add(bestCandidate.place.id);
+    dayDuration += duration;
+  }
+
+  const slotIndex = new Map<DaySlot, number>(SLOT_ORDER.map((slot, idx) => [slot, idx]));
+  slottedPlaces.sort((a, b) => slotIndex.get(a.slot)! - slotIndex.get(b.slot)!);
+
+  return {
+    day,
+    theme,
+    places: slottedPlaces.map((entry) => entry.item),
+    slottedPlaces,
+    total_estimated_duration_min: dayDuration,
+    regions: Array.from(
+      new Set(dayPlaces.map((p) => p.place.region).filter(Boolean) as string[])
+    ),
+    categories: Array.from(
+      new Set(dayPlaces.map((p) => p.place.category).filter(Boolean) as string[])
+    ),
+  };
+}
+
 export function buildSchedule({
   candidates,
   mustPlaces,
@@ -474,175 +658,52 @@ export function buildSchedule({
   maxDayDurationMin = 8 * 60,
 }: BuildScheduleParams): DayPlan[] {
   const placesPerDay = user.constraints.placesPerDay;
-  const activeSlots = activeSlotsByDensity(placesPerDay);
-
   const usedPlaceIds = new Set<string>();
-  const usedRegions = new Set<string>();
-  const schedule: DayPlan[] = [];
 
   const mustScored = mustPlaces.map(toScoredMustPlace);
   const mergedPool = uniqueByPlaceId([...mustScored, ...candidates]);
   const mustPlaceIds = new Set(mustPlaces.map((p) => p.id));
 
-  for (let day = 1; day <= user.days; day += 1) {
-    const availablePool = mergedPool.filter((item) => !usedPlaceIds.has(item.place.id));
+  const regionMap = groupByRegion(mergedPool);
+  const regionPlan = buildTripRegionPlan(
+    regionMap,
+    user.days,
+    mustPlaceIds,
+    placesPerDay
+  );
 
-    if (availablePool.length === 0) {
-      schedule.push({
-        day,
-        theme: "tourism",
-        places: [],
-        slottedPlaces: [],
-        total_estimated_duration_min: 0,
-        regions: [],
-        categories: [],
-      });
-      continue;
-    }
+  const schedule: DayPlan[] = [];
 
-    const regionMap = groupByRegion(availablePool);
+  for (const item of regionPlan) {
+    const regionCandidates = regionMap.get(item.region) ?? [];
 
-    let bestRegion: string | null = null;
-    let bestRegionStrength = -Infinity;
-
-    for (const [region, items] of regionMap.entries()) {
-      const strength = computeRegionStrength(items, mustPlaceIds, placesPerDay);
-      const repeatPenalty = usedRegions.has(region) ? 0.7 : 0;
-
-      if (strength - repeatPenalty > bestRegionStrength) {
-        bestRegionStrength = strength - repeatPenalty;
-        bestRegion = region;
-      }
-    }
-
-    const dayRegion = bestRegion ?? "unknown";
-    usedRegions.add(dayRegion);
-
-    const regionCandidates = (regionMap.get(dayRegion) ?? []).filter(
-      (item) => !usedPlaceIds.has(item.place.id)
+    const dayPlan = buildDayScheduleForRegion(
+      item.day,
+      item.region,
+      regionCandidates,
+      mustPlaceIds,
+      usedPlaceIds,
+      placesPerDay,
+      maxDayDurationMin
     );
 
-    if (regionCandidates.length === 0) {
-      schedule.push({
-        day,
-        theme: "tourism",
-        places: [],
-        slottedPlaces: [],
-        total_estimated_duration_min: 0,
-        regions: [],
-        categories: [],
-      });
-      continue;
-    }
-
-    const anchor = selectAnchor(regionCandidates, mustPlaceIds);
-    const theme = getThemeAxisFromPlace(anchor.place);
-
-    const dayPlaces: ScoredPlace[] = [];
-    const slottedPlaces: Array<{ slot: DaySlot; item: ScoredPlace }> = [];
-    let dayDuration = 0;
-
-    const anchorSlot = bestSlotForAnchor(anchor, activeSlots, theme);
-
-    if (dayDuration + defaultDuration(anchor.place) <= maxDayDurationMin) {
-      dayPlaces.push(anchor);
-      slottedPlaces.push({ slot: anchorSlot, item: anchor });
-      usedPlaceIds.add(anchor.place.id);
-      dayDuration += defaultDuration(anchor.place);
-    }
-
-    const remainingSlots = activeSlots.filter((slot) => slot !== anchorSlot);
-
-    for (const slot of remainingSlots) {
-      if (dayPlaces.length >= placesPerDay) break;
-
-      const remaining = regionCandidates.filter((item) => !usedPlaceIds.has(item.place.id));
-      if (remaining.length === 0) break;
-
-      // 1차: micro-cluster cap + category cap 둘 다 적용
-      // 1차: micro-cluster cap + category cap 둘 다 적용
-let bestCandidate = pickBestCandidateForSlot(
-  remaining,
-  anchor,
-  dayPlaces,
-  theme,
-  dayRegion,
-  slot,
-  dayDuration,
-  maxDayDurationMin,
-  placesPerDay,
-  {
-    enforceMicroClusterCap: true,
-    enforceCategoryCap: true,
+    schedule.push(dayPlan);
   }
-);
 
-// 2차 fallback: category cap만 완화
-if (!bestCandidate) {
-  bestCandidate = pickBestCandidateForSlot(
-    remaining,
-    anchor,
-    dayPlaces,
-    theme,
-    dayRegion,
-    slot,
-    dayDuration,
-    maxDayDurationMin,
-    placesPerDay,
-    {
-      enforceMicroClusterCap: true,
-      enforceCategoryCap: false,
-    }
-  );
-}
-
-// 3차 fallback: 정말 없으면 micro-cluster도 완화
-if (!bestCandidate) {
-  bestCandidate = pickBestCandidateForSlot(
-    remaining,
-    anchor,
-    dayPlaces,
-    theme,
-    dayRegion,
-    slot,
-    dayDuration,
-    maxDayDurationMin,
-    placesPerDay,
-    {
-      enforceMicroClusterCap: false,
-      enforceCategoryCap: false,
-    }
-  );
-}
-
-      if (!bestCandidate) continue;
-
-      const duration = defaultDuration(bestCandidate.place);
-      if (dayDuration + duration > maxDayDurationMin) continue;
-
-      dayPlaces.push(bestCandidate);
-      slottedPlaces.push({ slot, item: bestCandidate });
-      usedPlaceIds.add(bestCandidate.place.id);
-      dayDuration += duration;
-    }
-
-    const slotIndex = new Map<DaySlot, number>(SLOT_ORDER.map((slot, idx) => [slot, idx]));
-    slottedPlaces.sort((a, b) => slotIndex.get(a.slot)! - slotIndex.get(b.slot)!);
-
+  // 혹시 region plan보다 schedule이 짧으면 빈 day 채움
+  while (schedule.length < user.days) {
     schedule.push({
-      day,
-      theme,
-      places: slottedPlaces.map((entry) => entry.item),
-      slottedPlaces,
-      total_estimated_duration_min: dayDuration,
-      regions: Array.from(
-        new Set(dayPlaces.map((p) => p.place.region).filter(Boolean) as string[])
-      ),
-      categories: Array.from(
-        new Set(dayPlaces.map((p) => p.place.category).filter(Boolean) as string[])
-      ),
+      day: schedule.length + 1,
+      theme: "tourism",
+      places: [],
+      slottedPlaces: [],
+      total_estimated_duration_min: 0,
+      regions: [],
+      categories: [],
     });
   }
+
+  schedule.sort((a, b) => a.day - b.day);
 
   return schedule;
 }
