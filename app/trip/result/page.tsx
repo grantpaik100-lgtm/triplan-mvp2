@@ -66,7 +66,7 @@ export default function TripResultPage() {
       setLoading(true);
       setError(null);
 
-      const response = await fetch("/api/generatetrip", {
+      const response = await fetch("/api/generate-trip", {
         method: "GET",
         cache: "no-store",
       });
