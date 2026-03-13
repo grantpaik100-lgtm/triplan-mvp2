@@ -22,29 +22,7 @@ type ApiResponse = {
   result?: TripPlanResult;
 };
 
-const demoBody = {
-  primary: {
-    rest: 0.6,
-    schedule: 0.2,
-    mood: 0.15,
-    strategy: 0.05,
-  },
-  secondary: {
-    city: "Seoul",
-    days: 2,
-    companion: "friend",
-    budget_level: 3,
-    pace: 3,
-    chronotype: "neutral",
-    walk_tolerance: 3,
-    waiting_tolerance: 3,
-    food_importance: 4,
-    daily_density: 3,
-    must_place_ids: [],
-    must_foods: [],
-    must_experiences: [],
-  },
-};
+
 
 export default function TripResultPage() {
   const density = DENSITY.base;
@@ -83,17 +61,14 @@ export default function TripResultPage() {
     []
   );
 
-  const fetchTrip = useCallback(async () => {
+   const fetchTrip = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
 
       const response = await fetch("/api/generatetrip", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(demoBody),
+        method: "GET",
+        cache: "no-store",
       });
 
       if (!response.ok) {
