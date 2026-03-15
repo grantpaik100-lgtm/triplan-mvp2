@@ -1,4 +1,4 @@
-export type SecondarySection = "G" | "A" | "B" | "C" | "D" | "E" | "F" | "H";
+export type SecondarySection = "G" | "A" | "B" | "C" | "D" | "E" | "F" | "X" | "H";
 
 export type SingleValueQuestionId =
   | "country"
@@ -18,7 +18,11 @@ export type SingleValueQuestionId =
   | "waitingTolerance"
   | "primaryGoal"
   | "mustStayTogether"
-  | "conflictRule";
+  | "conflictRule"
+  | "atmospherePreference"
+  | "nightPreference"
+  | "activityIntensityPreference"
+  | "crowdTolerance";
 
 export type MultiValueQuestionId =
   | "moveStyle"
@@ -129,6 +133,18 @@ export type SecondaryAnswers = {
   conflictRule: SingleAnswerValue;
   conflictRuleOther: string;
 
+  atmospherePreference: SingleAnswerValue;
+  atmospherePreferenceOther: string;
+
+  nightPreference: SingleAnswerValue;
+  nightPreferenceOther: string;
+
+  activityIntensityPreference: SingleAnswerValue;
+  activityIntensityPreferenceOther: string;
+
+  crowdTolerance: SingleAnswerValue;
+  crowdToleranceOther: string;
+
   specialCare: string;
   specialContext: string;
   successFeeling: string;
@@ -218,6 +234,18 @@ export const secondaryInitialAnswers: SecondaryAnswers = {
 
   conflictRule: "",
   conflictRuleOther: "",
+
+  atmospherePreference: "",
+  atmospherePreferenceOther: "",
+
+  nightPreference: "",
+  nightPreferenceOther: "",
+
+  activityIntensityPreference: "",
+  activityIntensityPreferenceOther: "",
+
+  crowdTolerance: "",
+  crowdToleranceOther: "",
 
   specialCare: "",
   specialContext: "",
