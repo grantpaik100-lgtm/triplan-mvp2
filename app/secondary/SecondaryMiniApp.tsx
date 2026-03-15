@@ -44,11 +44,13 @@ const SECTION_LABEL: Record<SecondarySection, string> = {
   D: "숙소 전략",
   E: "동행 조율",
   F: "핵심 장소 · 이유",
+  X: "경험 스타일",
   H: "마지막 맥락",
 };
 
 function buildFollowupSeed(answers: SecondaryAnswers) {
-  const country = answers.country === "기타" ? answers.countryOther : answers.country;
+  const country =
+    answers.country === "기타" ? answers.countryOther : answers.country;
   const city = answers.city === "기타" ? answers.cityOther : answers.city;
 
   return {
@@ -70,8 +72,9 @@ function buildFollowupSeed(answers: SecondaryAnswers) {
         answers.budgetLevel === "기타"
           ? answers.budgetLevelOther
           : answers.budgetLevel,
+
       budgetSplit: answers.budgetSplit,
-      
+
       firstDayStart:
         answers.firstDayStart === "기타"
           ? answers.firstDayStartOther
@@ -158,6 +161,26 @@ function buildFollowupSeed(answers: SecondaryAnswers) {
           ? answers.conflictRuleOther
           : answers.conflictRule,
 
+      atmospherePreference:
+        answers.atmospherePreference === "기타"
+          ? answers.atmospherePreferenceOther
+          : answers.atmospherePreference,
+
+      nightPreference:
+        answers.nightPreference === "기타"
+          ? answers.nightPreferenceOther
+          : answers.nightPreference,
+
+      activityIntensityPreference:
+        answers.activityIntensityPreference === "기타"
+          ? answers.activityIntensityPreferenceOther
+          : answers.activityIntensityPreference,
+
+      crowdTolerance:
+        answers.crowdTolerance === "기타"
+          ? answers.crowdToleranceOther
+          : answers.crowdTolerance,
+
       specialCare: answers.specialCare,
       specialContext: answers.specialContext,
       successFeeling: answers.successFeeling,
@@ -170,7 +193,7 @@ function validateQuestion(
   q: SecondaryQuestion,
   answers: SecondaryAnswers
 ): { ok: boolean; msg?: string } {
-  const v = answers[q.id as keyof SecondaryAnswers] as any;
+  const v = answers[q.id as keyof SecondaryAnswers] as unknown;
 
   if (!q.required) return { ok: true };
 
@@ -185,7 +208,7 @@ function validateQuestion(
     if (!v) return { ok: false, msg: "선택 필요" };
 
     if (v === "기타") {
-      const other = (answers as any)[`${q.id}Other`];
+      const other = (answers as Record<string, unknown>)[`${q.id}Other`];
       if (!String(other ?? "").trim()) {
         return { ok: false, msg: "기타 내용 입력" };
       }
@@ -200,7 +223,7 @@ function validateQuestion(
     }
 
     if (v.includes("기타")) {
-      const other = (answers as any)[`${q.id}Other`];
+      const other = (answers as Record<string, unknown>)[`${q.id}Other`];
       if (!String(other ?? "").trim()) {
         return { ok: false, msg: "기타 내용 입력" };
       }
@@ -214,523 +237,43 @@ function validateQuestion(
   }
 
   if (q.type === "budgetSplit") {
-  const b = v as
-    | { food: number; activity: number; stay: number; shopping: number }
-    | undefined;
+    const b = v as
+      | { food: number; activity: number; stay: number; shopping: number }
+      | undefined;
 
-  if (!b) {
-    return { ok: false, msg: "예산 분배 입력" };
-  }
+    if (!b) {
+      return { ok: false, msg: "예산 분배 입력" };
+    }
 
-  const total = b.food + b.activity + b.stay + b.shopping;
+    const total = b.food + b.activity + b.stay + b.shopping;
 
-  if (total !== 10) {
-    return { ok: false, msg: "총합이 10이 되도록 입력하세요" };
-  }
+    if (total !== 10) {
+      return { ok: false, msg: "총합이 10이 되도록 입력하세요" };
+    }
 
-  return { ok: true };
-}
-
-  if (q.type === "places") {
-  if (!Array.isArray(v) || v.length === 0) {
     return { ok: true };
   }
 
-  for (const p of v as PlaceItem[]) {
-    const hasName = String(p.name ?? "").trim().length > 0;
-    const hasReason = String(p.reason ?? "").trim().length > 0;
+  if (q.type === "places") {
+    if (!Array.isArray(v) || v.length === 0) {
+      return { ok: true };
+    }
 
-    if (!hasName && !hasReason) continue;
+    for (const p of v as PlaceItem[]) {
+      const hasName = String(p.name ?? "").trim().length > 0;
+      const hasReason = String(p.reason ?? "").trim().length > 0;
 
-    if (!hasName) return { ok: false, msg: "장소 이름 입력" };
+      if (!hasName && !hasReason) continue;
+      if (!hasName) return { ok: false, msg: "장소 이름 입력" };
+    }
+
+    return { ok: true };
   }
 
   return { ok: true };
 }
 
-  return { ok: true };
-}
-
-export default function SecondaryMiniApp() {
-  const [state, setState] = useState<State>(DEFAULT_STATE);
-
-  useEffect(() => {
-    const draft = loadSecondaryDraft();
-    if (!draft) return;
-
-    setState((s) => ({
-      ...s,
-      answers: {
-        ...cloneSecondaryInitialAnswers(),
-        ...(draft.answers ?? {}),
-      },
-      idx: typeof draft.idx === "number" ? draft.idx : 0,
-      mode: (draft.mode ?? "intro") as Mode,
-      returnToSummary: !!draft.returnToSummary,
-      editSection: draft.editSection as SecondarySection | undefined,
-    }));
-  }, []);
-
-  useEffect(() => {
-    saveSecondaryDraft({
-      mode: state.mode,
-      idx: state.idx,
-      answers: state.answers,
-      returnToSummary: state.returnToSummary,
-      editSection: state.editSection,
-    });
-  }, [state]);
-
-  const filteredQuestions = useMemo(() => {
-    return secondaryQuestions.filter((q) => {
-      if (!q.showWhen) return true;
-      return q.showWhen(state.answers);
-    });
-  }, [state.answers]);
-
-  useEffect(() => {
-    const max = Math.max(0, filteredQuestions.length - 1);
-    if (state.idx <= max) return;
-
-    setState((s) => ({
-      ...s,
-      idx: max,
-    }));
-  }, [filteredQuestions.length, state.idx]);
-
-  const current = filteredQuestions[state.idx] ?? filteredQuestions[0];
-  const validation = current
-    ? validateQuestion(current, state.answers)
-    : { ok: false, msg: "질문 없음" };
-
-  function setAnswer(id: string, value: any) {
-    setState((s) => {
-      const nextAnswers = {
-        ...s.answers,
-        [id]: value,
-      } as SecondaryAnswers;
-
-      if (id === "country") {
-        nextAnswers.city = "";
-        nextAnswers.cityOther = "";
-      }
-
-      if (id === "companionType" && value === "혼자") {
-        nextAnswers.mustStayTogether = "";
-        nextAnswers.mustStayTogetherOther = "";
-        nextAnswers.conflictRule = "";
-        nextAnswers.conflictRuleOther = "";
-        nextAnswers.specialCare = "";
-      }
-
-      return {
-        ...s,
-        answers: nextAnswers,
-      };
-    });
-  }
-
-  function setOther(id: string, value: string) {
-    setState((s) => ({
-      ...s,
-      answers: {
-        ...s.answers,
-        [`${id}Other`]: value,
-      } as SecondaryAnswers,
-    }));
-  }
-
-  function goPrev() {
-    setState((s) => ({
-      ...s,
-      idx: Math.max(0, s.idx - 1),
-    }));
-  }
-
-  function goNext() {
-    if (!validation.ok) return;
-
-    if (state.returnToSummary && state.editSection) {
-      const nextQ = filteredQuestions[state.idx + 1];
-      const isLastOfSection = !nextQ || nextQ.section !== state.editSection;
-
-      if (isLastOfSection) {
-        setState((s) => ({
-          ...s,
-          mode: "summary",
-          returnToSummary: false,
-          editSection: undefined,
-        }));
-        return;
-      }
-    }
-
-    if (state.idx === filteredQuestions.length - 1) {
-      setState((s) => ({
-        ...s,
-        mode: "summary",
-      }));
-      return;
-    }
-
-    setState((s) => ({
-      ...s,
-      idx: Math.min(filteredQuestions.length - 1, s.idx + 1),
-    }));
-  }
-
-  function goToSection(section: SecondarySection) {
-    const idx = filteredQuestions.findIndex((q) => q.section === section);
-
-    setState((s) => ({
-      ...s,
-      mode: "question",
-      idx: idx >= 0 ? idx : 0,
-      returnToSummary: true,
-      editSection: section,
-    }));
-  }
-    function renderQuestion(
-    q: SecondaryQuestion,
-    answers: SecondaryAnswers
-  ) {
-    const value = answers[q.id as keyof SecondaryAnswers] as any;
-
-    switch (q.type) {
-      case "country":
-        return (
-          <CountryControl
-            value={answers.country}
-            onChange={(v) => setAnswer("country", v)}
-          />
-        );
-
-      case "city":
-        return (
-          <CityControl
-            country={answers.country}
-            value={answers.city}
-            other={answers.cityOther}
-            onChange={(v) => setAnswer("city", v)}
-            onChangeOther={(v) => setOther("city", v)}
-          />
-        );
-
-      case "single":
-        return (
-          <SingleSelect
-            options={q.options ?? []}
-            value={String(value ?? "")}
-            other={String((answers as any)[`${q.id}Other`] ?? "")}
-            onChange={(v) => setAnswer(q.id, v)}
-            onChangeOther={(v) => setOther(q.id, v)}
-          />
-        );
-
-      case "multi":
-        return (
-          <MultiSelect
-            id={q.id}
-            options={q.options ?? []}
-            value={Array.isArray(value) ? value : []}
-            maxSelect={q.maxSelect}
-            other={String((answers as any)[`${q.id}Other`] ?? "")}
-            onChange={(v) => setAnswer(q.id, v)}
-            onChangeOther={(v) => setOther(q.id, v)}
-          />
-        );
-
-      case "number":
-        return (
-          <NumberInput
-            value={Number(value ?? (q.id === "tripDays" ? 3 : 1))}
-            suffix={q.id === "tripDays" ? "일" : "명"}
-            onChange={(v) => setAnswer(q.id, v)}
-          />
-        );
-
-      case "places":
-        return (
-          <PlacesInput
-            value={Array.isArray(value) ? value : []}
-            onChange={(v) => setAnswer(q.id, v)}
-          />
-        );
-
-    
-
-      case "textarea":
-        return (
-          <TextArea
-            value={String(value ?? "")}
-            placeholder={q.placeholder ?? ""}
-            maxLength={200}
-            onChange={(v) => setAnswer(q.id, v)}
-          />
-        );
-
-      case "budgetSplit": {
-  const bs = answers.budgetSplit;
-
-  const update = (key: keyof typeof bs, value: number) => {
-    setAnswer("budgetSplit", {
-      ...bs,
-      [key]: value,
-    });
-  };
-
-  const total =
-    bs.food + bs.activity + bs.stay + bs.shopping;
-
-  return (
-    <div style={{ display: "grid", gap: 16 }}>
-      <div
-        style={{
-          fontSize: 14,
-          opacity: 0.7,
-        }}
-      >
-        총합 {total} / 10
-      </div>
-
-      <label>
-        음식
-        <input
-          type="number"
-          min={0}
-          max={10}
-          value={bs.food}
-          onChange={(e) =>
-            update("food", Number(e.target.value))
-          }
-        />
-      </label>
-
-      <label>
-        활동 / 경험
-        <input
-          type="number"
-          min={0}
-          max={10}
-          value={bs.activity}
-          onChange={(e) =>
-            update("activity", Number(e.target.value))
-          }
-        />
-      </label>
-
-      <label>
-        숙소
-        <input
-          type="number"
-          min={0}
-          max={10}
-          value={bs.stay}
-          onChange={(e) =>
-            update("stay", Number(e.target.value))
-          }
-        />
-      </label>
-
-      <label>
-        쇼핑
-        <input
-          type="number"
-          min={0}
-          max={10}
-          value={bs.shopping}
-          onChange={(e) =>
-            update("shopping", Number(e.target.value))
-          }
-        />
-      </label>
-    </div>
-  );
-}
-      
-      
-
-      default:
-        return null;
-    }
-  }
-
-  function renderQuestionCard() {
-    if (!current) {
-      return (
-        <article className="tp2-card">
-          <header className="tp2-cardHeader">
-            <div className="tp2-meta">설문 2</div>
-            <h2 className="tp2-h2">질문을 불러오지 못했다.</h2>
-          </header>
-        </article>
-      );
-    }
-
-    const sectionLabel = SECTION_LABEL[current.section];
-
-    return (
-      <article className="tp2-card">
-        <header className="tp2-cardHeader">
-          <div className="tp2-meta">
-            {sectionLabel} · Q {state.idx + 1} / {filteredQuestions.length}
-          </div>
-
-          <h2 className="tp2-h2">{current.title}</h2>
-
-          {current.help ? (
-            <p className="tp2-body tp2-help">{current.help}</p>
-          ) : null}
-        </header>
-
-        <div className="tp2-controls">
-          {renderQuestion(current, state.answers)}
-
-          {!validation.ok ? (
-            <div className="tp2-meta">{validation.msg}</div>
-          ) : null}
-        </div>
-
-        <footer className="tp2-footer">
-          <button
-            type="button"
-            className="tp2-btn"
-            onClick={goPrev}
-            disabled={state.idx === 0}
-          >
-            이전
-          </button>
-
-          <button
-            type="button"
-            className="tp2-btnPrimary"
-            onClick={goNext}
-            disabled={!validation.ok}
-          >
-            {state.idx === filteredQuestions.length - 1
-              ? "설정값 확인"
-              : "다음"}
-          </button>
-        </footer>
-      </article>
-    );
-  }
-
-  function renderIntro() {
-    return (
-      <article className="tp2-card">
-        <header className="tp2-cardHeader">
-          <div className="tp2-meta">설문 2</div>
-          <h2 className="tp2-h2">여행 세부 설정 입력</h2>
-          <p className="tp2-body tp2-help">
-            실제 일정 생성에 필요한 컨텍스트/제약/우선순위를 입력한다.
-          </p>
-        </header>
-
-        <div className="tp2-controls">
-          <div className="tp2-meta">
-            국가·도시 → 기간 → 제약/우선순위 → 핵심 장소(이유)
-          </div>
-        </div>
-
-        <footer className="tp2-footer">
-          <button
-            type="button"
-            className="tp2-btnPrimary"
-            onClick={() =>
-              setState((s) => ({
-                ...s,
-                mode: "question",
-                idx: 0,
-              }))
-            }
-          >
-            시작
-          </button>
-        </footer>
-      </article>
-    );
-  }
-
-  function renderSummary() {
-    return (
-      <SecondarySummaryView
-        questions={filteredQuestions}
-        answers={state.answers}
-        onEditSection={(section: SecondarySection) => {
-          goToSection(section);
-        }}
-        onBack={() => {
-          setState((s) => ({
-            ...s,
-            mode: "question",
-            idx: 0,
-            returnToSummary: false,
-            editSection: undefined,
-          }));
-        }}
-        onReview={() => {
-          setState((s) => ({
-            ...s,
-            mode: "handoff",
-          }));
-        }}
-      />
-    );
-  }
-
-  function renderHandoff() {
-    return (
-      <article className="tp2-card">
-        <header className="tp2-cardHeader">
-          <div className="tp2-meta">다음 단계</div>
-          <h2 className="tp2-h2">마지막으로 몇 가지만 더 물어볼게.</h2>
-          <p className="tp2-body tp2-help">
-            지금까지의 설문 내용을 바탕으로,
-            일정 품질을 더 높이기 위해 부족한 정보만 짧게 물어본다.
-          </p>
-        </header>
-
-        <div className="tp2-controls">
-          <div className="tp2-meta">
-            이 단계는 1~2분 안에 끝나며,
-            설문 1·2에서 애매했던 부분만 보충한다.
-          </div>
-        </div>
-
-        <footer className="tp2-footer">
-          <button
-            type="button"
-            className="tp2-btn"
-            onClick={() =>
-              setState((s) => ({
-                ...s,
-                mode: "summary",
-              }))
-            }
-          >
-            이전
-          </button>
-
-          <button
-            type="button"
-            className="tp2-btnPrimary"
-            onClick={() => {
-              const seed = buildFollowupSeed(state.answers);
-              sessionStorage.setItem(
-                "triplan_followup_seed",
-                JSON.stringify(seed)
-              );
-              window.location.href = "/followup";
-            }}
-          >
-            알겠다
-          </button>
-        </footer>
-      </article>
-    );
-  }
-  function CountryControl({
+function CountryControl({
   value,
   onChange,
 }: {
@@ -959,8 +502,8 @@ function PlacesInput({
   onChange: (v: PlaceItem[]) => void;
 }) {
   const add = () => {
-  onChange([...value, { name: "", reason: "" }]);
-};
+    onChange([...value, { name: "", reason: "" }]);
+  };
 
   const update = (i: number, patch: Partial<PlaceItem>) => {
     const next = value.map((p, idx) => (idx === i ? { ...p, ...patch } : p));
@@ -976,7 +519,10 @@ function PlacesInput({
       <button type="button" className="tp2-btn" onClick={add}>
         + 장소 추가
       </button>
-      {value.length === 0 ? <div className="tp2-meta">없으면 건너뛰어도 된다</div> : null}
+
+      {value.length === 0 ? (
+        <div className="tp2-meta">없으면 건너뛰어도 된다</div>
+      ) : null}
 
       {value.map((p, i) => (
         <div key={i} className="tp2-subcard">
@@ -995,8 +541,6 @@ function PlacesInput({
             onChange={(e) => update(i, { reason: e.target.value })}
           />
 
-          
-
           <button type="button" className="tp2-btn" onClick={() => remove(i)}>
             삭제
           </button>
@@ -1005,8 +549,6 @@ function PlacesInput({
     </div>
   );
 }
-
-
 
 function TextArea({
   value,
@@ -1024,27 +566,489 @@ function TextArea({
       className="tp2-textarea"
       value={value}
       placeholder={placeholder}
-      maxLength={200}
+      maxLength={maxLength ?? 200}
       onChange={(e) => onChange(e.target.value)}
     />
   );
 }
 
-let content: React.ReactNode;
+export default function SecondaryMiniApp() {
+  const [state, setState] = useState<State>(DEFAULT_STATE);
 
-if (state.mode === "intro") {
-  content = renderIntro();
-} else if (state.mode === "summary") {
-  content = renderSummary();
-} else if (state.mode === "handoff") {
-  content = renderHandoff();
-} else {
-  content = renderQuestionCard();
-}
+  useEffect(() => {
+    const draft = loadSecondaryDraft();
+    if (!draft) return;
 
-return (
-  <main className="tp2-page">
-    <div className="tp2-shell">{content}</div>
-  </main>
-);
+    setState((s) => ({
+      ...s,
+      answers: {
+        ...cloneSecondaryInitialAnswers(),
+        ...(draft.answers ?? {}),
+      },
+      idx: typeof draft.idx === "number" ? draft.idx : 0,
+      mode: (draft.mode ?? "intro") as Mode,
+      returnToSummary: !!draft.returnToSummary,
+      editSection: draft.editSection as SecondarySection | undefined,
+    }));
+  }, []);
+
+  useEffect(() => {
+    saveSecondaryDraft({
+      mode: state.mode,
+      idx: state.idx,
+      answers: state.answers,
+      returnToSummary: state.returnToSummary,
+      editSection: state.editSection,
+    });
+  }, [state]);
+
+  const filteredQuestions = useMemo(() => {
+    return secondaryQuestions.filter((q) => {
+      if (!q.showWhen) return true;
+      return q.showWhen(state.answers);
+    });
+  }, [state.answers]);
+
+  useEffect(() => {
+    const max = Math.max(0, filteredQuestions.length - 1);
+    if (state.idx <= max) return;
+
+    setState((s) => ({
+      ...s,
+      idx: max,
+    }));
+  }, [filteredQuestions.length, state.idx]);
+
+  const current = filteredQuestions[state.idx] ?? filteredQuestions[0];
+  const validation = current
+    ? validateQuestion(current, state.answers)
+    : { ok: false, msg: "질문 없음" };
+
+  function setAnswer(id: string, value: unknown) {
+    setState((s) => {
+      const nextAnswers = {
+        ...s.answers,
+        [id]: value,
+      } as SecondaryAnswers;
+
+      if (id === "country") {
+        nextAnswers.city = "";
+        nextAnswers.cityOther = "";
+      }
+
+      if (id === "companionType" && value === "혼자") {
+        nextAnswers.mustStayTogether = "";
+        nextAnswers.mustStayTogetherOther = "";
+        nextAnswers.conflictRule = "";
+        nextAnswers.conflictRuleOther = "";
+        nextAnswers.specialCare = "";
+      }
+
+      return {
+        ...s,
+        answers: nextAnswers,
+      };
+    });
+  }
+
+  function setOther(id: string, value: string) {
+    setState((s) => ({
+      ...s,
+      answers: {
+        ...s.answers,
+        [`${id}Other`]: value,
+      } as SecondaryAnswers,
+    }));
+  }
+
+  function goPrev() {
+    setState((s) => ({
+      ...s,
+      idx: Math.max(0, s.idx - 1),
+    }));
+  }
+
+  function goNext() {
+    if (!validation.ok) return;
+
+    if (state.returnToSummary && state.editSection) {
+      const nextQ = filteredQuestions[state.idx + 1];
+      const isLastOfSection = !nextQ || nextQ.section !== state.editSection;
+
+      if (isLastOfSection) {
+        setState((s) => ({
+          ...s,
+          mode: "summary",
+          returnToSummary: false,
+          editSection: undefined,
+        }));
+        return;
+      }
+    }
+
+    if (state.idx === filteredQuestions.length - 1) {
+      setState((s) => ({
+        ...s,
+        mode: "summary",
+      }));
+      return;
+    }
+
+    setState((s) => ({
+      ...s,
+      idx: Math.min(filteredQuestions.length - 1, s.idx + 1),
+    }));
+  }
+
+  function goToSection(section: SecondarySection) {
+    const idx = filteredQuestions.findIndex((q) => q.section === section);
+
+    setState((s) => ({
+      ...s,
+      mode: "question",
+      idx: idx >= 0 ? idx : 0,
+      returnToSummary: true,
+      editSection: section,
+    }));
+  }
+
+  function renderQuestion(q: SecondaryQuestion, answers: SecondaryAnswers) {
+    const value = answers[q.id as keyof SecondaryAnswers] as unknown;
+
+    switch (q.type) {
+      case "country":
+        return (
+          <CountryControl
+            value={answers.country}
+            onChange={(v) => setAnswer("country", v)}
+          />
+        );
+
+      case "city":
+        return (
+          <CityControl
+            country={answers.country}
+            value={answers.city}
+            other={answers.cityOther}
+            onChange={(v) => setAnswer("city", v)}
+            onChangeOther={(v) => setOther("city", v)}
+          />
+        );
+
+      case "single":
+        return (
+          <SingleSelect
+            options={q.options ?? []}
+            value={String(value ?? "")}
+            other={String((answers as Record<string, unknown>)[`${q.id}Other`] ?? "")}
+            onChange={(v) => setAnswer(q.id, v)}
+            onChangeOther={(v) => setOther(q.id, v)}
+          />
+        );
+
+      case "multi":
+        return (
+          <MultiSelect
+            id={q.id}
+            options={q.options ?? []}
+            value={Array.isArray(value) ? value : []}
+            maxSelect={q.maxSelect}
+            other={String((answers as Record<string, unknown>)[`${q.id}Other`] ?? "")}
+            onChange={(v) => setAnswer(q.id, v)}
+            onChangeOther={(v) => setOther(q.id, v)}
+          />
+        );
+
+      case "number":
+        return (
+          <NumberInput
+            value={Number(value ?? (q.id === "tripDays" ? 3 : 1))}
+            suffix={q.id === "tripDays" ? "일" : "명"}
+            onChange={(v) => setAnswer(q.id, v)}
+          />
+        );
+
+      case "places":
+        return (
+          <PlacesInput
+            value={Array.isArray(value) ? (value as PlaceItem[]) : []}
+            onChange={(v) => setAnswer(q.id, v)}
+          />
+        );
+
+      case "textarea":
+        return (
+          <TextArea
+            value={String(value ?? "")}
+            placeholder={q.placeholder ?? ""}
+            maxLength={200}
+            onChange={(v) => setAnswer(q.id, v)}
+          />
+        );
+
+      case "budgetSplit": {
+        const bs = answers.budgetSplit;
+
+        const update = (key: keyof typeof bs, nextValue: number) => {
+          setAnswer("budgetSplit", {
+            ...bs,
+            [key]: nextValue,
+          });
+        };
+
+        const total = bs.food + bs.activity + bs.stay + bs.shopping;
+
+        return (
+          <div style={{ display: "grid", gap: 16 }}>
+            <div
+              style={{
+                fontSize: 14,
+                opacity: 0.7,
+              }}
+            >
+              총합 {total} / 10
+            </div>
+
+            <label>
+              음식
+              <input
+                type="number"
+                min={0}
+                max={10}
+                value={bs.food}
+                onChange={(e) => update("food", Number(e.target.value))}
+              />
+            </label>
+
+            <label>
+              활동 / 경험
+              <input
+                type="number"
+                min={0}
+                max={10}
+                value={bs.activity}
+                onChange={(e) => update("activity", Number(e.target.value))}
+              />
+            </label>
+
+            <label>
+              숙소
+              <input
+                type="number"
+                min={0}
+                max={10}
+                value={bs.stay}
+                onChange={(e) => update("stay", Number(e.target.value))}
+              />
+            </label>
+
+            <label>
+              쇼핑
+              <input
+                type="number"
+                min={0}
+                max={10}
+                value={bs.shopping}
+                onChange={(e) => update("shopping", Number(e.target.value))}
+              />
+            </label>
+          </div>
+        );
+      }
+
+      default:
+        return null;
+    }
+  }
+
+  function renderQuestionCard() {
+    if (!current) {
+      return (
+        <article className="tp2-card">
+          <header className="tp2-cardHeader">
+            <div className="tp2-meta">설문 2</div>
+            <h2 className="tp2-h2">질문을 불러오지 못했다.</h2>
+          </header>
+        </article>
+      );
+    }
+
+    const sectionLabel = SECTION_LABEL[current.section];
+
+    return (
+      <article className="tp2-card">
+        <header className="tp2-cardHeader">
+          <div className="tp2-meta">
+            {sectionLabel} · Q {state.idx + 1} / {filteredQuestions.length}
+          </div>
+
+          <h2 className="tp2-h2">{current.title}</h2>
+
+          {current.help ? (
+            <p className="tp2-body tp2-help">{current.help}</p>
+          ) : null}
+        </header>
+
+        <div className="tp2-controls">
+          {renderQuestion(current, state.answers)}
+
+          {!validation.ok ? (
+            <div className="tp2-meta">{validation.msg}</div>
+          ) : null}
+        </div>
+
+        <footer className="tp2-footer">
+          <button
+            type="button"
+            className="tp2-btn"
+            onClick={goPrev}
+            disabled={state.idx === 0}
+          >
+            이전
+          </button>
+
+          <button
+            type="button"
+            className="tp2-btnPrimary"
+            onClick={goNext}
+            disabled={!validation.ok}
+          >
+            {state.idx === filteredQuestions.length - 1 ? "설정값 확인" : "다음"}
+          </button>
+        </footer>
+      </article>
+    );
+  }
+
+  function renderIntro() {
+    return (
+      <article className="tp2-card">
+        <header className="tp2-cardHeader">
+          <div className="tp2-meta">설문 2</div>
+          <h2 className="tp2-h2">여행 세부 설정 입력</h2>
+          <p className="tp2-body tp2-help">
+            실제 일정 생성에 필요한 컨텍스트/제약/우선순위를 입력한다.
+          </p>
+        </header>
+
+        <div className="tp2-controls">
+          <div className="tp2-meta">
+            국가·도시 → 기간 → 제약/우선순위 → 핵심 장소(이유)
+          </div>
+        </div>
+
+        <footer className="tp2-footer">
+          <button
+            type="button"
+            className="tp2-btnPrimary"
+            onClick={() =>
+              setState((s) => ({
+                ...s,
+                mode: "question",
+                idx: 0,
+              }))
+            }
+          >
+            시작
+          </button>
+        </footer>
+      </article>
+    );
+  }
+
+  function renderSummary() {
+    return (
+      <SecondarySummaryView
+        questions={filteredQuestions}
+        answers={state.answers}
+        onEditSection={(section: SecondarySection) => {
+          goToSection(section);
+        }}
+        onBack={() => {
+          setState((s) => ({
+            ...s,
+            mode: "question",
+            idx: 0,
+            returnToSummary: false,
+            editSection: undefined,
+          }));
+        }}
+        onReview={() => {
+          setState((s) => ({
+            ...s,
+            mode: "handoff",
+          }));
+        }}
+      />
+    );
+  }
+
+  function renderHandoff() {
+    return (
+      <article className="tp2-card">
+        <header className="tp2-cardHeader">
+          <div className="tp2-meta">다음 단계</div>
+          <h2 className="tp2-h2">마지막으로 몇 가지만 더 물어볼게.</h2>
+          <p className="tp2-body tp2-help">
+            지금까지의 설문 내용을 바탕으로, 일정 품질을 더 높이기 위해 부족한
+            정보만 짧게 물어본다.
+          </p>
+        </header>
+
+        <div className="tp2-controls">
+          <div className="tp2-meta">
+            이 단계는 1~2분 안에 끝나며, 설문 1·2에서 애매했던 부분만 보충한다.
+          </div>
+        </div>
+
+        <footer className="tp2-footer">
+          <button
+            type="button"
+            className="tp2-btn"
+            onClick={() =>
+              setState((s) => ({
+                ...s,
+                mode: "summary",
+              }))
+            }
+          >
+            이전
+          </button>
+
+          <button
+            type="button"
+            className="tp2-btnPrimary"
+            onClick={() => {
+              const seed = buildFollowupSeed(state.answers);
+              sessionStorage.setItem(
+                "triplan_followup_seed",
+                JSON.stringify(seed)
+              );
+              window.location.href = "/followup";
+            }}
+          >
+            알겠다
+          </button>
+        </footer>
+      </article>
+    );
+  }
+
+  let content: JSX.Element;
+
+  if (state.mode === "intro") {
+    content = renderIntro();
+  } else if (state.mode === "summary") {
+    content = renderSummary();
+  } else if (state.mode === "handoff") {
+    content = renderHandoff();
+  } else {
+    content = renderQuestionCard();
+  }
+
+  return (
+    <main className="tp2-page">
+      <div className="tp2-shell">{content}</div>
+    </main>
+  );
 }
