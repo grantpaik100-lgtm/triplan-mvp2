@@ -13,6 +13,7 @@ const SECTION_LABEL: Record<Section, string> = {
   D: "숙소 전략",
   E: "동행 조율",
   F: "핵심 장소 · 이유",
+  X: "경험 스타일",
   H: "특별 맥락 · 성공 기준",
 };
 
@@ -25,7 +26,7 @@ function groupBySection(questions: SecondaryQuestion[]) {
     map.get(sec)!.push(q);
   }
 
-  const order: Section[] = ["G", "A", "B", "C", "D", "E", "F", "H"];
+  const order: Section[] = ["G", "A", "B", "C", "D", "E", "F","X", "H"];
 
   return order
     .filter((s) => map.has(s))
