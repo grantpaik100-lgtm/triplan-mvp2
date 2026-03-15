@@ -982,8 +982,7 @@ export default function SecondaryMiniApp() {
       />
     );
   }
-
-  function renderHandoff() {
+    function renderHandoff() {
     return (
       <article className="tp2-card">
         <header className="tp2-cardHeader">
@@ -1034,17 +1033,14 @@ export default function SecondaryMiniApp() {
     );
   }
 
-  let content: JSX.Element;
-
-  if (state.mode === "intro") {
-    content = renderIntro();
-  } else if (state.mode === "summary") {
-    content = renderSummary();
-  } else if (state.mode === "handoff") {
-    content = renderHandoff();
-  } else {
-    content = renderQuestionCard();
-  }
+  const content =
+    state.mode === "intro"
+      ? renderIntro()
+      : state.mode === "summary"
+      ? renderSummary()
+      : state.mode === "handoff"
+      ? renderHandoff()
+      : renderQuestionCard();
 
   return (
     <main className="tp2-page">
@@ -1052,3 +1048,4 @@ export default function SecondaryMiniApp() {
     </main>
   );
 }
+  
