@@ -1,23 +1,26 @@
-import type { PlanningInput, CompanionType } from "./types";
-
-type PrimaryResult = {
-  userVector?: Record<string, number>;
-};
+import type { CompanionType, PlanningInput } from "./types";
 
 type SecondaryAnswers = Record<string, any>;
 
 function mapCompanionType(value?: string): CompanionType {
   switch (value) {
     case "혼자":
+    case "solo":
       return "solo";
+
     case "연인":
+    case "커플":
+    case "couple":
       return "couple";
-    case "친구":
-    case "여러 명":
-      return "friends";
+
     case "가족":
     case "부모님":
+    case "family":
       return "family";
+
+    case "친구":
+    case "친구들":
+    case "friends":
     default:
       return "friends";
   }
