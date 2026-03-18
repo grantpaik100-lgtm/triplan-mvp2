@@ -142,12 +142,7 @@ return {
   gapMinutes,
 };
 
-  return {
-    isFeasible: issues.length === 0,
-    issues: Array.from(new Set(issues)),
-    totalFatigue,
-    totalMinutes,
-  };
+  
 }
 
 export function scheduleDayPlan(
