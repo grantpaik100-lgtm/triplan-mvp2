@@ -19,6 +19,8 @@ type DaySchedule = {
     issues: string[];
     totalFatigue: number;
     totalMinutes: number;
+    activeMinutes: number;
+    gapMinutes: number;
   };
 };
 
