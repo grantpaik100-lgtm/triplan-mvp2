@@ -179,6 +179,8 @@ export type FeasibilityReport = {
   issues: ScheduleIssue[];
   totalFatigue: number;
   totalMinutes: number;
+  activeMinutes: number;  // 실제 experience 시간 합
+  gapMinutes: number;     // 공백 합
 };
 
 export type DaySchedule = {
