@@ -1,1 +1,1 @@
-
+import { normalizeArea } from "./area";
