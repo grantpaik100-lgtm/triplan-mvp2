@@ -117,10 +117,12 @@ export default function TripResultPage() {
           <h2 style={{ fontSize: 22, marginBottom: 12 }}>Day {day.day}</h2>
 
           <div style={{ marginBottom: 12, fontSize: 14, opacity: 0.8 }}>
-            총 소요시간: {day.report.totalMinutes}분 / 피로도: {day.report.totalFatigue}
-            {" / "}
-            가능 여부: {day.report.isFeasible ? "가능" : "조정 필요"}
-          </div>
+  일정 범위: {day.report.totalMinutes}분 / 실제 활동: {day.report.activeMinutes}분 / 공백: {day.report.gapMinutes}분
+  {" / "}
+  피로도: {day.report.totalFatigue}
+  {" / "}
+  가능 여부: {day.report.isFeasible ? "가능" : "조정 필요"}
+</div>
 
           {day.report.issues.length > 0 && (
             <div style={{ marginBottom: 12, color: "crimson", fontSize: 14 }}>
@@ -129,17 +131,30 @@ export default function TripResultPage() {
           )}
 
           <ul style={{ paddingLeft: 20 }}>
-            {day.items.map((item) => (
-              <li key={item.experienceId} style={{ marginBottom: 10 }}>
-                <strong>{item.placeName}</strong>{" "}
-                ({slotToTimeString(item.startSlot)} ~ {slotToTimeString(item.endSlot)})
-                {" · "}
-                {item.durationMinutes}분
-                {" · "}
-                {item.priority}
-              </li>
-            ))}
-          </ul>
+  {day.items.map((item, index) => {
+    const prev = index > 0 ? day.items[index - 1] : null;
+    const gapMinutes = prev ? (item.startSlot - prev.endSlot) * 30 : 0;
+
+    return (
+      <div key={item.experienceId}>
+        {gapMinutes > 0 && (
+          <li style={{ marginBottom: 8, color: "#666" }}>
+            자유시간 / 이동 / 여유시간 ({gapMinutes}분)
+          </li>
+        )}
+
+        <li style={{ marginBottom: 10 }}>
+          <strong>{item.placeName}</strong>{" "}
+          ({slotToTimeString(item.startSlot)} ~ {slotToTimeString(item.endSlot)})
+          {" · "}
+          {item.durationMinutes}분
+          {" · "}
+          {item.priority}
+        </li>
+      </div>
+    );
+  })}
+</ul>
         </section>
       ))}
     </main>
