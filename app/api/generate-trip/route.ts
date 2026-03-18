@@ -12,9 +12,7 @@ type GenerateTripRequest = {
   secondaryAnswers?: Record<string, any>;
 };
 
-function mergeUserVector(
-  partial?: Partial<UserVector>,
-): UserVector {
+function mergeUserVector(partial?: Partial<UserVector>): UserVector {
   return {
     ...DEFAULT_USER_VECTOR,
     ...(partial ?? {}),
