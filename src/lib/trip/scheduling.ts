@@ -17,90 +17,77 @@ function flattenDayPlan(dayPlan: DayPlan): PlannedExperience[] {
   });
 }
 
-function placeAnchors(
+/**
+ * allowedTimes 안에 들어가면서
+ * earliestSlot 이상인 가장 빠른 slot을 찾는다.
+ */
+function findNextAllowedStartSlot(
+  planned: PlannedExperience,
+  earliestSlot: number,
+): number {
+  for (let slot = earliestSlot; slot <= 47; slot += 1) {
+    if (isAllowedTimeSlot(planned.experience.allowedTimes, slot)) {
+      return slot;
+    }
+  }
+
+  // 끝까지 못 찾으면 일단 earliest 반환하고 feasibility에서 잡는다.
+  return earliestSlot;
+}
+
+function getAreaOfScheduledItem(
+  item: ScheduledItem,
+  plannedItems: PlannedExperience[],
+) {
+  const found = plannedItems.find((x) => x.experience.id === item.experienceId);
+  return found?.experience.area ?? "other";
+}
+
+function buildSequentialSchedule(
   items: PlannedExperience[],
   dayStartSlot: number,
 ): ScheduledItem[] {
-  const scheduled: ScheduledItem[] = [];
+  const result: ScheduledItem[] = [];
 
-  for (const item of items) {
-    if (item.priority !== "anchor") continue;
+  for (const planned of items) {
+    const prev = result[result.length - 1];
 
-    const preferredSlot = getPreferredStartSlot(item.experience.preferredTime);
-    const startSlot = Math.max(dayStartSlot, preferredSlot);
-    const durationSlots = minutesToSlots(item.experience.recommendedDuration);
+    const prevArea = prev ? getAreaOfScheduledItem(prev, items) : planned.experience.area;
+    const currentArea = planned.experience.area;
 
-    scheduled.push({
-      experienceId: item.experience.id,
-      placeName: item.experience.placeName,
+    const travelMinutes = prev
+      ? getAreaDistanceMinutes(prevArea, currentArea)
+      : 0;
+
+    const travelSlots = minutesToSlots(travelMinutes);
+
+    const earliestSlot = prev
+      ? prev.endSlot + travelSlots
+      : dayStartSlot;
+
+    let startSlot = findNextAllowedStartSlot(planned, earliestSlot);
+
+    // anchor는 preferredTime을 조금 더 존중
+    if (planned.priority === "anchor") {
+      const preferredSlot = getPreferredStartSlot(planned.experience.preferredTime);
+      if (preferredSlot > startSlot) {
+        startSlot = findNextAllowedStartSlot(planned, preferredSlot);
+      }
+    }
+
+    const durationSlots = minutesToSlots(planned.experience.recommendedDuration);
+
+    result.push({
+      experienceId: planned.experience.id,
+      placeName: planned.experience.placeName,
       startSlot,
       endSlot: startSlot + durationSlots,
-      durationMinutes: item.experience.recommendedDuration,
-      priority: "anchor",
+      durationMinutes: planned.experience.recommendedDuration,
+      priority: planned.priority,
     });
   }
 
-  return scheduled.sort((a, b) => a.startSlot - b.startSlot);
-}
-
-function insertSequentially(
-  scheduledAnchors: ScheduledItem[],
-  items: PlannedExperience[],
-  dayStartSlot: number,
-): ScheduledItem[] {
-  const result = [...scheduledAnchors].sort((a, b) => a.startSlot - b.startSlot);
-  const unscheduled = items.filter(
-    (item) => !result.some((s) => s.experienceId === item.experience.id),
-  );
-
-  if (result.length === 0) {
-    let cursor = dayStartSlot;
-
-    for (const item of unscheduled) {
-      const durationSlots = minutesToSlots(item.experience.recommendedDuration);
-
-      result.push({
-        experienceId: item.experience.id,
-        placeName: item.experience.placeName,
-        startSlot: cursor,
-        endSlot: cursor + durationSlots,
-        durationMinutes: item.experience.recommendedDuration,
-        priority: item.priority,
-      });
-
-      cursor += durationSlots;
-    }
-
-    return result;
-  }
-
-  let lastPlaced = result[result.length - 1];
-
-  for (const item of unscheduled) {
-    const travelMinutes = getAreaDistanceMinutes(
-      lastPlaced ? items.find((x) => x.experience.id === lastPlaced.experienceId)?.experience.area ??
-          item.experience.area : item.experience.area,
-      item.experience.area,
-    );
-
-    const travelSlots = minutesToSlots(travelMinutes);
-    const durationSlots = minutesToSlots(item.experience.recommendedDuration);
-    const startSlot = lastPlaced.endSlot + travelSlots;
-
-    const nextItem: ScheduledItem = {
-      experienceId: item.experience.id,
-      placeName: item.experience.placeName,
-      startSlot,
-      endSlot: startSlot + durationSlots,
-      durationMinutes: item.experience.recommendedDuration,
-      priority: item.priority,
-    };
-
-    result.push(nextItem);
-    lastPlaced = nextItem;
-  }
-
-  return result.sort((a, b) => a.startSlot - b.startSlot);
+  return result;
 }
 
 export function evaluateFeasibility(
@@ -157,8 +144,7 @@ export function scheduleDayPlan(
   dayEndSlot: number,
 ): DaySchedule {
   const flattened = flattenDayPlan(dayPlan);
-  const anchors = placeAnchors(flattened, dayStartSlot);
-  const scheduled = insertSequentially(anchors, flattened, dayStartSlot);
+  const scheduled = buildSequentialSchedule(flattened, dayStartSlot);
   const report = evaluateFeasibility(dayPlan, scheduled, dayEndSlot);
 
   return {
