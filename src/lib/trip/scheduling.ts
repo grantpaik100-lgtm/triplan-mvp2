@@ -126,9 +126,21 @@ export function evaluateFeasibility(
   }
 
   const totalMinutes =
-    items.length > 0
-      ? (items[items.length - 1].endSlot - items[0].startSlot) * 30
-      : 0;
+  items.length > 0
+    ? (items[items.length - 1].endSlot - items[0].startSlot) * 30
+    : 0;
+
+const activeMinutes = items.reduce((sum, item) => sum + item.durationMinutes, 0);
+const gapMinutes = Math.max(0, totalMinutes - activeMinutes);
+
+return {
+  isFeasible: issues.length === 0,
+  issues: Array.from(new Set(issues)),
+  totalFatigue,
+  totalMinutes,
+  activeMinutes,
+  gapMinutes,
+};
 
   return {
     isFeasible: issues.length === 0,
