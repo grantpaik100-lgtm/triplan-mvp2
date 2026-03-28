@@ -118,13 +118,14 @@ export type UserVector = {
   activityIntensity: number;
   cost: number;
 };
-
+export type DiversityMode = "diverse" | "balanced" | "theme_focused";
 export type PlanningInput = {
   days: number;
   companionType: CompanionType;
   dailyStartSlot: number;
   dailyEndSlot: number;
   dailyDensity: 1 | 2 | 3 | 4 | 5;
+  diversityMode: DiversityMode;
   mustExperienceIds?: string[];
   preferredAreas?: Area[];
   blockedAreas?: Area[];
