@@ -23,6 +23,7 @@ export type SingleValueQuestionId =
   | "nightPreference"
   | "activityIntensityPreference"
   | "crowdTolerance";
+  | "diversityMode:;
 
 export type MultiValueQuestionId =
   | "moveStyle"
@@ -145,6 +146,9 @@ export type SecondaryAnswers = {
   crowdTolerance: SingleAnswerValue;
   crowdToleranceOther: string;
 
+  diversityMode: SingleAnswerValue;
+  diversityModeOther: string;
+
   specialCare: string;
   specialContext: string;
   successFeeling: string;
@@ -246,6 +250,9 @@ export const secondaryInitialAnswers: SecondaryAnswers = {
 
   crowdTolerance: "",
   crowdToleranceOther: "",
+
+  diversityMode: "",
+  diversityModeOther: "",
 
   specialCare: "",
   specialContext: "",
