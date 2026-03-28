@@ -69,6 +69,16 @@ function toArea(value: string): ExperienceMetadata["area"] {
   return value as ExperienceMetadata["area"];
 }
 
+function toPreferredTime(value: string | null): ExperienceMetadata["preferredTime"] {
+  return (value ?? "afternoon") as ExperienceMetadata["preferredTime"];
+}
+
+function toTimeFlexibility(
+  value: string | null,
+): ExperienceMetadata["timeFlexibility"] {
+  return (value ?? "medium") as ExperienceMetadata["timeFlexibility"];
+}
+
 function mapRowToExperienceMetadata(
   row: ExperienceMetadataRow,
 ): ExperienceMetadata {
@@ -85,9 +95,9 @@ function mapRowToExperienceMetadata(
     actionStrength: row.action_strength,
     isPrimaryAction: row.is_primary_action,
     baseExperienceLabel: row.base_experience_label,
-    preferredTime: row.preferred_time ?? undefined,
+    preferredTime: toPreferredTime(row.preferred_time),
     allowedTimes: row.allowed_times ?? [],
-    timeFlexibility: row.time_flexibility ?? undefined,
+    timeFlexibility: toTimeFlexibility(row.time_flexibility),
     minDuration: row.min_duration,
     recommendedDuration: row.recommended_duration,
     fatigue: row.fatigue,
