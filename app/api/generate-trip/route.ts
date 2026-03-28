@@ -73,6 +73,11 @@ function toPreferredTime(value: string | null): ExperienceMetadata["preferredTim
   return (value ?? "afternoon") as ExperienceMetadata["preferredTime"];
 }
 
+function toAllowedTimes(value: string[] | null | undefined): ExperienceMetadata["allowedTimes"] {
+  const safe = value ?? [];
+  return safe as ExperienceMetadata["allowedTimes"];
+}
+
 function toTimeFlexibility(
   value: string | null,
 ): ExperienceMetadata["timeFlexibility"] {
@@ -96,7 +101,7 @@ function mapRowToExperienceMetadata(
     isPrimaryAction: row.is_primary_action,
     baseExperienceLabel: row.base_experience_label,
     preferredTime: toPreferredTime(row.preferred_time),
-    allowedTimes: row.allowed_times ?? [],
+    allowedTimes: toAllowedTimes(row.allowed_times),
     timeFlexibility: toTimeFlexibility(row.time_flexibility),
     minDuration: row.min_duration,
     recommendedDuration: row.recommended_duration,
