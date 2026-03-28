@@ -65,6 +65,10 @@ function createSupabaseServerClient() {
   });
 }
 
+function toArea(value: string): ExperienceMetadata["area"] {
+  return value as ExperienceMetadata["area"];
+}
+
 function mapRowToExperienceMetadata(
   row: ExperienceMetadataRow,
 ): ExperienceMetadata {
@@ -73,7 +77,7 @@ function mapRowToExperienceMetadata(
     placeId: row.place_id,
     placeName: row.place_name,
     regionRaw: row.region_raw,
-    area: row.area,
+    area: toArea(row.area),
     category: row.category,
     placeType: row.place_type,
     macroAction: row.macro_action,
