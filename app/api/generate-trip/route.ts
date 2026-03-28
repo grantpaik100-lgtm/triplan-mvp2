@@ -10,6 +10,7 @@ type GenerateTripRequest = {
     userVector?: Partial<UserVector>;
   };
   secondaryAnswers?: Record<string, any>;
+  planningInput?: any;
 };
 
 type ExperienceMetadataRow = {
@@ -216,8 +217,13 @@ export async function POST(req: Request) {
     const secondaryAnswers = body.secondaryAnswers ?? {};
 
     const userVector = mergeUserVector(primaryResult.userVector);
-    const planningInput = normalizePlanningInput(secondaryAnswers);
+
+    const planningInput =
+      body.planningInput ?? normalizePlanningInput(secondaryAnswers);
+
     const experienceMetadataList = await fetchExperienceMetadataList();
+
+    console.log("[generate-trip] metadata count:", experienceMetadataList.length);
 
     const result = generateTripPlan(
       userVector,
