@@ -26,7 +26,7 @@ type ExperienceMetadataRow = {
   is_primary_action: boolean;
   base_experience_label: string;
   preferred_time: string | null;
-  allowed_times: string[];
+  allowed_times: string[] | null;
   time_flexibility: string | null;
   min_duration: number;
   recommended_duration: number;
@@ -34,10 +34,10 @@ type ExperienceMetadataRow = {
   is_meal: boolean;
   is_indoor: boolean;
   is_night_friendly: boolean;
-  companion_fit: Record<string, number>;
-  features: Record<string, number>;
-  priority_hints: Record<string, unknown>;
-  review: Record<string, unknown>;
+  companion_fit: Record<string, number> | null;
+  features: Record<string, number> | null;
+  priority_hints: Record<string, unknown> | null;
+  review: Record<string, unknown> | null;
 };
 
 function mergeUserVector(partial?: Partial<UserVector>): UserVector {
@@ -69,19 +69,70 @@ function toArea(value: string): ExperienceMetadata["area"] {
   return value as ExperienceMetadata["area"];
 }
 
-function toPreferredTime(value: string | null): ExperienceMetadata["preferredTime"] {
+function toCategory(value: string): ExperienceMetadata["category"] {
+  return value as ExperienceMetadata["category"];
+}
+
+function toPlaceType(value: string): ExperienceMetadata["placeType"] {
+  return value as ExperienceMetadata["placeType"];
+}
+
+function toMacroAction(value: string): ExperienceMetadata["macroAction"] {
+  return value as ExperienceMetadata["macroAction"];
+}
+
+function toMicroAction(value: string): ExperienceMetadata["microAction"] {
+  return value as ExperienceMetadata["microAction"];
+}
+
+function toActionStrength(value: number): ExperienceMetadata["actionStrength"] {
+  return value as ExperienceMetadata["actionStrength"];
+}
+
+function toPreferredTime(
+  value: string | null,
+): ExperienceMetadata["preferredTime"] {
   return (value ?? "afternoon") as ExperienceMetadata["preferredTime"];
 }
 
-function toAllowedTimes(value: string[] | null | undefined): ExperienceMetadata["allowedTimes"] {
-  const safe = value ?? [];
-  return safe as ExperienceMetadata["allowedTimes"];
+function toAllowedTimes(
+  value: string[] | null | undefined,
+): ExperienceMetadata["allowedTimes"] {
+  return (value ?? []) as ExperienceMetadata["allowedTimes"];
 }
 
 function toTimeFlexibility(
   value: string | null,
 ): ExperienceMetadata["timeFlexibility"] {
   return (value ?? "medium") as ExperienceMetadata["timeFlexibility"];
+}
+
+function toFatigue(value: number): ExperienceMetadata["fatigue"] {
+  return value as ExperienceMetadata["fatigue"];
+}
+
+function toCompanionFit(
+  value: Record<string, number> | null | undefined,
+): ExperienceMetadata["companionFit"] {
+  return (value ?? {}) as ExperienceMetadata["companionFit"];
+}
+
+function toFeatures(
+  value: Record<string, number> | null | undefined,
+): ExperienceMetadata["features"] {
+  return (value ?? {}) as ExperienceMetadata["features"];
+}
+
+function toPriorityHints(
+  value: Record<string, unknown> | null | undefined,
+): ExperienceMetadata["priorityHints"] {
+  return (value ?? {}) as ExperienceMetadata["priorityHints"];
+}
+
+function toReview(
+  value: Record<string, unknown> | null | undefined,
+): ExperienceMetadata["review"] {
+  return (value ?? {}) as ExperienceMetadata["review"];
 }
 
 function mapRowToExperienceMetadata(
@@ -93,11 +144,11 @@ function mapRowToExperienceMetadata(
     placeName: row.place_name,
     regionRaw: row.region_raw,
     area: toArea(row.area),
-    category: row.category,
-    placeType: row.place_type,
-    macroAction: row.macro_action,
-    microAction: row.micro_action,
-    actionStrength: row.action_strength,
+    category: toCategory(row.category),
+    placeType: toPlaceType(row.place_type),
+    macroAction: toMacroAction(row.macro_action),
+    microAction: toMicroAction(row.micro_action),
+    actionStrength: toActionStrength(row.action_strength),
     isPrimaryAction: row.is_primary_action,
     baseExperienceLabel: row.base_experience_label,
     preferredTime: toPreferredTime(row.preferred_time),
@@ -105,14 +156,14 @@ function mapRowToExperienceMetadata(
     timeFlexibility: toTimeFlexibility(row.time_flexibility),
     minDuration: row.min_duration,
     recommendedDuration: row.recommended_duration,
-    fatigue: row.fatigue,
+    fatigue: toFatigue(row.fatigue),
     isMeal: row.is_meal,
     isIndoor: row.is_indoor,
     isNightFriendly: row.is_night_friendly,
-    companionFit: row.companion_fit ?? {},
-    features: row.features ?? {},
-    priorityHints: row.priority_hints ?? {},
-    review: row.review ?? {},
+    companionFit: toCompanionFit(row.companion_fit),
+    features: toFeatures(row.features),
+    priorityHints: toPriorityHints(row.priority_hints),
+    review: toReview(row.review),
   };
 }
 
