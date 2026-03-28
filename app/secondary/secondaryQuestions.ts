@@ -383,6 +383,21 @@ export const secondaryQuestions: SecondaryQuestion[] = [
       "기타",
     ],
   },
+  {
+  id: "diversityMode",
+  section: "X",
+  title: "이번 여행은 어떤 구성이 더 가깝길 원하나요?",
+  help: "여러 결의 경험을 섞을지, 한 컨셉으로 묶을지에 대한 선호를 반영한다.",
+  type: "single",
+  required: true,
+  options: [
+    "다양하게 섞인 여행",
+    "적당히 균형 잡힌 여행",
+    "한 컨셉에 집중한 여행",
+    "잘 모르겠음",
+    "기타",
+    ],
+  },
 
   {
     id: "specialContext",
