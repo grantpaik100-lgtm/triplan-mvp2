@@ -54,6 +54,40 @@ function toPlannedExperience(
   };
 }
 
+function applyDiversitySelection(
+  areaPool: ScoredExperience[],
+  maxCount: number,
+  diversityMode: PlanningInput["diversityMode"],
+): ScoredExperience[] {
+  if (diversityMode === "theme_focused") {
+    return areaPool.slice(0, maxCount + 2);
+  }
+
+  const selected: ScoredExperience[] = [];
+  const categoryCounts: Record<string, number> = {};
+
+  for (const item of areaPool) {
+    const category = item.experience.category;
+    const currentCount = categoryCounts[category] ?? 0;
+
+    const maxPerCategory = diversityMode === "diverse" ? 1 : 2;
+
+    if (currentCount >= maxPerCategory) {
+      continue;
+    }
+
+    selected.push(item);
+    categoryCounts[category] = currentCount + 1;
+
+    if (selected.length >= maxCount + 2) {
+      break;
+    }
+  }
+
+  return selected;
+}
+
+
 function buildRoughOrder(items: PlannedExperience[]): string[] {
   const timeOrder = [
     "early_morning",
@@ -92,8 +126,21 @@ export function planDays(
     const primaryArea = chosenAreas[day - 1] ?? chosenAreas[0] ?? "other";
     const areaPool = grouped[primaryArea] ?? [];
 
-    // 약간 여유 있게 뽑아놓고 priority 분류 후 잘라냄
-    const selected = areaPool.slice(0, maxPerDay + 2);
+
+      // diversityMode에 따라 category 반복을 제한하면서 후보를 고른다.
+    const selected = applyDiversitySelection(
+      areaPool,
+      maxPerDay,
+      input.diversityMode,
+    );
+
+    console.log("[planning] day selection", {
+      day,
+      diversityMode: input.diversityMode,
+      primaryArea,
+      selectedIds: selected.map((x) => x.experience.id),
+      selectedCategories: selected.map((x) => x.experience.category),
+    });
 
     const anchor: PlannedExperience[] = [];
     const core: PlannedExperience[] = [];
