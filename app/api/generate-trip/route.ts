@@ -221,9 +221,7 @@ export async function POST(req: Request) {
     const planningInput =
       body.planningInput ?? normalizePlanningInput(secondaryAnswers);
 
-    const planningInput = normalizePlanningInput(secondaryAnswers);
-
-    console.log("[generate-trip] planningInput", planningInput);
+    
 
     const experienceMetadataList = await fetchExperienceMetadataList();
 
