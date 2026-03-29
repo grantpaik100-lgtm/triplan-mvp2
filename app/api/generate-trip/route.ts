@@ -227,7 +227,7 @@ export async function POST(req: Request) {
 
     console.log("[generate-trip] planningInput", planningInput);
 
-    console.log("[generate-trip] experienceCount", experiences.length);
+    console.log("[generate-trip] experienceCount", experienceMetadataList.length);
     console.log("[generate-trip] tripDays", planningInput.days);
     
 
