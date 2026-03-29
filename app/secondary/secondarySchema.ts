@@ -22,7 +22,7 @@ export type SingleValueQuestionId =
   | "atmospherePreference"
   | "nightPreference"
   | "activityIntensityPreference"
-  | "crowdTolerance";
+  | "crowdTolerance"
   | "diversityMode";
 
 export type MultiValueQuestionId =
