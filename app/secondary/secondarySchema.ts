@@ -23,7 +23,7 @@ export type SingleValueQuestionId =
   | "nightPreference"
   | "activityIntensityPreference"
   | "crowdTolerance";
-  | "diversityMode:;
+  | "diversityMode";
 
 export type MultiValueQuestionId =
   | "moveStyle"
