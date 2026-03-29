@@ -226,6 +226,11 @@ export async function POST(req: Request) {
     const experienceMetadataList = await fetchExperienceMetadataList();
 
     console.log("[generate-trip] metadata count:", experienceMetadataList.length);
+    console.log("[generate-trip] planningInput", planningInput);
+
+    console.log("[generate-trip] experienceCount", experiences.length);
+    console.log("[generate-trip] tripDays", planningInput.days);
+    
 
     const result = generateTripPlan(
       userVector,
