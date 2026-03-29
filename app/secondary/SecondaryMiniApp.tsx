@@ -181,6 +181,11 @@ function buildFollowupSeed(answers: SecondaryAnswers) {
           ? answers.crowdToleranceOther
           : answers.crowdTolerance,
 
+      diversityMode:
+        answers.diversityMode === "기타"
+          ? answers.diversityModeOther
+          : answers.diversityMode,
+
       specialCare: answers.specialCare,
       specialContext: answers.specialContext,
       successFeeling: answers.successFeeling,
