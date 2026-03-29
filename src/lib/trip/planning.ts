@@ -87,6 +87,56 @@ function applyDiversitySelection(
   return selected;
 }
 
+function ensureMealIncluded(
+  selected: ScoredExperience[],
+  areaPool: ScoredExperience[],
+): ScoredExperience[] {
+  const alreadyHasMeal = selected.some((item) => item.experience.isMeal);
+  if (alreadyHasMeal) return selected;
+
+  const mealCandidate = areaPool.find(
+    (item) =>
+      item.experience.isMeal &&
+      !selected.some((picked) => picked.experience.id === item.experience.id),
+  );
+
+  if (!mealCandidate) return selected;
+
+  const next = [...selected];
+
+  if (next.length > 0) {
+    next[next.length - 1] = mealCandidate;
+    return next;
+  }
+
+  return [mealCandidate];
+}
+
+function maybeIncludeRest(
+  selected: ScoredExperience[],
+  areaPool: ScoredExperience[],
+): ScoredExperience[] {
+  const alreadyHasRestLike = selected.some(
+    (item) =>
+      item.experience.category === "cafe" ||
+      item.experience.features.quiet >= 0.6,
+  );
+
+  if (alreadyHasRestLike) return selected;
+
+  const restCandidate = areaPool.find(
+    (item) =>
+      !item.experience.isMeal &&
+      (item.experience.category === "cafe" ||
+        item.experience.features.quiet >= 0.6) &&
+      !selected.some((picked) => picked.experience.id === item.experience.id),
+  );
+
+  if (!restCandidate) return selected;
+
+  return [...selected, restCandidate];
+}
+
 
 function buildRoughOrder(items: PlannedExperience[]): string[] {
   const timeOrder = [
@@ -128,23 +178,32 @@ export function planDays(
 
 
       // diversityMode에 따라 category 반복을 제한하면서 후보를 고른다.
-    const selected = applyDiversitySelection(
-      areaPool,
-      maxPerDay,
-      input.diversityMode,
-    );
+    const selectedBase = applyDiversitySelection(
+  areaPool,
+  maxPerDay,
+  input.diversityMode,
+);
 
-    console.log("[planning] day selection", {
-      day,
-      diversityMode: input.diversityMode,
-      primaryArea,
-      selectedIds: selected.map((x) => x.experience.id),
-      selectedCategories: selected.map((x) => x.experience.category),
-    });
+const selectedWithMeal = ensureMealIncluded(selectedBase, areaPool);
+const selected = maybeIncludeRest(selectedWithMeal, areaPool);
 
-    const anchor: PlannedExperience[] = [];
-    const core: PlannedExperience[] = [];
-    const optional: PlannedExperience[] = [];
+console.log("[planning] day selection", {
+  day,
+  diversityMode: input.diversityMode,
+  primaryArea,
+  selectedIds: selected.map((x) => x.experience.id),
+  selectedCategories: selected.map((x) => x.experience.category),
+  hasMeal: selected.some((x) => x.experience.isMeal),
+  hasRestLike: selected.some(
+    (x) =>
+      x.experience.category === "cafe" ||
+      x.experience.features.quiet >= 0.6,
+  ),
+});
+
+const anchor: PlannedExperience[] = [];
+const core: PlannedExperience[] = [];
+const optional: PlannedExperience[] = [];
 
     for (const item of selected) {
       const priority = classifyPriority(item, input);
@@ -161,7 +220,24 @@ export function planDays(
       anchor.push({ ...promoted, priority: "anchor" });
     }
 
-    const merged = [...anchor, ...core, ...optional].slice(0, maxPerDay);
+  const prioritizedOptional = [...optional].sort((a, b) => {
+  const aMealOrRest =
+    a.experience.isMeal ||
+    a.experience.category === "cafe" ||
+    a.experience.features.quiet >= 0.6;
+
+  const bMealOrRest =
+    b.experience.isMeal ||
+    b.experience.category === "cafe" ||
+    b.experience.features.quiet >= 0.6;
+
+  if (aMealOrRest === bMealOrRest) return 0;
+  return aMealOrRest ? -1 : 1;
+});
+
+const merged = [...anchor, ...core, ...prioritizedOptional].slice(0, maxPerDay);
+
+    
     const roughOrder = buildRoughOrder(merged);
 
     dayPlans.push({
