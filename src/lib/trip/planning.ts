@@ -3,10 +3,16 @@ import type {
   Area,
   DayPlan,
   ExperienceMetadata,
+  FunctionalRole,
   PlannedExperience,
+  PlanningDiagnostics,
   PlanningInput,
+  PlanItemTier,
   PriorityClass,
   ScoredExperience,
+  SelectionReason,
+  SelectionReasonTag,
+  ThemeCluster,
   UserVector,
 } from "./types";
 import { scoreExperiences } from "./scoring";
@@ -34,109 +40,329 @@ function pickTopAreas(grouped: Record<Area, ScoredExperience[]>, days: number): 
     .map((x) => x.area);
 }
 
-function classifyPriority(scored: ScoredExperience, input: PlanningInput): PriorityClass {
-  const exp = scored.experience;
+function isRestLike(exp: ExperienceMetadata): boolean {
+  return (
+    exp.functionalRoleHints?.includes("rest") === true ||
+    exp.placeType.toLowerCase().includes("cafe") ||
+    exp.features.quiet >= 0.6
+  );
+}
 
-  if (input.mustExperienceIds?.includes(exp.id)) return "anchor";
-  if (exp.priorityHints.canBeAnchor && scored.score >= 8) return "anchor";
-  if (scored.score >= 6) return "core";
-  return "optional";
+function isTimeSensitive(exp: ExperienceMetadata): boolean {
+  return exp.timeFlexibility === "low";
+}
+
+function getClusterKey(exp: ExperienceMetadata): ThemeCluster {
+  return exp.themeCluster ?? "mixed";
+}
+
+function getAnchorScoreBonus(item: ScoredExperience, input: PlanningInput): number {
+  let bonus = 0;
+  const exp = item.experience;
+
+  if (input.mustExperienceIds?.includes(exp.id)) bonus += 100;
+  if (isTimeSensitive(exp)) bonus += 12;
+  if (exp.priorityHints.canBeAnchor) bonus += 8;
+  if (exp.isMeal) bonus += 3;
+  if (exp.isNightFriendly && (exp.preferredTime === "sunset" || exp.preferredTime === "night")) {
+    bonus += 4;
+  }
+
+  return bonus;
+}
+
+function buildSelectionReason(tags: SelectionReasonTag[]): SelectionReason {
+  return {
+    tags,
+    summary: tags.join(", "),
+  };
 }
 
 function toPlannedExperience(
   scored: ScoredExperience,
   priority: PriorityClass,
+  planningTier: PlanItemTier,
+  functionalRole: FunctionalRole,
+  reasonTags: SelectionReasonTag[],
 ): PlannedExperience {
   return {
     experience: scored.experience,
     priority,
+    planningTier,
+    functionalRole,
+    themeCluster: scored.experience.themeCluster,
     planningScore: scored.score,
+    selectionReason: buildSelectionReason(reasonTags),
   };
 }
 
-function applyDiversitySelection(
-  areaPool: ScoredExperience[],
-  maxCount: number,
-  diversityMode: PlanningInput["diversityMode"],
-): ScoredExperience[] {
-  if (diversityMode === "theme_focused") {
-    return areaPool.slice(0, maxCount + 2);
+function dedupeByExperienceId(items: ScoredExperience[]): ScoredExperience[] {
+  const seen = new Set<string>();
+  const result: ScoredExperience[] = [];
+
+  for (const item of items) {
+    if (seen.has(item.experience.id)) continue;
+    seen.add(item.experience.id);
+    result.push(item);
   }
 
-  const selected: ScoredExperience[] = [];
-  const categoryCounts: Record<string, number> = {};
+  return result;
+}
 
-  for (const item of areaPool) {
-    const category = item.experience.category;
-    const currentCount = categoryCounts[category] ?? 0;
+function pickAnchors(
+  areaPool: ScoredExperience[],
+  input: PlanningInput,
+): ScoredExperience[] {
+  const ranked = [...areaPool]
+    .map((item) => ({
+      item,
+      anchorScore: item.score + getAnchorScoreBonus(item, input),
+    }))
+    .sort((a, b) => b.anchorScore - a.anchorScore);
 
-    const maxPerCategory = diversityMode === "diverse" ? 1 : 2;
+  const anchors: ScoredExperience[] = [];
+  const usedClusters = new Set<ThemeCluster>();
 
-    if (currentCount >= maxPerCategory) {
+  for (const { item } of ranked) {
+    const exp = item.experience;
+    const cluster = getClusterKey(exp);
+
+    const isMust = input.mustExperienceIds?.includes(exp.id) === true;
+    const canAnchor =
+      isMust ||
+      isTimeSensitive(exp) ||
+      (exp.priorityHints.canBeAnchor && item.score >= 7);
+
+    if (!canAnchor) continue;
+
+    if (input.diversityMode === "diverse" && usedClusters.has(cluster)) {
       continue;
     }
 
-    selected.push(item);
-    categoryCounts[category] = currentCount + 1;
+    anchors.push(item);
+    usedClusters.add(cluster);
 
-    if (selected.length >= maxCount + 2) {
-      break;
-    }
+    const maxAnchors =
+      input.diversityMode === "theme_focused" ? 2 : 1;
+
+    if (anchors.length >= maxAnchors) break;
   }
 
-  return selected;
+  if (anchors.length === 0 && ranked.length > 0) {
+    anchors.push(ranked[0].item);
+  }
+
+  return anchors;
 }
 
-function ensureMealIncluded(
-  selected: ScoredExperience[],
+function getCompatibleClusterSet(
+  anchors: ScoredExperience[],
+  diversityMode: PlanningInput["diversityMode"],
+): Set<ThemeCluster> {
+  const anchorClusters = anchors.map((x) => getClusterKey(x.experience));
+  const clusterSet = new Set<ThemeCluster>(anchorClusters);
+
+  if (diversityMode === "theme_focused") {
+    return clusterSet;
+  }
+
+  if (diversityMode === "balanced") {
+    if (clusterSet.has("nature_scenery")) clusterSet.add("night_view");
+    if (clusterSet.has("food_discovery")) clusterSet.add("cafe_relax");
+    if (clusterSet.has("culture_art")) clusterSet.add("walk_local");
+    return clusterSet;
+  }
+
+  // diverse
+  clusterSet.add("food_discovery");
+  clusterSet.add("cafe_relax");
+  clusterSet.add("nature_scenery");
+  clusterSet.add("culture_art");
+  clusterSet.add("walk_local");
+  return clusterSet;
+}
+
+function pickCoreAroundAnchors(
+  areaPool: ScoredExperience[],
+  anchors: ScoredExperience[],
+  input: PlanningInput,
+  maxCoreCount: number,
+): ScoredExperience[] {
+  const anchorIds = new Set(anchors.map((x) => x.experience.id));
+  const compatibleClusters = getCompatibleClusterSet(anchors, input.diversityMode);
+  const core: ScoredExperience[] = [];
+  const clusterCounts: Partial<Record<ThemeCluster, number>> = {};
+
+  const ranked = [...areaPool]
+    .filter((item) => !anchorIds.has(item.experience.id))
+    .sort((a, b) => b.score - a.score);
+
+  for (const item of ranked) {
+    const exp = item.experience;
+    const cluster = getClusterKey(exp);
+
+    if (!compatibleClusters.has(cluster) && input.diversityMode !== "diverse") {
+      continue;
+    }
+
+    if (input.diversityMode === "theme_focused") {
+      if (!anchors.some((anchor) => getClusterKey(anchor.experience) === cluster)) {
+        continue;
+      }
+    }
+
+    if (input.diversityMode === "diverse") {
+      const count = clusterCounts[cluster] ?? 0;
+      if (count >= 1) continue;
+    }
+
+    core.push(item);
+    clusterCounts[cluster] = (clusterCounts[cluster] ?? 0) + 1;
+
+    if (core.length >= maxCoreCount) break;
+  }
+
+  return core;
+}
+
+function ensureMealInCoreOrOptional(
+  current: ScoredExperience[],
   areaPool: ScoredExperience[],
 ): ScoredExperience[] {
-  const alreadyHasMeal = selected.some((item) => item.experience.isMeal);
-  if (alreadyHasMeal) return selected;
+  if (current.some((item) => item.experience.isMeal)) return current;
 
   const mealCandidate = areaPool.find(
     (item) =>
       item.experience.isMeal &&
-      !selected.some((picked) => picked.experience.id === item.experience.id),
+      !current.some((picked) => picked.experience.id === item.experience.id),
   );
 
-  if (!mealCandidate) return selected;
-
-  const next = [...selected];
-
-  if (next.length > 0) {
-    next[next.length - 1] = mealCandidate;
-    return next;
-  }
-
-  return [mealCandidate];
+  if (!mealCandidate) return current;
+  return [...current, mealCandidate];
 }
 
-function maybeIncludeRest(
-  selected: ScoredExperience[],
+function ensureRestInCoreOrOptional(
+  current: ScoredExperience[],
   areaPool: ScoredExperience[],
 ): ScoredExperience[] {
-  const alreadyHasRestLike = selected.some(
-    (item) =>
-      item.experience.category === "cafe" ||
-      item.experience.features.quiet >= 0.6,
-  );
-
-  if (alreadyHasRestLike) return selected;
+  if (current.some((item) => isRestLike(item.experience))) return current;
 
   const restCandidate = areaPool.find(
     (item) =>
-      !item.experience.isMeal &&
-      (item.experience.category === "cafe" ||
-        item.experience.features.quiet >= 0.6) &&
-      !selected.some((picked) => picked.experience.id === item.experience.id),
+      !current.some((picked) => picked.experience.id === item.experience.id) &&
+      isRestLike(item.experience),
   );
 
-  if (!restCandidate) return selected;
-
-  return [...selected, restCandidate];
+  if (!restCandidate) return current;
+  return [...current, restCandidate];
 }
 
+function pickOptionalBuffer(
+  areaPool: ScoredExperience[],
+  anchors: ScoredExperience[],
+  core: ScoredExperience[],
+  input: PlanningInput,
+  maxOptionalCount: number,
+): ScoredExperience[] {
+  const usedIds = new Set([
+    ...anchors.map((x) => x.experience.id),
+    ...core.map((x) => x.experience.id),
+  ]);
+
+  const selected: ScoredExperience[] = [];
+  const clusterCounts: Partial<Record<ThemeCluster, number>> = {};
+
+  const ranked = [...areaPool]
+    .filter((item) => !usedIds.has(item.experience.id))
+    .sort((a, b) => {
+      const aRepairFriendly =
+        a.experience.isMeal || isRestLike(a.experience) || a.experience.timeFlexibility === "high";
+      const bRepairFriendly =
+        b.experience.isMeal || isRestLike(b.experience) || b.experience.timeFlexibility === "high";
+
+      if (aRepairFriendly !== bRepairFriendly) {
+        return aRepairFriendly ? -1 : 1;
+      }
+
+      return b.score - a.score;
+    });
+
+  for (const item of ranked) {
+    const cluster = getClusterKey(item.experience);
+    const count = clusterCounts[cluster] ?? 0;
+
+    if (input.diversityMode === "diverse" && count >= 1) {
+      continue;
+    }
+
+    selected.push(item);
+    clusterCounts[cluster] = count + 1;
+
+    if (selected.length >= maxOptionalCount) break;
+  }
+
+  return ensureRestInCoreOrOptional(
+    ensureMealInCoreOrOptional(selected, areaPool),
+    areaPool,
+  );
+}
+
+function buildPlannedAnchors(
+  anchors: ScoredExperience[],
+  input: PlanningInput,
+): PlannedExperience[] {
+  return anchors.map((item) => {
+    const tags: SelectionReasonTag[] = [];
+
+    if (input.mustExperienceIds?.includes(item.experience.id)) tags.push("must_experience");
+    if (isTimeSensitive(item.experience)) tags.push("time_sensitive");
+    if (item.score >= 7) tags.push("high_score");
+    if (item.experience.themeCluster) tags.push("cluster_fit");
+
+    return toPlannedExperience(
+      item,
+      "anchor",
+      "anchor",
+      "anchor",
+      tags.length > 0 ? tags : ["high_score"],
+    );
+  });
+}
+
+function buildPlannedCore(core: ScoredExperience[]): PlannedExperience[] {
+  return core.map((item) => {
+    const tags: SelectionReasonTag[] = ["anchor_support"];
+
+    if (item.experience.themeCluster) tags.push("cluster_fit");
+    if (item.score >= 6) tags.push("high_score");
+
+    let role: FunctionalRole = "core";
+    if (item.experience.isMeal) role = "meal";
+    else if (isRestLike(item.experience)) role = "rest";
+    else if (
+      item.experience.functionalRoleHints?.includes("viewpoint") === true
+    ) role = "viewpoint";
+
+    return toPlannedExperience(item, "core", "core", role, tags);
+  });
+}
+
+function buildPlannedOptional(optional: ScoredExperience[]): PlannedExperience[] {
+  return optional.map((item) => {
+    const tags: SelectionReasonTag[] = ["diversity_fill", "feasibility_safe"];
+
+    let role: FunctionalRole = "optional";
+    if (item.experience.isMeal) {
+      role = "meal";
+      tags.push("meal_requirement");
+    } else if (isRestLike(item.experience)) {
+      role = "rest";
+      tags.push("rest_requirement");
+    }
+
+    return toPlannedExperience(item, "optional", "optional", role, tags);
+  });
+}
 
 function buildRoughOrder(items: PlannedExperience[]): string[] {
   const timeOrder = [
@@ -165,90 +391,132 @@ export function planDays(
   input: PlanningInput,
   experiences: ExperienceMetadata[],
 ): DayPlan[] {
+  return planDaysWithDiagnostics(user, input, experiences).dayPlans;
+}
+
+export function planDaysWithDiagnostics(
+  user: UserVector,
+  input: PlanningInput,
+  experiences: ExperienceMetadata[],
+): { dayPlans: DayPlan[]; diagnostics: PlanningDiagnostics } {
   const scored = scoreExperiences(user, input, experiences);
   const grouped = groupByArea(scored);
   const chosenAreas = pickTopAreas(grouped, input.days);
 
   const maxPerDay = DAILY_EXPERIENCE_COUNT_BY_DENSITY[input.dailyDensity];
   const dayPlans: DayPlan[] = [];
+  const dayDiagnostics: PlanningDiagnostics["dayPlans"] = [];
+
+  let totalAnchors = 0;
+  let totalCore = 0;
+  let totalOptional = 0;
 
   for (let day = 1; day <= input.days; day += 1) {
     const primaryArea = chosenAreas[day - 1] ?? chosenAreas[0] ?? "other";
     const areaPool = grouped[primaryArea] ?? [];
 
+    const anchorCandidates = pickAnchors(areaPool, input);
+    const maxCoreCount =
+      input.diversityMode === "theme_focused"
+        ? Math.max(maxPerDay - anchorCandidates.length - 1, 1)
+        : Math.max(maxPerDay - anchorCandidates.length - 2, 1);
 
-      // diversityMode에 따라 category 반복을 제한하면서 후보를 고른다.
-    const selectedBase = applyDiversitySelection(
-  areaPool,
-  maxPerDay,
-  input.diversityMode,
-);
+    const coreCandidates = pickCoreAroundAnchors(
+      areaPool,
+      anchorCandidates,
+      input,
+      maxCoreCount,
+    );
 
-const selectedWithMeal = ensureMealIncluded(selectedBase, areaPool);
-const selected = maybeIncludeRest(selectedWithMeal, areaPool);
+    const maxOptionalCount = Math.max(
+      maxPerDay - anchorCandidates.length - coreCandidates.length,
+      0,
+    );
 
-console.log("[planning] day selection", {
-  day,
-  diversityMode: input.diversityMode,
-  primaryArea,
-  selectedIds: selected.map((x) => x.experience.id),
-  selectedCategories: selected.map((x) => x.experience.category),
-  hasMeal: selected.some((x) => x.experience.isMeal),
-  hasRestLike: selected.some(
-    (x) =>
-      x.experience.category === "cafe" ||
-      x.experience.features.quiet >= 0.6,
-  ),
-});
+    const optionalCandidates = pickOptionalBuffer(
+      areaPool,
+      anchorCandidates,
+      coreCandidates,
+      input,
+      maxOptionalCount,
+    );
 
-const anchor: PlannedExperience[] = [];
-const core: PlannedExperience[] = [];
-const optional: PlannedExperience[] = [];
+    const anchors = buildPlannedAnchors(dedupeByExperienceId(anchorCandidates), input);
+    const core = buildPlannedCore(
+      dedupeByExperienceId(coreCandidates).filter(
+        (item) => !anchors.some((x) => x.experience.id === item.experience.id),
+      ),
+    );
+    const optional = buildPlannedOptional(
+      dedupeByExperienceId(optionalCandidates).filter(
+        (item) =>
+          !anchors.some((x) => x.experience.id === item.experience.id) &&
+          !core.some((x) => x.experience.id === item.experience.id),
+      ),
+    );
 
-    for (const item of selected) {
-      const priority = classifyPriority(item, input);
-      const planned = toPlannedExperience(item, priority);
-
-      if (priority === "anchor") anchor.push(planned);
-      else if (priority === "core") core.push(planned);
-      else optional.push(planned);
-    }
-
-    // anchor가 하나도 없으면 core 하나 승격
-    if (anchor.length === 0 && core.length > 0) {
-      const promoted = core.shift()!;
-      anchor.push({ ...promoted, priority: "anchor" });
-    }
-
-  const prioritizedOptional = [...optional].sort((a, b) => {
-  const aMealOrRest =
-    a.experience.isMeal ||
-    a.experience.category === "cafe" ||
-    a.experience.features.quiet >= 0.6;
-
-  const bMealOrRest =
-    b.experience.isMeal ||
-    b.experience.category === "cafe" ||
-    b.experience.features.quiet >= 0.6;
-
-  if (aMealOrRest === bMealOrRest) return 0;
-  return aMealOrRest ? -1 : 1;
-});
-
-const merged = [...anchor, ...core, ...prioritizedOptional].slice(0, maxPerDay);
-
-    
+    const merged = [...anchors, ...core, ...optional].slice(0, maxPerDay);
     const roughOrder = buildRoughOrder(merged);
+
+    const finalAnchor = merged.filter((x) => x.priority === "anchor");
+    const finalCore = merged.filter((x) => x.priority === "core");
+    const finalOptional = merged.filter((x) => x.priority === "optional");
+
+    totalAnchors += finalAnchor.length;
+    totalCore += finalCore.length;
+    totalOptional += finalOptional.length;
+
+    const clusterDistribution = merged.reduce(
+      (acc, item) => {
+        const cluster = item.themeCluster ?? "mixed";
+        acc[cluster] = (acc[cluster] ?? 0) + 1;
+        return acc;
+      },
+      {} as Partial<Record<ThemeCluster, number>>,
+    );
+
+    dayDiagnostics.push({
+      dayIndex: day,
+      targetClusterStrategy:
+        input.diversityMode === "diverse"
+          ? "cluster dispersion"
+          : input.diversityMode === "balanced"
+            ? "anchor-centered with partial expansion"
+            : "anchor cluster concentration",
+      anchorIds: finalAnchor.map((x) => x.experience.id),
+      coreIds: finalCore.map((x) => x.experience.id),
+      optionalIds: finalOptional.map((x) => x.experience.id),
+      totalScore: merged.reduce((sum, item) => sum + item.planningScore, 0),
+      clusterDistribution,
+      notes: [
+        `primaryArea=${primaryArea}`,
+        `poolSize=${areaPool.length}`,
+        `mergedCount=${merged.length}`,
+      ],
+    });
 
     dayPlans.push({
       day,
       areas: [primaryArea],
-      anchor: merged.filter((x) => x.priority === "anchor"),
-      core: merged.filter((x) => x.priority === "core"),
-      optional: merged.filter((x) => x.priority === "optional"),
+      anchor: finalAnchor,
+      core: finalCore,
+      optional: finalOptional,
       roughOrder,
     });
   }
 
-  return dayPlans;
+  return {
+    dayPlans,
+    diagnostics: {
+      diversityMode: input.diversityMode,
+      totalAnchors,
+      totalCore,
+      totalOptional,
+      dayPlans: dayDiagnostics,
+      notes: [
+        `days=${input.days}`,
+        `dailyDensity=${input.dailyDensity}`,
+      ],
+    },
+  };
 }
