@@ -3,7 +3,9 @@ import { getPreferredStartSlot, isAllowedTimeSlot, minutesToSlots } from "./time
 import type {
   DayPlan,
   DaySchedule,
+  DaySchedulingDiagnostic,
   FeasibilityReport,
+  FeasibilityStatus,
   PlannedExperience,
   ScheduleIssue,
   ScheduledItem,
@@ -15,6 +17,75 @@ function flattenDayPlan(dayPlan: DayPlan): PlannedExperience[] {
   return [...dayPlan.anchor, ...dayPlan.core, ...dayPlan.optional].sort((a, b) => {
     return (orderMap.get(a.experience.id) ?? 999) - (orderMap.get(b.experience.id) ?? 999);
   });
+}
+
+function getAreaOfPlannedItem(item: PlannedExperience): string {
+  return item.experience.area;
+}
+
+function getAreaOfScheduledItem(
+  item: ScheduledItem,
+  plannedItems: PlannedExperience[],
+): string {
+  const found = plannedItems.find((x) => x.experience.id === item.experienceId);
+  return found?.experience.area ?? "other";
+}
+
+function estimateTravelMinutes(items: PlannedExperience[]): number {
+  if (items.length <= 1) return 0;
+
+  let total = 0;
+
+  for (let i = 1; i < items.length; i += 1) {
+    const prevArea = getAreaOfPlannedItem(items[i - 1]);
+    const nextArea = getAreaOfPlannedItem(items[i]);
+    total += getAreaDistanceMinutes(prevArea, nextArea);
+  }
+
+  return total;
+}
+
+function estimatePlannedMinutes(items: PlannedExperience[]): number {
+  const experienceMinutes = items.reduce(
+    (sum, item) => sum + item.experience.recommendedDuration,
+    0,
+  );
+  const travelMinutes = estimateTravelMinutes(items);
+
+  return experienceMinutes + travelMinutes;
+}
+
+function toFeasibilityStatus(overflowMin: number): FeasibilityStatus {
+  if (overflowMin <= 0) return "safe";
+  if (overflowMin <= 60) return "tight";
+  return "overflow";
+}
+
+export function evaluatePreFeasibility(
+  dayPlan: DayPlan,
+  dayStartSlot: number,
+  dayEndSlot: number,
+): DaySchedulingDiagnostic {
+  const flattened = flattenDayPlan(dayPlan);
+  const availableMin = (dayEndSlot - dayStartSlot) * 30;
+  const estimatedTotalMin = estimatePlannedMinutes(flattened);
+  const overflowMin = Math.max(0, estimatedTotalMin - availableMin);
+
+  return {
+    dayIndex: dayPlan.day,
+    preFeasibilityStatus: toFeasibilityStatus(overflowMin),
+    estimatedTotalMin,
+    availableMin,
+    overflowMin,
+    repairs: [],
+    finalStatus: "scheduled",
+    notes: [
+      `plannedItems=${flattened.length}`,
+      `anchors=${dayPlan.anchor.length}`,
+      `core=${dayPlan.core.length}`,
+      `optional=${dayPlan.optional.length}`,
+    ],
+  };
 }
 
 /**
@@ -31,16 +102,7 @@ function findNextAllowedStartSlot(
     }
   }
 
-  // 끝까지 못 찾으면 일단 earliest 반환하고 feasibility에서 잡는다.
   return earliestSlot;
-}
-
-function getAreaOfScheduledItem(
-  item: ScheduledItem,
-  plannedItems: PlannedExperience[],
-) {
-  const found = plannedItems.find((x) => x.experience.id === item.experienceId);
-  return found?.experience.area ?? "other";
 }
 
 function buildSequentialSchedule(
@@ -55,19 +117,13 @@ function buildSequentialSchedule(
     const prevArea = prev ? getAreaOfScheduledItem(prev, items) : planned.experience.area;
     const currentArea = planned.experience.area;
 
-    const travelMinutes = prev
-      ? getAreaDistanceMinutes(prevArea, currentArea)
-      : 0;
-
+    const travelMinutes = prev ? getAreaDistanceMinutes(prevArea, currentArea) : 0;
     const travelSlots = minutesToSlots(travelMinutes);
 
-    const earliestSlot = prev
-      ? prev.endSlot + travelSlots
-      : dayStartSlot;
+    const earliestSlot = prev ? prev.endSlot + travelSlots : dayStartSlot;
 
     let startSlot = findNextAllowedStartSlot(planned, earliestSlot);
 
-    // anchor는 preferredTime을 조금 더 존중
     if (planned.priority === "anchor") {
       const preferredSlot = getPreferredStartSlot(planned.experience.preferredTime);
       if (preferredSlot > startSlot) {
@@ -84,6 +140,9 @@ function buildSequentialSchedule(
       endSlot: startSlot + durationSlots,
       durationMinutes: planned.experience.recommendedDuration,
       priority: planned.priority,
+      planningTier: planned.planningTier,
+      functionalRole: planned.functionalRole,
+      themeCluster: planned.themeCluster,
     });
   }
 
@@ -125,38 +184,65 @@ export function evaluateFeasibility(
     issues.push("fatigue_overflow");
   }
 
+  let areaOverjumpCount = 0;
+  for (let i = 1; i < items.length; i += 1) {
+    const prev = items[i - 1];
+    const current = items[i];
+    const prevArea = getAreaOfScheduledItem(prev, [...dayPlan.anchor, ...dayPlan.core, ...dayPlan.optional]);
+    const currentArea = getAreaOfScheduledItem(current, [...dayPlan.anchor, ...dayPlan.core, ...dayPlan.optional]);
+    const distance = getAreaDistanceMinutes(prevArea, currentArea);
+
+    if (distance > 60) {
+      areaOverjumpCount += 1;
+    }
+  }
+
+  if (areaOverjumpCount >= 2) {
+    issues.push("area_overjump");
+  }
+
   const totalMinutes =
-  items.length > 0
-    ? (items[items.length - 1].endSlot - items[0].startSlot) * 30
-    : 0;
+    items.length > 0
+      ? (items[items.length - 1].endSlot - items[0].startSlot) * 30
+      : 0;
 
-const activeMinutes = items.reduce((sum, item) => sum + item.durationMinutes, 0);
-const gapMinutes = Math.max(0, totalMinutes - activeMinutes);
+  const activeMinutes = items.reduce((sum, item) => sum + item.durationMinutes, 0);
+  const gapMinutes = Math.max(0, totalMinutes - activeMinutes);
 
-return {
-  isFeasible: issues.length === 0,
-  issues: Array.from(new Set(issues)),
-  totalFatigue,
-  totalMinutes,
-  activeMinutes,
-  gapMinutes,
-};
-
-  
+  return {
+    isFeasible: issues.length === 0,
+    issues: Array.from(new Set(issues)),
+    totalFatigue,
+    totalMinutes,
+    activeMinutes,
+    gapMinutes,
+  };
 }
 
 export function scheduleDayPlan(
   dayPlan: DayPlan,
   dayStartSlot: number,
   dayEndSlot: number,
-): DaySchedule {
+): { schedule: DaySchedule; diagnostic: DaySchedulingDiagnostic } {
+  const pre = evaluatePreFeasibility(dayPlan, dayStartSlot, dayEndSlot);
   const flattened = flattenDayPlan(dayPlan);
   const scheduled = buildSequentialSchedule(flattened, dayStartSlot);
   const report = evaluateFeasibility(dayPlan, scheduled, dayEndSlot);
 
   return {
-    day: dayPlan.day,
-    items: scheduled,
-    report,
+    schedule: {
+      day: dayPlan.day,
+      items: scheduled,
+      report,
+    },
+    diagnostic: {
+      ...pre,
+      finalStatus: report.isFeasible ? "scheduled" : "partial_fail",
+      notes: [
+        ...pre.notes,
+        `scheduledItems=${scheduled.length}`,
+        `issues=${report.issues.join(",") || "none"}`,
+      ],
+    },
   };
 }
