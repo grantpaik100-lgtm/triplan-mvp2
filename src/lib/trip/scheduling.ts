@@ -27,7 +27,7 @@ function getAreaOfPlannedItem(item: PlannedExperience): Area {
 function getAreaOfScheduledItem(
   item: ScheduledItem,
   plannedItems: PlannedExperience[],
-): string {
+): Area {
   const found = plannedItems.find((x) => x.experience.id === item.experienceId);
   return found?.experience.area ?? "other";
 }
@@ -156,8 +156,9 @@ export function evaluateFeasibility(
   dayEndSlot: number,
 ): FeasibilityReport {
   const issues: ScheduleIssue[] = [];
+  const plannedItems = [...dayPlan.anchor, ...dayPlan.core, ...dayPlan.optional];
   const expMap = new Map(
-    [...dayPlan.anchor, ...dayPlan.core, ...dayPlan.optional].map((x) => [x.experience.id, x]),
+    plannedItems.map((x) => [x.experience.id, x]),
   );
 
   let totalFatigue = 0;
@@ -189,8 +190,8 @@ export function evaluateFeasibility(
   for (let i = 1; i < items.length; i += 1) {
     const prev = items[i - 1];
     const current = items[i];
-    const prevArea = getAreaOfScheduledItem(prev, [...dayPlan.anchor, ...dayPlan.core, ...dayPlan.optional]);
-    const currentArea = getAreaOfScheduledItem(current, [...dayPlan.anchor, ...dayPlan.core, ...dayPlan.optional]);
+    const prevArea = getAreaOfScheduledItem(prev, plannedItems);
+    const currentArea = getAreaOfScheduledItem(current, plannedItems);
     const distance = getAreaDistanceMinutes(prevArea, currentArea);
 
     if (distance > 60) {
