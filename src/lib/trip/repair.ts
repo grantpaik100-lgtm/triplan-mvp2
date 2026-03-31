@@ -1,120 +1,173 @@
-import { planDaysWithDiagnostics } from "./planning";
-import { repairSchedule } from "./repair";
-import { scheduleDayPlan } from "./scheduling";
+import { evaluateFeasibility } from "./scheduling";
 import type {
-  CandidateDiagnostics,
+  DayPlan,
   DaySchedule,
   DaySchedulingDiagnostic,
-  ExperienceMetadata,
-  PlanningInput,
-  SchedulingDiagnostics,
-  TripPlanResult,
-  UserVector,
+  RepairActionLog,
+  ScheduledItem,
 } from "./types";
 
-function buildCandidateDiagnostics(
-  experiences: ExperienceMetadata[],
-): CandidateDiagnostics {
-  const byThemeCluster = experiences.reduce(
-    (acc, exp) => {
-      const cluster = exp.themeCluster ?? "mixed";
-      acc[cluster] = (acc[cluster] ?? 0) + 1;
-      return acc;
-    },
-    {} as CandidateDiagnostics["byThemeCluster"],
-  );
+function getOverflowMin(items: ScheduledItem[], dayEndSlot: number): number {
+  if (items.length === 0) return 0;
+  const lastEndSlot = items[items.length - 1].endSlot;
+  return Math.max(0, (lastEndSlot - dayEndSlot) * 30);
+}
 
-  const byRole = experiences.reduce(
-    (acc, exp) => {
-      for (const role of exp.functionalRoleHints ?? []) {
-        acc[role] = (acc[role] ?? 0) + 1;
-      }
-      return acc;
-    },
-    {} as CandidateDiagnostics["byRole"],
-  );
+function removeOptionalItems(
+  dayPlan: DayPlan,
+  items: ScheduledItem[],
+): { items: ScheduledItem[]; removedIds: string[] } {
+  const optionalIds = new Set(dayPlan.optional.map((x) => x.experience.id));
+  const kept = items.filter((item) => !optionalIds.has(item.experienceId));
+  const removed = items
+    .filter((item) => optionalIds.has(item.experienceId))
+    .map((item) => item.experienceId);
 
   return {
-    totalCandidates: experiences.length,
-    selectedCount: 0,
-    droppedCount: 0,
-    byThemeCluster,
-    byRole,
-    selected: [],
-    dropped: [],
+    items: kept,
+    removedIds: removed,
   };
 }
 
-function buildSchedulingDiagnostics(
-  diagnostics: DaySchedulingDiagnostic[],
-): SchedulingDiagnostics {
-  const totalOverflowDays = diagnostics.filter((x) => x.overflowMin > 0).length;
-  const totalRepairCount = diagnostics.reduce((sum, x) => sum + x.repairs.length, 0);
+function shrinkRoleItems(
+  items: ScheduledItem[],
+  role: ScheduledItem["functionalRole"],
+  shrinkByMin: number,
+  minDurationMin: number,
+): ScheduledItem[] {
+  return items.map((item) => {
+    if (item.functionalRole !== role) return item;
 
-  return {
-    totalOverflowDays,
-    totalRepairCount,
-    days: diagnostics,
-    notes: [
-      `days=${diagnostics.length}`,
-      `overflowDays=${totalOverflowDays}`,
-      `repairCount=${totalRepairCount}`,
-    ],
-  };
+    const nextDuration = Math.max(minDurationMin, item.durationMinutes - shrinkByMin);
+    const diff = item.durationMinutes - nextDuration;
+
+    if (diff <= 0) return item;
+
+    return {
+      ...item,
+      durationMinutes: nextDuration,
+      endSlot: item.endSlot - Math.floor(diff / 30),
+    };
+  });
 }
 
-export function generateTripPlan(
-  user: UserVector,
-  input: PlanningInput,
-  experiences: ExperienceMetadata[],
-): TripPlanResult {
-  const candidateDiagnostics = buildCandidateDiagnostics(experiences);
+function removeLowestPriorityCore(
+  items: ScheduledItem[],
+): { items: ScheduledItem[]; removedId?: string } {
+  const target = [...items]
+    .reverse()
+    .find((item) => item.priority === "core" && item.functionalRole === "core");
 
-  const {
-    dayPlans,
-    diagnostics: planningDiagnostics,
-  } = planDaysWithDiagnostics(user, input, experiences);
-
-  const schedules: DaySchedule[] = [];
-  const schedulingDayDiagnostics: DaySchedulingDiagnostic[] = [];
-
-  for (const dayPlan of dayPlans) {
-    const scheduledResult = scheduleDayPlan(
-      dayPlan,
-      input.dailyStartSlot,
-      input.dailyEndSlot,
-    );
-
-    let finalSchedule = scheduledResult.schedule;
-    let finalDiagnostic = scheduledResult.diagnostic;
-
-    if (!scheduledResult.schedule.report.isFeasible) {
-      const repaired = repairSchedule(
-        dayPlan,
-        scheduledResult.schedule,
-        input.dailyEndSlot,
-        scheduledResult.diagnostic,
-      );
-
-      finalSchedule = repaired.schedule;
-      finalDiagnostic = repaired.diagnostic;
-    }
-
-    schedules.push(finalSchedule);
-    schedulingDayDiagnostics.push(finalDiagnostic);
+  if (!target) {
+    return { items };
   }
 
-  const schedulingDiagnostics = buildSchedulingDiagnostics(
-    schedulingDayDiagnostics,
-  );
+  return {
+    items: items.filter((item) => item.experienceId !== target.experienceId),
+    removedId: target.experienceId,
+  };
+}
+
+export function repairSchedule(
+  dayPlan: DayPlan,
+  schedule: DaySchedule,
+  dayEndSlot: number,
+  baseDiagnostic: DaySchedulingDiagnostic,
+): { schedule: DaySchedule; diagnostic: DaySchedulingDiagnostic } {
+  let items = [...schedule.items];
+  const repairs: RepairActionLog[] = [];
+  let step = 1;
+
+  let overflowBefore = getOverflowMin(items, dayEndSlot);
+
+  if (overflowBefore > 0) {
+    const result = removeOptionalItems(dayPlan, items);
+    const overflowAfter = getOverflowMin(result.items, dayEndSlot);
+
+    if (result.removedIds.length > 0) {
+      repairs.push({
+        step: step++,
+        action: "remove_optional",
+        reason: "Remove optional buffer first",
+        beforeOverflowMin: overflowBefore,
+        afterOverflowMin: overflowAfter,
+      });
+      items = result.items;
+      overflowBefore = overflowAfter;
+    }
+  }
+
+  if (overflowBefore > 0) {
+    const nextItems = shrinkRoleItems(items, "rest", 30, 45);
+    const overflowAfter = getOverflowMin(nextItems, dayEndSlot);
+
+    if (overflowAfter < overflowBefore) {
+      repairs.push({
+        step: step++,
+        action: "shrink_rest",
+        reason: "Shrink rest-like items before removing core",
+        beforeOverflowMin: overflowBefore,
+        afterOverflowMin: overflowAfter,
+      });
+      items = nextItems;
+      overflowBefore = overflowAfter;
+    }
+  }
+
+  if (overflowBefore > 0) {
+    const nextItems = shrinkRoleItems(items, "meal", 30, 45);
+    const overflowAfter = getOverflowMin(nextItems, dayEndSlot);
+
+    if (overflowAfter < overflowBefore) {
+      repairs.push({
+        step: step++,
+        action: "replace_meal",
+        reason: "Shrink meal items before removing core",
+        beforeOverflowMin: overflowBefore,
+        afterOverflowMin: overflowAfter,
+      });
+      items = nextItems;
+      overflowBefore = overflowAfter;
+    }
+  }
+
+  if (overflowBefore > 0) {
+    const result = removeLowestPriorityCore(items);
+    const overflowAfter = getOverflowMin(result.items, dayEndSlot);
+
+    if (result.removedId) {
+      repairs.push({
+        step: step++,
+        action: "remove_core",
+        targetExperienceId: result.removedId,
+        reason: "Remove core item as last resort",
+        beforeOverflowMin: overflowBefore,
+        afterOverflowMin: overflowAfter,
+      });
+      items = result.items;
+      overflowBefore = overflowAfter;
+    }
+  }
+
+  const report = evaluateFeasibility(dayPlan, items, dayEndSlot);
 
   return {
-    dayPlans,
-    schedules,
-    debug: {
-      candidateDiagnostics,
-      planningDiagnostics,
-      schedulingDiagnostics,
+    schedule: {
+      ...schedule,
+      items,
+      report,
+    },
+    diagnostic: {
+      ...baseDiagnostic,
+      repairs,
+      finalStatus: repairs.length > 0
+        ? (report.isFeasible ? "repaired" : "partial_fail")
+        : (report.isFeasible ? "scheduled" : "partial_fail"),
+      notes: [
+        ...baseDiagnostic.notes,
+        `repairCount=${repairs.length}`,
+        `finalIssues=${report.issues.join(",") || "none"}`,
+      ],
     },
   };
 }
