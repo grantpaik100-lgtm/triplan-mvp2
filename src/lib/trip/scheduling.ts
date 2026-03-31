@@ -1,6 +1,7 @@
 import { getAreaDistanceMinutes } from "./area";
 import { getPreferredStartSlot, isAllowedTimeSlot, minutesToSlots } from "./time";
 import type {
+  Area,
   DayPlan,
   DaySchedule,
   DaySchedulingDiagnostic,
@@ -19,7 +20,7 @@ function flattenDayPlan(dayPlan: DayPlan): PlannedExperience[] {
   });
 }
 
-function getAreaOfPlannedItem(item: PlannedExperience): string {
+function getAreaOfPlannedItem(item: PlannedExperience): Area {
   return item.experience.area;
 }
 
