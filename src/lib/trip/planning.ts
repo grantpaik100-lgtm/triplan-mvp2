@@ -410,10 +410,39 @@ export function planDaysWithDiagnostics(
   let totalAnchors = 0;
   let totalCore = 0;
   let totalOptional = 0;
+  
+  const globallyUsedIds = new Set<string>();
 
   for (let day = 1; day <= input.days; day += 1) {
     const primaryArea = chosenAreas[day - 1] ?? chosenAreas[0] ?? "other";
-    const areaPool = grouped[primaryArea] ?? [];
+    const areaPool = (grouped[primaryArea] ?? []).filter(
+      (item) => !globallyUsedIds.has(item.experience.id),
+    );
+
+    if (areaPool.length === 0) {
+  dayPlans.push({
+    day,
+    areas: [primaryArea],
+    anchor: [],
+    core: [],
+    optional: [],
+    roughOrder: [],
+  });
+
+  dayDiagnostics.push({
+    dayIndex: day,
+    targetClusterStrategy: "empty_pool_fallback",
+    anchorIds: [],
+    coreIds: [],
+    optionalIds: [],
+    totalScore: 0,
+    clusterDistribution: {},
+    notes: ["empty area pool after global dedupe"],
+  });
+
+  continue;
+}
+    
 
     const anchorCandidates = pickAnchors(areaPool, input);
     const maxCoreCount =
@@ -456,6 +485,9 @@ export function planDaysWithDiagnostics(
     );
 
     const merged = [...anchors, ...core, ...optional].slice(0, maxPerDay);
+    for (const item of merged) {
+      globallyUsedIds.add(item.experience.id);
+    }
     const roughOrder = buildRoughOrder(merged);
 
     const finalAnchor = merged.filter((x) => x.priority === "anchor");
