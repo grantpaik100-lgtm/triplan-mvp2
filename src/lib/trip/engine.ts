@@ -3,6 +3,7 @@ import { repairSchedule } from "./repair";
 import { scheduleDayPlan } from "./scheduling";
 import type {
   CandidateDiagnostics,
+  DaySchedule,
   DaySchedulingDiagnostic,
   ExperienceMetadata,
   PlanningInput,
