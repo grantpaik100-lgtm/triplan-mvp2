@@ -231,6 +231,10 @@ export type ExperienceMetadata = {
   companionFit: CompanionFit;
   features: ExperienceFeatures;
 
+  themeCluster?: ThemeCluster;
+  functionalRoleHints?: FunctionalRole[];
+
+
   priorityHints: {
     canBeAnchor: boolean;
     anchorReasons: string[];
@@ -278,6 +282,10 @@ export type PlanningInput = {
 export type ScoredExperience = {
   experience: ExperienceMetadata;
   score: number;
+  planningTier?: PlanItemTier;
+  functionalRole?: FunctionalRole;
+  selectionReason?: SelectionReason;
+  droppedReasons?: CandidateDropReason[];
   scoreBreakdown: {
     preference: number;
     companion: number;
@@ -291,7 +299,11 @@ export type ScoredExperience = {
 export type PlannedExperience = {
   experience: ExperienceMetadata;
   priority: PriorityClass;
+  planningTier: PlanItemTier;
+  functionalRole: FunctionalRole;
+  themeCluster?: ThemeCluster;
   planningScore: number;
+  selectionReason?: SelectionReason;
 };
 
 export type DayPlan = {
@@ -310,6 +322,9 @@ export type ScheduledItem = {
   endSlot: number;
   durationMinutes: number;
   priority: PriorityClass;
+  planningTier?: PlanItemTier;
+  functionalRole?: FunctionalRole;
+  themeCluster?: ThemeCluster;
 };
 
 export type ScheduleIssue =
@@ -337,4 +352,5 @@ export type DaySchedule = {
 export type TripPlanResult = {
   dayPlans: DayPlan[];
   schedules: DaySchedule[];
+  debug: TripDebug;
 };
