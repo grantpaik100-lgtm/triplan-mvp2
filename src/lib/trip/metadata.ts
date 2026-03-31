@@ -2,6 +2,8 @@ import { normalizeArea } from "./area";
 import type {
   ExperienceFeatures,
   ExperienceMetadata,
+  FunctionalRole,
+  ThemeCluster,
   TimeBucket,
   TimeFlexibility,
 } from "./types";
@@ -134,6 +136,97 @@ function inferAnchorHints(
   };
 }
 
+function inferThemeCluster(
+  category: string,
+  placeType: string,
+  preferredTime: TimeBucket,
+  features: ExperienceFeatures,
+): ThemeCluster {
+  const text = `${category} ${placeType}`.toLowerCase();
+
+  if (
+    text.includes("cafe") ||
+    text.includes("restaurant") ||
+    text.includes("food") ||
+    text.includes("brunch")
+  ) {
+    return "food_discovery";
+  }
+
+  if (
+    text.includes("park") ||
+    text.includes("walk") ||
+    text.includes("forest")
+  ) {
+    return preferredTime === "sunset"
+      ? "night_view"
+      : "nature_scenery";
+  }
+
+  if (
+    text.includes("museum") ||
+    text.includes("gallery") ||
+    text.includes("culture")
+  ) {
+    return "culture_art";
+  }
+
+  if (
+    text.includes("shopping") ||
+    text.includes("market") ||
+    text.includes("mall")
+  ) {
+    return "shopping_street";
+  }
+
+  if (preferredTime === "sunset" || preferredTime === "night") {
+    return "night_view";
+  }
+
+  if (features.quiet >= 0.7) {
+    return "cafe_relax";
+  }
+
+  return "mixed";
+}
+
+function inferFunctionalRoleHints(
+  isMeal: boolean,
+  preferredTime: TimeBucket,
+  features: ExperienceFeatures,
+  priorityHints: { canBeAnchor: boolean },
+): FunctionalRole[] {
+  const roles: FunctionalRole[] = [];
+
+  if (priorityHints.canBeAnchor) {
+    roles.push("anchor");
+  }
+
+  if (isMeal) {
+    roles.push("meal");
+  }
+
+  if (
+    features.quiet >= 0.7 ||
+    preferredTime === "late_morning"
+  ) {
+    roles.push("rest");
+  }
+
+  if (
+    preferredTime === "sunset" ||
+    preferredTime === "night"
+  ) {
+    roles.push("viewpoint");
+  }
+
+  if (roles.length === 0) {
+    roles.push("core");
+  }
+
+  return roles;
+}
+
 export function normalizeExperienceRow(row: RawExperienceRow): ExperienceMetadata {
   const features: ExperienceFeatures = {
     food: toNumber(row["feat_food"]),
@@ -168,6 +261,20 @@ export function normalizeExperienceRow(row: RawExperienceRow): ExperienceMetadat
   const isIndoor = inferIsIndoor(row["category"] ?? "", row["place_type"] ?? "");
   const anchorHints = inferAnchorHints(preferredTime, isMeal, row["base_experience_label"] ?? "");
 
+
+    const themeCluster = inferThemeCluster(
+    row["category"] ?? "",
+    row["place_type"] ?? "",
+    preferredTime,
+    features,
+  );
+
+  const functionalRoleHints = inferFunctionalRoleHints(
+    isMeal,
+    preferredTime,
+    features,
+    anchorHints,
+  );
   return {
     id: row["experience_id"],
     placeId: row["place_id"],
@@ -207,6 +314,9 @@ export function normalizeExperienceRow(row: RawExperienceRow): ExperienceMetadat
     },
 
     features,
+    
+    themeCluster,
+    functionalRoleHints,
 
     priorityHints: anchorHints,
 
