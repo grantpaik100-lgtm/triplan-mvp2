@@ -463,12 +463,12 @@ export function planDaysWithDiagnostics(
     );
 
     const optionalCandidates = pickOptionalBuffer(
-      areaPool,
-      anchorCandidates,
-      coreCandidates,
-      input,
-      maxOptionalCount,
-    );
+  areaPool,
+  anchorCandidates,
+  coreCandidates,
+  input,
+  maxOptionalCount,
+).slice(0, maxOptionalCount);
 
     const anchors = buildPlannedAnchors(dedupeByExperienceId(anchorCandidates), input);
     const core = buildPlannedCore(
