@@ -51,7 +51,9 @@ function shrinkRoleItems(
   });
 }
 
-function removeLowestPriorityCore(items: ScheduledItem[]): { items: ScheduledItem[]; removedId?: string } {
+function removeLowestPriorityCore(
+  items: ScheduledItem[],
+): { items: ScheduledItem[]; removedId?: string } {
   const target = [...items]
     .reverse()
     .find((item) => item.priority === "core" && item.functionalRole === "core");
