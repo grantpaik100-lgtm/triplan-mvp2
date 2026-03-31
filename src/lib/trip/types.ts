@@ -25,6 +25,150 @@ export type TimeFlexibility = "low" | "medium" | "high";
 export type PriorityClass = "anchor" | "core" | "optional";
 export type CompanionType = "solo" | "couple" | "friends" | "family";
 
+export type ThemeCluster =
+  | "food_discovery"
+  | "cafe_relax"
+  | "walk_local"
+  | "nature_scenery"
+  | "culture_art"
+  | "shopping_street"
+  | "night_view"
+  | "night_out"
+  | "family_gentle"
+  | "activity_outdoor"
+  | "mixed";
+
+export type FunctionalRole =
+  | "anchor"
+  | "core"
+  | "optional"
+  | "meal"
+  | "rest"
+  | "viewpoint"
+  | "transition_safe";
+
+export type PlanItemTier = "anchor" | "core" | "optional";
+
+export type CandidateDropReason =
+  | "score_too_low"
+  | "duplicate_place"
+  | "duplicate_category"
+  | "duplicate_theme_cluster"
+  | "time_window_risk"
+  | "night_mismatch"
+  | "meal_excess"
+  | "rest_excess"
+  | "mobility_mismatch"
+  | "companion_mismatch"
+  | "budget_mismatch"
+  | "diversity_rebalance"
+  | "cluster_rebalance"
+  | "capacity_limit"
+  | "not_selected";
+
+export type SelectionReasonTag =
+  | "must_place"
+  | "must_experience"
+  | "high_score"
+  | "time_sensitive"
+  | "night_fit"
+  | "meal_requirement"
+  | "rest_requirement"
+  | "cluster_fit"
+  | "diversity_fill"
+  | "feasibility_safe"
+  | "anchor_support";
+
+export type RepairActionType =
+  | "remove_optional"
+  | "shrink_rest"
+  | "replace_meal"
+  | "remove_core"
+  | "trim_transition"
+  | "force_day_split";
+
+export type FeasibilityStatus = "safe" | "tight" | "overflow";
+
+export type SelectionReason = {
+  tags: SelectionReasonTag[];
+  summary: string;
+};
+
+export type CandidateDiagnosticItem = {
+  experienceId: string;
+  name: string;
+  score: number;
+  selected: boolean;
+  tier?: PlanItemTier;
+  role?: FunctionalRole;
+  themeCluster?: ThemeCluster;
+  reasons: SelectionReasonTag[];
+  droppedBy?: CandidateDropReason[];
+};
+
+export type CandidateDiagnostics = {
+  totalCandidates: number;
+  selectedCount: number;
+  droppedCount: number;
+  byThemeCluster: Partial<Record<ThemeCluster, number>>;
+  byRole: Partial<Record<FunctionalRole, number>>;
+  selected: CandidateDiagnosticItem[];
+  dropped: CandidateDiagnosticItem[];
+};
+
+export type DayPlanningDiagnostic = {
+  dayIndex: number;
+  targetClusterStrategy: string;
+  anchorIds: string[];
+  coreIds: string[];
+  optionalIds: string[];
+  totalScore: number;
+  clusterDistribution: Partial<Record<ThemeCluster, number>>;
+  notes: string[];
+};
+
+export type PlanningDiagnostics = {
+  diversityMode: DiversityMode;
+  totalAnchors: number;
+  totalCore: number;
+  totalOptional: number;
+  dayPlans: DayPlanningDiagnostic[];
+  notes: string[];
+};
+
+export type RepairActionLog = {
+  step: number;
+  action: RepairActionType;
+  targetExperienceId?: string;
+  beforeOverflowMin: number;
+  afterOverflowMin: number;
+  reason: string;
+};
+
+export type DaySchedulingDiagnostic = {
+  dayIndex: number;
+  preFeasibilityStatus: FeasibilityStatus;
+  estimatedTotalMin: number;
+  availableMin: number;
+  overflowMin: number;
+  repairs: RepairActionLog[];
+  finalStatus: "scheduled" | "repaired" | "partial_fail";
+  notes: string[];
+};
+
+export type SchedulingDiagnostics = {
+  totalOverflowDays: number;
+  totalRepairCount: number;
+  days: DaySchedulingDiagnostic[];
+  notes: string[];
+};
+
+export type TripDebug = {
+  candidateDiagnostics: CandidateDiagnostics;
+  planningDiagnostics: PlanningDiagnostics;
+  schedulingDiagnostics: SchedulingDiagnostics;
+};
+
 export type ExperienceFeatures = {
   food: number;
   culture: number;
