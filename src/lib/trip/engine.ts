@@ -68,7 +68,7 @@ function buildSchedulingDiagnostics(
   };
 }
 
-export function buildTripPlan(
+export function generateTripPlan(
   user: UserVector,
   input: PlanningInput,
   experiences: ExperienceMetadata[],
