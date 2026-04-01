@@ -139,57 +139,135 @@ function inferAnchorHints(
 function inferThemeCluster(
   category: string,
   placeType: string,
+  macroAction: string,
+  microAction: string,
   preferredTime: TimeBucket,
   features: ExperienceFeatures,
 ): ThemeCluster {
-  const text = `${category} ${placeType}`.toLowerCase();
+  const categoryText = category.toLowerCase();
+  const placeTypeText = placeType.toLowerCase();
+  const macroText = macroAction.toLowerCase();
+  const microText = microAction.toLowerCase();
+  const text = `${categoryText} ${placeTypeText} ${macroText} ${microText}`;
 
+  // 1. Food / cafe
   if (
-    text.includes("cafe") ||
-    text.includes("restaurant") ||
-    text.includes("food") ||
-    text.includes("brunch")
+    macroText.includes("food") ||
+    microText.includes("restaurant") ||
+    microText.includes("meal") ||
+    placeTypeText.includes("restaurant") ||
+    categoryText.includes("음식")
   ) {
     return "food_discovery";
   }
 
   if (
-    text.includes("park") ||
-    text.includes("walk") ||
-    text.includes("forest")
+    microText.includes("cafe") ||
+    placeTypeText.includes("cafe")
   ) {
-    return preferredTime === "sunset"
-      ? "night_view"
-      : "nature_scenery";
+    return "cafe_relax";
   }
 
+  // 2. Culture / historic / exhibition
   if (
-    text.includes("museum") ||
-    text.includes("gallery") ||
-    text.includes("culture")
+    macroText.includes("culture") ||
+    microText.includes("historic") ||
+    microText.includes("museum") ||
+    microText.includes("exhibition") ||
+    placeTypeText.includes("historic") ||
+    placeTypeText.includes("museum") ||
+    placeTypeText.includes("gallery") ||
+    categoryText.includes("관광")
   ) {
+    if (features.traditional >= 0.7) {
+      return "culture_art";
+    }
+    if (features.local >= 0.5) {
+      return "walk_local";
+    }
     return "culture_art";
   }
 
+  // 3. Nature / park / walk
   if (
-    text.includes("shopping") ||
-    text.includes("market") ||
-    text.includes("mall")
+    macroText.includes("nature") ||
+    microText.includes("walk") ||
+    microText.includes("park") ||
+    microText.includes("hiking") ||
+    placeTypeText.includes("park") ||
+    categoryText.includes("자연")
+  ) {
+    if (preferredTime === "sunset" || preferredTime === "night") {
+      return "night_view";
+    }
+    return "nature_scenery";
+  }
+
+  // 4. Street / local exploration
+  if (
+    microText.includes("street") ||
+    microText.includes("street_explore") ||
+    placeTypeText.includes("street") ||
+    categoryText.includes("산책")
+  ) {
+    if (features.local >= 0.5) {
+      return "walk_local";
+    }
+    if (preferredTime === "sunset" || preferredTime === "night") {
+      return "night_view";
+    }
+    return "walk_local";
+  }
+
+  // 5. Shopping
+  if (
+    macroText.includes("shopping") ||
+    microText.includes("shopping") ||
+    microText.includes("market") ||
+    placeTypeText.includes("mall") ||
+    placeTypeText.includes("market") ||
+    categoryText.includes("쇼핑")
   ) {
     return "shopping_street";
   }
 
-  if (preferredTime === "sunset" || preferredTime === "night") {
+  // 6. Night / viewpoint / romantic skyline
+  if (
+    microText.includes("viewpoint") ||
+    placeTypeText.includes("view") ||
+    preferredTime === "sunset" ||
+    preferredTime === "night"
+  ) {
     return "night_view";
   }
 
+  // 7. Soft atmosphere fallback
   if (features.quiet >= 0.7) {
     return "cafe_relax";
   }
 
+  if (features.local >= 0.6) {
+    return "walk_local";
+  }
+
+  if (features.traditional >= 0.7 || features.culture >= 0.7) {
+    return "culture_art";
+  }
+
+  if (features.nature >= 0.7) {
+    return "nature_scenery";
+  }
+
+  if (features.shopping >= 0.7) {
+    return "shopping_street";
+  }
+
+  if (features.romantic >= 0.75 && features.touristy >= 0.5) {
+    return "night_view";
+  }
+
   return "mixed";
 }
-
 function inferFunctionalRoleHints(
   isMeal: boolean,
   preferredTime: TimeBucket,
@@ -263,11 +341,13 @@ export function normalizeExperienceRow(row: RawExperienceRow): ExperienceMetadat
 
 
     const themeCluster = inferThemeCluster(
-    row["category"] ?? "",
-    row["place_type"] ?? "",
-    preferredTime,
-    features,
-  );
+  row["category"] ?? "",
+  row["place_type"] ?? "",
+  row["macro_action"] ?? "",
+  row["micro_action"] ?? "",
+  preferredTime,
+  features,
+);
 
   const functionalRoleHints = inferFunctionalRoleHints(
     isMeal,
