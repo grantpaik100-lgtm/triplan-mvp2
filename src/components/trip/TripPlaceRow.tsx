@@ -1,6 +1,6 @@
 "use client";
 
-import type { SlottedPlace } from "@/lib/trip/viewModel";
+import type { PlaceRowViewModel } from "@/lib/trip/viewModel";
 import {
   COLORS,
   DENSITY,
