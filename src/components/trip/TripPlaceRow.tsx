@@ -17,22 +17,13 @@ type Props = {
   entry: PlaceRowViewModel;
 };
 
-function getSlotLabel(slot: SlottedPlace["slot"]) {
-  if (slot === "morning") return "morning";
-  if (slot === "midday") return "midday";
-  if (slot === "afternoon") return "afternoon";
-  return "evening";
-}
-
-function getDurationLabel(value: number | null) {
-  if (!value) return "예상시간 미정";
+function getDurationLabel(value: number) {
+  if (!value || value <= 0) return "예상시간 미정";
   return `${value}분`;
 }
 
 export default function TripPlaceRow({ entry }: Props) {
   const density = DENSITY.base;
-  const { item, slot } = entry;
-  const place = item.place;
 
   return (
     <div
@@ -69,7 +60,7 @@ export default function TripPlaceRow({ entry }: Props) {
               marginBottom: SPACE[10],
             }}
           >
-            {getSlotLabel(slot)}
+            {entry.slotLabel}
           </div>
 
           <div
@@ -82,7 +73,7 @@ export default function TripPlaceRow({ entry }: Props) {
               wordBreak: "keep-all",
             }}
           >
-            {place.name}
+            {entry.placeName}
           </div>
 
           <div
@@ -94,19 +85,8 @@ export default function TripPlaceRow({ entry }: Props) {
               marginBottom: SPACE[8],
             }}
           >
-            {(place.category ?? "카테고리 없음")} · {(place.region ?? "지역 없음")} ·{" "}
-            {getDurationLabel(place.avg_duration_min)}
-          </div>
-
-          <div
-            style={{
-              fontSize: TYPE.caption.size,
-              lineHeight: TYPE.caption.lineHeight,
-              fontWeight: TYPE.caption.weight,
-              color: COLORS.muted,
-            }}
-          >
-            추천 점수 {item.score.toFixed(2)}
+            {getDurationLabel(entry.durationMinutes)} · priority {entry.priority}
+            {entry.tier ? ` · tier ${entry.tier}` : ""}
           </div>
         </div>
 
