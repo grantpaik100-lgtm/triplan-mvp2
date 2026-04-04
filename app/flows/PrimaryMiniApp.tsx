@@ -2,7 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { primaryQuestions } from "../primary/primaryQuestions";
-import { calculateType } from "../primary/primaryScoring";
+import {
+  buildPrimaryResultPayload,
+  calculateType,
+} from "../primary/primaryScoring";
 import PrimaryResultView from "../primary/PrimaryResultView";
 
 import { MOTION, GLASS, SHADOW, FOCUS_RING } from "@/lib/MOTION_TOKENS";
@@ -11,17 +14,18 @@ type Props = {
   setMode: (mode: "primary" | "trip" | "assist") => void;
 };
 
+type PrimaryType = "rest" | "schedule" | "mood" | "strategy";
+
 export default function PrimaryMiniApp({ setMode }: Props) {
   const [step, setStep] = useState<"intro" | "questions" | "calculating" | "result">("intro");
   const [answers, setAnswers] = useState<Record<string, number>>({});
-  const [computedType, setComputedType] = useState<"rest" | "schedule" | "mood" | "strategy" | null>(null);
+  const [computedType, setComputedType] = useState<PrimaryType | null>(null);
   const [gender, setGender] = useState<"m" | "f">("m");
   const [nickname, setNickname] = useState<string>("");
 
   const currentIndex = Object.keys(answers).length;
   const currentQuestion = primaryQuestions[currentIndex];
 
-  // ✅ 토큰 기반 enter 애니메이션 (step/문항 변경마다 트리거)
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     setMounted(false);
@@ -46,6 +50,24 @@ export default function PrimaryMiniApp({ setMode }: Props) {
     };
   }, [mounted]);
 
+  const persistPrimaryResult = (
+    nextAnswers: Record<string, number>,
+    nextType: PrimaryType
+  ) => {
+    const payload = buildPrimaryResultPayload(nextAnswers);
+
+    const stored = {
+      ...payload,
+      type: nextType,
+      gender,
+      nickname,
+      completedAt: new Date().toISOString(),
+    };
+
+    sessionStorage.setItem("triplan_primary_result", JSON.stringify(stored));
+    sessionStorage.setItem("primaryResult", JSON.stringify(stored));
+  };
+
   const handleAnswer = (value: number) => {
     if (!currentQuestion) return;
 
@@ -56,6 +78,9 @@ export default function PrimaryMiniApp({ setMode }: Props) {
     if (!isLast) return;
 
     const t = calculateType(nextAnswers);
+
+    persistPrimaryResult(nextAnswers, t);
+
     setComputedType(t);
     setStep("calculating");
 
