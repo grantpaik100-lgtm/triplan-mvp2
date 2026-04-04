@@ -286,7 +286,9 @@ export default function PrimaryMiniApp({ setMode }: Props) {
       type={type}
       gender={gender}
       nickname={nickname}
-      onStartTrip={() => setMode("trip")}
+      onStartTrip={() => {
+  window.location.href = "/secondary";
+}}
     />
   );
 }
