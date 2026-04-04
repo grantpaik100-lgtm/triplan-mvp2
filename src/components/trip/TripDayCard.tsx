@@ -1,6 +1,6 @@
 "use client";
 
-import type { DayPlan } from "@/lib/trip/viewModel";
+import type { DayCardViewModel } from "@/lib/trip/viewModel";
 import {
   COLORS,
   DENSITY,
