@@ -3,16 +3,27 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-function isNormalizedPlanningInput(value: any) {
-  return (
-    value &&
-    typeof value === "object" &&
-    typeof value.days === "number" &&
-    typeof value.dailyDensity === "number" &&
-    typeof value.dailyStartSlot === "number" &&
-    typeof value.dailyEndSlot === "number" &&
-    typeof value.diversityMode === "string"
-  );
+function buildSecondaryAnswersFromStoredInput(stored: any) {
+  const rawAnswers = stored?.raw?.surveyRawAnswers ?? {};
+
+  return {
+    ...rawAnswers,
+
+    // normalizeInput.ts가 직접 읽는 핵심 키 보정
+    tripDays: rawAnswers.tripDays,
+    companionType:
+      rawAnswers.companionType ??
+      stored?.context?.companionDynamic ??
+      rawAnswers.companion,
+
+    firstDayStart: rawAnswers.firstDayStart,
+    lastDayEnd: rawAnswers.lastDayEnd,
+
+    // pace는 softPreferences에 들어가 있으므로 루트로 끌어올림
+    pace: rawAnswers.pace ?? stored?.softPreferences?.pace,
+
+    diversityMode: rawAnswers.diversityMode ?? rawAnswers.diversity_mode,
+  };
 }
 
 export default function TripGeneratePage() {
@@ -38,22 +49,17 @@ export default function TripGeneratePage() {
           ? JSON.parse(primaryResultRaw)
           : undefined;
 
-        const requestBody = isNormalizedPlanningInput(storedPlanning)
-          ? {
-              primaryResult,
-              planningInput: storedPlanning,
-            }
-          : {
-              primaryResult,
-              secondaryAnswers: storedPlanning,
-            };
+        const secondaryAnswers = buildSecondaryAnswersFromStoredInput(storedPlanning);
 
         const response = await fetch("/api/generate-trip", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(requestBody),
+          body: JSON.stringify({
+            primaryResult,
+            secondaryAnswers,
+          }),
         });
 
         const data = await response.json();
