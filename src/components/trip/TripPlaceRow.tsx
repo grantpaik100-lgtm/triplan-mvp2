@@ -1,6 +1,6 @@
 "use client";
 
-import type { SlottedPlace } from "@/engine/types";
+import type { SlottedPlace } from "@/lib/trip/viewModel";
 import {
   COLORS,
   DENSITY,
@@ -14,7 +14,7 @@ import {
 } from "@/lib/MOTION_TOKENS";
 
 type Props = {
-  entry: SlottedPlace;
+  entry: PlaceRowViewModel;
 };
 
 function getSlotLabel(slot: SlottedPlace["slot"]) {
