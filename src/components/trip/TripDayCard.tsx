@@ -1,6 +1,6 @@
 "use client";
 
-import type { DayPlan } from "@/engine/types";
+import type { DayPlan } from "@/lib/trip/viewModel";
 import {
   COLORS,
   DENSITY,
@@ -13,7 +13,7 @@ import {
 import TripPlaceRow from "./TripPlaceRow";
 
 type Props = {
-  dayPlan: DayPlan;
+  dayPlan: DayCardViewModel;
 };
 
 function getThemeLabel(theme: DayPlan["theme"]) {
