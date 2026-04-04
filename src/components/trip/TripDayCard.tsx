@@ -16,26 +16,8 @@ type Props = {
   dayPlan: DayCardViewModel;
 };
 
-function getThemeLabel(theme: DayPlan["theme"]) {
-  if (theme === "food") return "food";
-  if (theme === "culture") return "culture";
-  if (theme === "nature") return "nature";
-  if (theme === "shopping") return "shopping";
-  if (theme === "activity") return "activity";
-  if (theme === "atmosphere") return "atmosphere";
-  return "tourism";
-}
-
 export default function TripDayCard({ dayPlan }: Props) {
   const density = DENSITY.base;
-
-  const regionText =
-    dayPlan.regions.length > 0 ? dayPlan.regions.join(" · ") : "지역 미정";
-
-  const categoryText =
-    dayPlan.categories.length > 0
-      ? dayPlan.categories.join(" · ")
-      : "카테고리 정보 없음";
 
   return (
     <section
@@ -73,7 +55,7 @@ export default function TripDayCard({ dayPlan }: Props) {
             color: COLORS.text,
           }}
         >
-          {regionText}
+          {dayPlan.areaText}
         </h2>
 
         <p
@@ -86,8 +68,7 @@ export default function TripDayCard({ dayPlan }: Props) {
             color: COLORS.muted,
           }}
         >
-          theme {getThemeLabel(dayPlan.theme)} · 총 예상 시간{" "}
-          {dayPlan.total_estimated_duration_min}분
+          총 예상 시간 {dayPlan.estimatedMinutes}분
         </p>
       </div>
 
@@ -95,8 +76,7 @@ export default function TripDayCard({ dayPlan }: Props) {
         className="tp2-wrapChips"
         style={{ marginTop: 0, marginBottom: SPACE[14] }}
       >
-        <span className="tp2-chip">region {regionText}</span>
-        <span className="tp2-chip">category {categoryText}</span>
+        <span className="tp2-chip">region {dayPlan.areaText}</span>
       </div>
 
       <div
@@ -106,9 +86,9 @@ export default function TripDayCard({ dayPlan }: Props) {
           gap: density.rowGap,
         }}
       >
-        {dayPlan.slottedPlaces.map((entry) => (
+        {dayPlan.items.map((entry, index) => (
           <TripPlaceRow
-            key={`${dayPlan.day}-${entry.slot}-${entry.item.place.id}`}
+            key={`${dayPlan.day}-${index}-${entry.placeName}`}
             entry={entry}
           />
         ))}
