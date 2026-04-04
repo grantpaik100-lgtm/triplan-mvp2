@@ -1,6 +1,6 @@
 "use client";
 
-import type { TripPlanResult } from "@/lib/trip/viewModel";
+import type { TripSummaryViewModel } from "@/lib/trip/viewModel";
 import {
   COLORS,
   DENSITY,
