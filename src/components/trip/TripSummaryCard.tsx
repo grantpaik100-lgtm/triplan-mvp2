@@ -1,6 +1,6 @@
 "use client";
 
-import type { TripPlanResult } from "@/engine/types";
+import type { TripPlanResult } from "@/lib/trip/viewModel";
 import {
   COLORS,
   DENSITY,
@@ -12,7 +12,7 @@ import {
 } from "@/lib/MOTION_TOKENS";
 
 type Props = {
-  result: TripPlanResult;
+  result: TripSummaryViewModel;
 };
 
 function getPrimaryTypeLabel(result: TripPlanResult) {
