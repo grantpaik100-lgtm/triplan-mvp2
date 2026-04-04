@@ -15,49 +15,24 @@ export default function TripResultPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let mounted = true;
+    try {
+      const raw =
+        sessionStorage.getItem("tripResult") ??
+        sessionStorage.getItem("triplan_trip_result");
 
-    async function run() {
-      try {
-        const primaryRaw = sessionStorage.getItem("primaryResult");
-        const secondaryRaw = sessionStorage.getItem("secondaryAnswers");
-
-        const primaryResult = primaryRaw ? JSON.parse(primaryRaw) : {};
-        const secondaryAnswers = secondaryRaw ? JSON.parse(secondaryRaw) : {};
-
-        const res = await fetch("/api/generate-trip", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            primaryResult,
-            secondaryAnswers,
-          }),
-        });
-
-        if (!res.ok) {
-          throw new Error("trip generation failed");
-        }
-
-        const data = await res.json();
-
-        if (!mounted) return;
-        setTripResult(data.result as TripPlanResult);
-      } catch (err) {
-        if (!mounted) return;
-        setError(err instanceof Error ? err.message : "unknown error");
-      } finally {
-        if (!mounted) return;
+      if (!raw) {
+        setError("저장된 여행 결과가 없습니다.");
         setLoading(false);
+        return;
       }
+
+      const parsed = JSON.parse(raw) as TripPlanResult;
+      setTripResult(parsed);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "unknown error");
+    } finally {
+      setLoading(false);
     }
-
-    run();
-
-    return () => {
-      mounted = false;
-    };
   }, []);
 
   const summary = useMemo(() => {
@@ -66,7 +41,7 @@ export default function TripResultPage() {
   }, [tripResult]);
 
   if (loading) {
-    return <div style={{ padding: 24 }}>일정을 생성하는 중...</div>;
+    return <div style={{ padding: 24 }}>결과를 불러오는 중...</div>;
   }
 
   if (error) {
