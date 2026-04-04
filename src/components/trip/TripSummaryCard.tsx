@@ -12,38 +12,11 @@ import {
 } from "@/lib/MOTION_TOKENS";
 
 type Props = {
-  result: TripSummaryViewModel;
+  summary: TripSummaryViewModel;
 };
 
-function getPrimaryTypeLabel(result: TripPlanResult) {
-  const p = result.userModel.primary;
-  const items = [
-    { label: "휴식", value: p.rest },
-    { label: "효율", value: p.schedule },
-    { label: "분위기", value: p.mood },
-    { label: "탐험", value: p.strategy },
-  ].sort((a, b) => b.value - a.value);
-
-  return items[0]?.label ?? "균형";
-}
-
-function getCompanionLabel(companion: string | null) {
-  if (companion === "friend") return "친구와 함께";
-  if (companion === "family") return "가족과 함께";
-  if (companion === "couple") return "연인과 함께";
-  if (companion === "solo") return "혼자 여행";
-  return "동행 정보 없음";
-}
-
-function getBudgetLabel(budgetLevel: number) {
-  if (budgetLevel <= 2) return "예산 절약형";
-  if (budgetLevel === 3) return "중간 예산";
-  return "여유 예산";
-}
-
-export default function TripSummaryCard({ result }: Props) {
+export default function TripSummaryCard({ summary }: Props) {
   const density = DENSITY.base;
-  const { userModel, meta } = result;
 
   return (
     <section
@@ -82,7 +55,7 @@ export default function TripSummaryCard({ result }: Props) {
             color: COLORS.text,
           }}
         >
-          {userModel.city} · {userModel.days}일 일정
+          {summary.days}일 일정
         </h1>
 
         <p
@@ -95,8 +68,7 @@ export default function TripSummaryCard({ result }: Props) {
             color: COLORS.muted,
           }}
         >
-          {getCompanionLabel(userModel.companion)} · 하루 {meta.places_per_day}곳 ·{" "}
-          {getPrimaryTypeLabel(result)} 중심
+          총 {summary.totalDays}일 스케줄 · overflow {summary.overflowDays}일
         </p>
       </div>
 
@@ -104,10 +76,7 @@ export default function TripSummaryCard({ result }: Props) {
         className="tp2-wrapChips"
         style={{ marginTop: 0, marginBottom: SPACE[16] }}
       >
-        <span className="tp2-chip">{getBudgetLabel(userModel.constraints.budgetLevel)}</span>
-        <span className="tp2-chip">pace {userModel.constraints.pace}</span>
-        <span className="tp2-chip">density {userModel.constraints.dailyDensity}</span>
-        <span className="tp2-chip">candidate {meta.candidate_count}</span>
+        <span className="tp2-chip">repair {summary.totalRepairCount}</span>
       </div>
 
       <div
@@ -137,8 +106,7 @@ export default function TripSummaryCard({ result }: Props) {
             color: COLORS.text,
           }}
         >
-          설문1의 기본 여행 성향과 설문2의 실제 제약을 함께 반영해, 하루 장소 수와
-          이동 부담을 고려한 일정 초안을 만들었다.
+          {summary.explanation}
         </div>
       </div>
     </section>
