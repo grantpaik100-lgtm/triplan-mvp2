@@ -3,6 +3,18 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
+function isNormalizedPlanningInput(value: any) {
+  return (
+    value &&
+    typeof value === "object" &&
+    typeof value.days === "number" &&
+    typeof value.dailyDensity === "number" &&
+    typeof value.dailyStartSlot === "number" &&
+    typeof value.dailyEndSlot === "number" &&
+    typeof value.diversityMode === "string"
+  );
+}
+
 export default function TripGeneratePage() {
   const router = useRouter();
   const startedRef = useRef(false);
@@ -21,20 +33,27 @@ export default function TripGeneratePage() {
           throw new Error("Missing triplan_planning_input in sessionStorage");
         }
 
-        const planningInput = JSON.parse(planningInputRaw);
+        const storedPlanning = JSON.parse(planningInputRaw);
         const primaryResult = primaryResultRaw
           ? JSON.parse(primaryResultRaw)
           : undefined;
+
+        const requestBody = isNormalizedPlanningInput(storedPlanning)
+          ? {
+              primaryResult,
+              planningInput: storedPlanning,
+            }
+          : {
+              primaryResult,
+              secondaryAnswers: storedPlanning,
+            };
 
         const response = await fetch("/api/generate-trip", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            primaryResult,
-            planningInput,
-          }),
+          body: JSON.stringify(requestBody),
         });
 
         const data = await response.json();
