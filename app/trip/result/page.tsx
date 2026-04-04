@@ -1,45 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-
-type ScheduledItem = {
-  experienceId: string;
-  placeName: string;
-  startSlot: number;
-  endSlot: number;
-  durationMinutes: number;
-  priority: "anchor" | "core" | "optional";
-};
-
-type DaySchedule = {
-  day: number;
-  items: ScheduledItem[];
-  report: {
-    isFeasible: boolean;
-    issues: string[];
-    totalFatigue: number;
-    totalMinutes: number;
-    activeMinutes: number;
-    gapMinutes: number;
-  };
-};
-
-type TripResult = {
-  dayPlans: any[];
-  schedules: DaySchedule[];
-};
-
-function slotToTimeString(slot: number): string {
-  const totalMinutes = slot * 30;
-  const hour = Math.floor(totalMinutes / 60);
-  const minute = totalMinutes % 60;
-
-  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-}
+import TripSummaryCard from "@/components/trip/TripSummaryCard";
+import TripDayCard from "@/components/trip/TripDayCard";
+import type { TripPlanResult } from "@/lib/trip/types";
+import {
+  toSummaryViewModel,
+  toDayCardViewModel,
+} from "@/lib/trip/viewModel";
 
 export default function TripResultPage() {
   const [loading, setLoading] = useState(true);
-  const [tripResult, setTripResult] = useState<TripResult | null>(null);
+  const [tripResult, setTripResult] = useState<TripPlanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -71,7 +43,7 @@ export default function TripResultPage() {
         const data = await res.json();
 
         if (!mounted) return;
-        setTripResult(data.result);
+        setTripResult(data.result as TripPlanResult);
       } catch (err) {
         if (!mounted) return;
         setError(err instanceof Error ? err.message : "unknown error");
@@ -88,7 +60,10 @@ export default function TripResultPage() {
     };
   }, []);
 
-  const schedules = useMemo(() => tripResult?.schedules ?? [], [tripResult]);
+  const summary = useMemo(() => {
+    if (!tripResult) return null;
+    return toSummaryViewModel(tripResult);
+  }, [tripResult]);
 
   if (loading) {
     return <div style={{ padding: 24 }}>일정을 생성하는 중...</div>;
@@ -104,61 +79,22 @@ export default function TripResultPage() {
 
   return (
     <main style={{ padding: 24 }}>
-      <h1 style={{ fontSize: 28, marginBottom: 24 }}>TriPlan 결과</h1>
+      {summary && <TripSummaryCard summary={summary} />}
 
-      {schedules.map((day) => (
-        <section
-          key={day.day}
-          style={{
-            marginBottom: 32,
-            border: "1px solid #ddd",
-            borderRadius: 12,
-            padding: 16,
-          }}
-        >
-          <h2 style={{ fontSize: 22, marginBottom: 12 }}>Day {day.day}</h2>
+      <div style={{ height: 24 }} />
 
-          <div style={{ marginBottom: 12, fontSize: 14, opacity: 0.8 }}>
-  일정 범위: {day.report.totalMinutes}분 / 실제 활동: {day.report.activeMinutes}분 / 공백: {day.report.gapMinutes}분
-  {" / "}
-  피로도: {day.report.totalFatigue}
-  {" / "}
-  가능 여부: {day.report.isFeasible ? "가능" : "조정 필요"}
-</div>
+      {tripResult.dayPlans.map((dayPlan, index) => {
+        const schedule = tripResult.schedules[index];
+        if (!schedule) return null;
 
-          {day.report.issues.length > 0 && (
-            <div style={{ marginBottom: 12, color: "crimson", fontSize: 14 }}>
-              이슈: {day.report.issues.join(", ")}
-            </div>
-          )}
+        const dayCard = toDayCardViewModel(dayPlan, schedule);
 
-          <ul style={{ paddingLeft: 20 }}>
-  {day.items.map((item, index) => {
-    const prev = index > 0 ? day.items[index - 1] : null;
-    const gapMinutes = prev ? (item.startSlot - prev.endSlot) * 30 : 0;
-
-    return (
-      <div key={item.experienceId}>
-        {gapMinutes > 0 && (
-          <li style={{ marginBottom: 8, color: "#666" }}>
-            자유시간 / 이동 / 여유시간 ({gapMinutes}분)
-          </li>
-        )}
-
-        <li style={{ marginBottom: 10 }}>
-          <strong>{item.placeName}</strong>{" "}
-          ({slotToTimeString(item.startSlot)} ~ {slotToTimeString(item.endSlot)})
-          {" · "}
-          {item.durationMinutes}분
-          {" · "}
-          {item.priority}
-        </li>
-      </div>
-    );
-  })}
-</ul>
-        </section>
-      ))}
+        return (
+          <div key={dayPlan.day} style={{ marginBottom: 24 }}>
+            <TripDayCard dayPlan={dayCard} />
+          </div>
+        );
+      })}
     </main>
   );
 }
