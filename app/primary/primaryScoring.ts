@@ -7,67 +7,142 @@ export type Scores = {
 
 export type PrimaryType = "rest" | "schedule" | "mood" | "strategy";
 
-export function calculateType(answers: Record<string, number>): PrimaryType {
-  // v1 score buckets
-  const score = {
-    Relaxation: 0,
-    Activity: 0,
-    RecoveryNeed: 0,
-    Novelty: 0,
-    Culture: 0,
-    Food: 0,
-    Mood: 0,
-    MovePain: 0,
-    QueuePain: 0,
-    WaitAvoid: 0,
-    Structure: 0,
-    SpontaneityStress: 0,
-    BudgetImportant: 0,
-    PremiumOk: 0,
+export type PrimaryUserVector = {
+  food: number;
+  culture: number;
+  nature: number;
+  shopping: number;
+  entertainment: number;
+
+  quiet: number;
+  romantic: number;
+  local: number;
+  touristy: number;
+  luxury: number;
+  hipster: number;
+  traditional: number;
+
+  walkIntensity: number;
+  crowdLevel: number;
+  activityIntensity: number;
+  cost: number;
+};
+
+export type PrimaryResultPayload = {
+  answers: Record<string, number>;
+  type: PrimaryType;
+  scores: Scores;
+  userVector: PrimaryUserVector;
+};
+
+function clamp01(x: number) {
+  return Math.max(0, Math.min(1, x));
+}
+
+function normalize7(value: number) {
+  return clamp01((value - 1) / 6);
+}
+
+export function calculateScores(answers: Record<string, number>): Scores {
+  const v = (id: string) => Number(answers[id] ?? 4);
+
+  const relaxation = normalize7((v("q1") + v("q3")) / 2);
+  const novelty = normalize7((v("q4") + v("q5")) / 2);
+  const food = normalize7(v("q6"));
+  const mood = normalize7(v("q7"));
+  const movePain = normalize7(v("q8"));
+  const queuePain = normalize7(v("q9"));
+  const waitPain = normalize7(v("q10"));
+  const structure = normalize7((v("q11") + v("q12")) / 2);
+  const budgetImportant = normalize7(v("q13"));
+  const premiumOk = normalize7(v("q14"));
+
+  const efficiency = clamp01(
+    1 - (movePain * 0.4 + queuePain * 0.35 + waitPain * 0.25)
+  );
+
+  const exploration = novelty;
+
+  return {
+    rest: clamp01(relaxation * 0.55 + mood * 0.25 + (1 - movePain) * 0.2),
+    schedule: clamp01(efficiency * 0.55 + structure * 0.35 + (1 - novelty) * 0.1),
+    mood: clamp01(mood * 0.55 + food * 0.15 + relaxation * 0.15 + (1 - structure) * 0.15),
+    strategy: clamp01(exploration * 0.45 + efficiency * 0.2 + structure * 0.15 + premiumOk * 0.2),
   };
+}
 
-  const v = (id: string) => Number(answers[id] ?? 4); // 기본값 4(중립)
+export function calculateType(answers: Record<string, number>): PrimaryType {
+  const scores = calculateScores(answers);
 
-  // 설문완성본v1.html의 questions.apply 그대로 반영
-  score.Relaxation += v("q1");
-  score.Activity += v("q2");
-  score.RecoveryNeed += v("q3"); score.Relaxation += v("q3") * 0.6;
+  const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
+  return sorted[0][0] as PrimaryType;
+}
 
-  score.Novelty += v("q4");
-  score.Culture += v("q5"); score.Novelty += v("q5") * 0.4;
+export function buildPrimaryUserVector(
+  answers: Record<string, number>,
+  type?: PrimaryType
+): PrimaryUserVector {
+  const resolvedType = type ?? calculateType(answers);
 
-  score.Food += v("q6");
-  score.Mood += v("q7");
+  const v = (id: string) => Number(answers[id] ?? 4);
 
-  score.MovePain += v("q8");
-  score.QueuePain += v("q9");
-  score.WaitAvoid += v("q10");
+  const relaxation = normalize7((v("q1") + v("q3")) / 2);
+  const novelty = normalize7((v("q4") + v("q5")) / 2);
+  const food = normalize7(v("q6"));
+  const mood = normalize7(v("q7"));
+  const movePain = normalize7(v("q8"));
+  const queuePain = normalize7(v("q9"));
+  const waitPain = normalize7(v("q10"));
+  const structure = normalize7((v("q11") + v("q12")) / 2);
+  const budgetImportant = normalize7(v("q13"));
+  const premiumOk = normalize7(v("q14"));
 
-  score.Structure += v("q11");
-  score.SpontaneityStress += v("q12"); score.Structure += v("q12") * 0.6;
+  const efficiency = clamp01(
+    1 - (movePain * 0.4 + queuePain * 0.35 + waitPain * 0.25)
+  );
 
-  score.BudgetImportant += v("q13");
-  score.PremiumOk += v("q14");
+  const typeBoost =
+    resolvedType === "rest"
+      ? { quiet: 0.15, nature: 0.12, activityIntensity: -0.08 }
+      : resolvedType === "schedule"
+      ? { local: 0.05, touristy: 0.08, activityIntensity: 0.05 }
+      : resolvedType === "mood"
+      ? { romantic: 0.15, hipster: 0.12, touristy: -0.04 }
+      : { local: 0.12, culture: 0.08, walkIntensity: 0.08 };
 
-  const norm = (x: number, max: number) => Math.max(0, Math.min(1, x / max));
+  return {
+    food: clamp01(food * 0.7 + mood * 0.1),
+    culture: clamp01(novelty * 0.45 + structure * 0.1 + (typeBoost.culture ?? 0)),
+    nature: clamp01(relaxation * 0.55 + (typeBoost.nature ?? 0)),
+    shopping: clamp01((1 - budgetImportant) * 0.15 + premiumOk * 0.2),
+    entertainment: clamp01(mood * 0.35 + novelty * 0.25),
 
-  const moveTol = 1 - norm(score.MovePain, 7 * 1);
-  const queueTol = 1 - norm(score.QueuePain, 7 * 1);
-  const waitTol = 1 - norm(score.WaitAvoid, 7 * 1);
+    quiet: clamp01(relaxation * 0.55 + (typeBoost.quiet ?? 0)),
+    romantic: clamp01(mood * 0.5 + (typeBoost.romantic ?? 0)),
+    local: clamp01(novelty * 0.35 + (typeBoost.local ?? 0)),
+    touristy: clamp01((1 - novelty) * 0.15 + (typeBoost.touristy ?? 0)),
+    luxury: clamp01(premiumOk * 0.55),
+    hipster: clamp01(mood * 0.25 + novelty * 0.25 + (typeBoost.hipster ?? 0)),
+    traditional: clamp01(structure * 0.25 + novelty * 0.2),
 
-  const efficiency =
-    1 - ((1 - moveTol) * 0.4 + (1 - queueTol) * 0.35 + (1 - waitTol) * 0.25);
+    walkIntensity: clamp01((1 - movePain) * 0.45 + novelty * 0.2 + (typeBoost.walkIntensity ?? 0)),
+    crowdLevel: clamp01((1 - queuePain) * 0.35 + (1 - waitPain) * 0.2),
+    activityIntensity: clamp01((1 - relaxation) * 0.2 + novelty * 0.25 + (typeBoost.activityIntensity ?? 0)),
+    cost: clamp01((1 - budgetImportant) * 0.45 + premiumOk * 0.35),
+  };
+}
 
-  const mood = norm(score.Mood, 7 * 1);
-  const structure = norm(score.Structure, 7 * 1 + 7 * 0.6);
-  const exploration = norm(score.Novelty, 7 * 1 + 7 * 0.4);
+export function buildPrimaryResultPayload(
+  answers: Record<string, number>
+): PrimaryResultPayload {
+  const type = calculateType(answers);
+  const scores = calculateScores(answers);
+  const userVector = buildPrimaryUserVector(answers, type);
 
-  // v1 decideType: (efficiency vs mood) x (structure vs exploration)
-  const effSide = efficiency >= mood;
-  const structSide = structure >= exploration;
-
-  if (effSide && structSide) return "schedule";  // 스케줄 메이커
-  if (effSide && !structSide) return "strategy"; // 전략 탐험가
-  if (!effSide && !structSide) return "mood";    // 무드 컬렉터
-  return "rest";                                 // 휴식 설계자
+  return {
+    answers,
+    type,
+    scores,
+    userVector,
+  };
 }
