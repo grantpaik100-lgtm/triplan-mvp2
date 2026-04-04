@@ -23,7 +23,6 @@ type Props = {
 };
 
 export default function PrimaryResultView({ type, gender, nickname, onStartTrip }: Props) {
-  const router = useRouter();
   const meta = typeMeta[type] as Meta;
   const imageSrc = `/images/type_${type}_${gender}.PNG`;
 
@@ -157,7 +156,7 @@ export default function PrimaryResultView({ type, gender, nickname, onStartTrip 
         <button
   type="button"
   className="tp-cta2"
-  onClick={() => router.push("/secondary")}
+  onClick={onStartTrip}
 >
   나만의 여행 설계하기
 </button>
