@@ -1,3 +1,38 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - 하루 단위 계획을 렌더링하는 result day-level UI 컴포넌트다.
+ *
+ * Target Role:
+ * - day plan rendering의 공식 component로 유지되어야 한다.
+ *
+ * Chain:
+ * - result
+ *
+ * Inputs:
+ * - single day plan view model
+ *
+ * Outputs:
+ * - day card rendering
+ *
+ * Called From:
+ * - app/trip/result/page.tsx
+ *
+ * Side Effects:
+ * - 없음
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - scheduling 결과가 실제로 어떻게 보이는지를 보여주는 UI 경계다.
+ */
 "use client";
 
 import type { DayCardViewModel } from "@/lib/trip/viewModel";
