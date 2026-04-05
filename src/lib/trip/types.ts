@@ -1,3 +1,41 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - trip engine 전반의 핵심 타입 계약(PlanningInput, ExperienceMetadata, output types 등)을 정의하는 중심 타입 파일이다.
+ *
+ * Target Role:
+ * - engine canonical contract file로 유지되어야 한다.
+ *
+ * Chain:
+ * - engine
+ *
+ * Inputs:
+ * - 없음
+ *
+ * Outputs:
+ * - shared engine types
+ *
+ * Called From:
+ * - src/lib/trip/* 전반
+ * - app/api/generate-trip/route.ts
+ *
+ * Side Effects:
+ * - 없음
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - engine 전체 계약의 기준점이다.
+ * - 삭제 금지.
+ */
+
 export type Area =
   | "hongdae"
   | "seongsu"
