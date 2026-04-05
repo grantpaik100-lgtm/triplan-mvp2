@@ -1,3 +1,38 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - 전체 일정 요약, 핵심 컨셉, 메타 정보를 보여주는 result summary UI 컴포넌트다.
+ *
+ * Target Role:
+ * - trip result summary rendering의 공식 presentational component로 유지되어야 한다.
+ *
+ * Chain:
+ * - result
+ *
+ * Inputs:
+ * - trip summary view model
+ *
+ * Outputs:
+ * - summary card rendering
+ *
+ * Called From:
+ * - app/trip/result/page.tsx
+ *
+ * Side Effects:
+ * - 없음
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - 핵심 엔진은 아니지만 result chain에서 공식 summary component다.
+ */
 "use client";
 
 import type { TripSummaryViewModel } from "@/lib/trip/viewModel";
