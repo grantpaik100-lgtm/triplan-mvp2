@@ -1,3 +1,43 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - Secondary survey의 질문 진행, raw answer 수집, draft 저장, summary 연결을 담당하는 실행 컴포넌트다.
+ *
+ * Target Role:
+ * - Context Layer / Planning constraint 수집의 공식 UI execution file로 유지되어야 한다.
+ *
+ * Chain:
+ * - secondary
+ *
+ * Inputs:
+ * - secondaryQuestions
+ * - secondarySchema initial values
+ *
+ * Outputs:
+ * - secondary raw answers
+ * - summary step 진입
+ * - followup seed 생성 전 단계 데이터
+ *
+ * Called From:
+ * - app/secondary/page.tsx
+ *
+ * Side Effects:
+ * - localStorage write
+ * - state persistence
+ * - route navigation or handoff
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - PlanningInput의 기반이 되는 context/constraint를 모으는 핵심 실행 파일이다.
+ */
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
