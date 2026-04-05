@@ -1,3 +1,42 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - Primary survey 질문 흐름, 응답 수집, scoring 호출, result 이동을 담당하는 primary UI 실행 파일이다.
+ *
+ * Target Role:
+ * - app/primary/PrimaryMiniApp.tsx로 이동되어 primary chain의 공식 실행 컴포넌트가 되어야 한다.
+ *
+ * Chain:
+ * - primary
+ *
+ * Inputs:
+ * - setMode (현재는 legacy shell 호환용 prop)
+ *
+ * Outputs:
+ * - primary result 계산
+ * - primary result 저장
+ * - 다음 단계(/secondary)로 이동
+ *
+ * Called From:
+ * - app/page.tsx
+ *
+ * Side Effects:
+ * - sessionStorage write
+ * - route navigation
+ *
+ * Current Status:
+ * - canonical, but path is temporary
+ *
+ * Decision:
+ * - move
+ *
+ * Move Target:
+ * - app/primary/PrimaryMiniApp.tsx
+ *
+ * Notes:
+ * - 현재는 canonical이지만 폴더 위치가 primary chain과 분리되어 있어 구조상 부자연스럽다.
+ * - 장기적으로 setMode prop도 제거하는 것이 맞다.
+ */
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
