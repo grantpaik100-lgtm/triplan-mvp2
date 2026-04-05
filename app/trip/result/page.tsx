@@ -1,3 +1,39 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - tripResult를 storage에서 읽고 viewModel을 거쳐 최종 결과 UI를 렌더링하는 결과 route file이다.
+ *
+ * Target Role:
+ * - generated trip result의 공식 route-level renderer로 유지되어야 한다.
+ *
+ * Chain:
+ * - result
+ *
+ * Inputs:
+ * - sessionStorage trip result
+ *
+ * Outputs:
+ * - result page rendering
+ *
+ * Called From:
+ * - /trip/result route
+ * - generate 완료 후 navigation
+ *
+ * Side Effects:
+ * - sessionStorage read
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - result rendering과 engine output contract가 만나는 경계 파일이다.
+ */
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
