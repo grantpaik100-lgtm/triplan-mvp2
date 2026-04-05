@@ -1,3 +1,39 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - 앱 전반의 motion / glass / shadow / spacing 등 디자인 토큰의 기준 파일이다.
+ *
+ * Target Role:
+ * - UI layer 공통 design token source로 유지되어야 한다.
+ *
+ * Chain:
+ * - reference
+ *
+ * Inputs:
+ * - 없음
+ *
+ * Outputs:
+ * - UI token constants
+ *
+ * Called From:
+ * - 여러 UI component
+ *
+ * Side Effects:
+ * - 없음
+ *
+ * Current Status:
+ * - canonical reference
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - 핵심 엔진은 아니지만 디자인 일관성 기준점이다.
+ */
+
 // src/lib/MOTION_TOKENS.ts
 // TriPlan design + motion tokens (single source of truth)
 
