@@ -1,3 +1,45 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - followup에서 생성된 planningInput과 primaryResult를 읽고 trip generation API를 호출하는 generate entry page다.
+ *
+ * Target Role:
+ * - planningInput 기반 trip generation 시작의 공식 route file로 유지되어야 한다.
+ *
+ * Chain:
+ * - generate
+ *
+ * Inputs:
+ * - sessionStorage.triplan_planning_input
+ * - sessionStorage.triplan_primary_result
+ *
+ * Outputs:
+ * - POST /api/generate-trip
+ * - sessionStorage trip result 저장
+ * - /trip/result 이동
+ *
+ * Called From:
+ * - /trip/generate route
+ * - followup 완료 후 navigation
+ *
+ * Side Effects:
+ * - sessionStorage read/write
+ * - fetch
+ * - route navigation
+ *
+ * Current Status:
+ * - canonical, but request payload canonicalization needed
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - 현재 stored planningInput을 secondaryAnswers로 역변환하는 우회가 섞여 있다.
+ * - 정리 후에는 planningInput direct handoff가 기준이 되어야 한다.
+ */
 "use client";
 
 import { useEffect, useRef, useState } from "react";
