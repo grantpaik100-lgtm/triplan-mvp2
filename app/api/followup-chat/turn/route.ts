@@ -1,3 +1,41 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - followup 대화의 각 턴을 처리하고 slot filling을 갱신하는 API endpoint다.
+ *
+ * Target Role:
+ * - followup-chat chain의 공식 turn endpoint로 유지되어야 한다.
+ *
+ * Chain:
+ * - followup
+ *
+ * Inputs:
+ * - current messages
+ * - current slots
+ * - user response
+ *
+ * Outputs:
+ * - updated assistant response
+ * - updated slot state
+ *
+ * Called From:
+ * - app/followup/FollowupMiniApp.tsx
+ *
+ * Side Effects:
+ * - external model call 가능
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - followup quality는 planningInput 품질과 직결된다.
+ */
 import OpenAI from "openai";
 import type {
   ChatMessage,
