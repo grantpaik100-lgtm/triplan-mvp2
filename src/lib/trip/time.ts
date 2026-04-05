@@ -1,3 +1,40 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - slot/time bucket 변환, 시간대 계산, duration 보조 로직을 담당하는 파일이다.
+ *
+ * Target Role:
+ * - planning/scheduling에서 사용하는 공식 시간 계산 helper로 유지되어야 한다.
+ *
+ * Chain:
+ * - engine
+ *
+ * Inputs:
+ * - slot / time bucket / duration values
+ *
+ * Outputs:
+ * - time conversion / helper results
+ *
+ * Called From:
+ * - src/lib/trip/planning.ts
+ * - src/lib/trip/scheduling.ts
+ *
+ * Side Effects:
+ * - 없음
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - scheduling 엔진 재설계 시 같이 검토해야 할 파일이다.
+ */
+
 import { TIME_BUCKET_SLOTS } from "./constants";
 import type { TimeBucket } from "./types";
 
