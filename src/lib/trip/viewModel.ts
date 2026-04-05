@@ -1,3 +1,38 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - raw trip result를 result page rendering용 view model로 변환하는 adapter file이다.
+ *
+ * Target Role:
+ * - engine output -> UI rendering model 변환의 공식 adapter layer로 유지되어야 한다.
+ *
+ * Chain:
+ * - result
+ *
+ * Inputs:
+ * - trip engine raw result
+ *
+ * Outputs:
+ * - summary/day/place rendering model
+ *
+ * Called From:
+ * - app/trip/result/page.tsx
+ *
+ * Side Effects:
+ * - 없음
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - engine schema와 UI schema를 직접 결합하지 않게 해주는 완충 계층이다.
+ */
 import type {
   TripPlanResult,
   DayPlan,
