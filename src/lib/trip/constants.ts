@@ -1,3 +1,39 @@
+
+/**
+ * TriPlan V3
+ * Current Role:
+ * - trip engine 전반에서 사용하는 공통 상수(time bucket, defaults, policy-like constants)를 정의하는 파일이다.
+ *
+ * Target Role:
+ * - engine 공통 상수의 공식 source file로 유지되어야 한다.
+ *
+ * Chain:
+ * - engine
+ *
+ * Inputs:
+ * - 없음
+ *
+ * Outputs:
+ * - shared constants
+ *
+ * Called From:
+ * - src/lib/trip/* 전반
+ *
+ * Side Effects:
+ * - 없음
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - 타입 파일(types.ts)과 함께 engine 기반 계약을 안정화한다.
+ */
 import type { Area, TimeBucket, UserVector } from "./types";
 
 export const TIME_BUCKET_SLOTS: Record<TimeBucket, number[]> = {
