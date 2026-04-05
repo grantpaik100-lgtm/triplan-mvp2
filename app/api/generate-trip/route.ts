@@ -272,7 +272,7 @@ const planningInput =
     console.log("[generate-trip] experienceCount", experienceMetadataList.length);
     console.log("[generate-trip] tripDays", planningInput.days);
     
-
+    const userVector = primaryResult?.userVector;
     const result = generateTripPlan(
       userVector,
       planningInput,
