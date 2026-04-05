@@ -1,3 +1,42 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - Primary survey 응답을 User Model vector / type 결과로 변환하는 scoring 로직 파일이다.
+ *
+ * Target Role:
+ * - Primary response -> user preference representation 변환의 공식 scoring module로 유지되어야 한다.
+ *
+ * Chain:
+ * - primary
+ *
+ * Inputs:
+ * - primary survey answers
+ *
+ * Outputs:
+ * - primaryResult
+ * - userVector
+ * - type / scoring result
+ *
+ * Called From:
+ * - app/flows/PrimaryMiniApp.tsx
+ * - Primary result rendering chain
+ *
+ * Side Effects:
+ * - 없음
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - User Model의 stable layer로 연결되는 핵심 파일이다.
+ * - 삭제 금지.
+ */
 export type Scores = {
   rest: number;
   schedule: number;
