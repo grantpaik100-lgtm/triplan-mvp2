@@ -1,3 +1,40 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - followup conversation 시작 시 초기 질문/slot state를 생성하는 API endpoint다.
+ *
+ * Target Role:
+ * - followup-chat chain의 공식 start endpoint로 유지되어야 한다.
+ *
+ * Chain:
+ * - followup
+ *
+ * Inputs:
+ * - followup seed
+ * - optional context
+ *
+ * Outputs:
+ * - first assistant message
+ * - slot/question state
+ *
+ * Called From:
+ * - app/followup/FollowupMiniApp.tsx
+ *
+ * Side Effects:
+ * - external model call 가능
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - old followup API와 혼동하지 말 것.
+ */
 import OpenAI from "openai";
 import type {
   ExtractedSlots,
