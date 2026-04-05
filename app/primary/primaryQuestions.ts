@@ -1,3 +1,40 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - Primary survey 질문 정의의 공식 source file이다.
+ *
+ * Target Role:
+ * - User Model의 stable preference를 측정하는 canonical question definition file로 유지되어야 한다.
+ *
+ * Chain:
+ * - primary
+ *
+ * Inputs:
+ * - 없음 (정적 질문 정의)
+ *
+ * Outputs:
+ * - primary survey question list / choice metadata
+ *
+ * Called From:
+ * - app/flows/PrimaryMiniApp.tsx
+ * - 이후 app/primary/PrimaryMiniApp.tsx로 이동될 실행 컴포넌트
+ *
+ * Side Effects:
+ * - 없음
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - TriPlan의 User Model 수집 구조에 직접 연결되는 핵심 자산이다.
+ * - 삭제 금지.
+ */
 export type ScaleQuestion = {
   id: string;
   title: string;
