@@ -1,3 +1,41 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - followup 종료 시 slot/result를 기반으로 최종 planningInput을 생성하는 API endpoint다.
+ *
+ * Target Role:
+ * - Secondary -> PlanningInput 변환의 공식 finalize endpoint로 유지되어야 한다.
+ *
+ * Chain:
+ * - followup
+ *
+ * Inputs:
+ * - followup messages
+ * - slot state
+ * - original seed/raw answers
+ *
+ * Outputs:
+ * - planningInput
+ *
+ * Called From:
+ * - app/followup/FollowupMiniApp.tsx
+ *
+ * Side Effects:
+ * - 없음 또는 model-assisted synthesis
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - generate 단계의 진짜 입력은 이 결과물이다.
+ * - 삭제 금지.
+ */
 import OpenAI from "openai";
 import type {
   ChatMessage,
