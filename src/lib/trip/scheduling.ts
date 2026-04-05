@@ -1,3 +1,43 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - planning 결과를 시간 순서와 duration, 이동, fatigue, time window 제약에 맞게 실제 일정 시퀀스로 배치하는 scheduling engine file이다.
+ *
+ * Target Role:
+ * - day execution sequence를 생성하는 공식 scheduling layer로 유지되어야 하며, 필요 시 이 파일이 재설계의 중심이 된다.
+ *
+ * Chain:
+ * - engine
+ *
+ * Inputs:
+ * - planning result
+ * - PlanningInput
+ * - time/duration/constraint metadata
+ *
+ * Outputs:
+ * - sequenced itinerary
+ * - scheduling diagnostics
+ *
+ * Called From:
+ * - src/lib/trip/engine.ts
+ *
+ * Side Effects:
+ * - 없음
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - 현재 구조 정리 이후 가장 우선적으로 개선될 가능성이 높은 파일이다.
+ * - 전체 repo 리셋보다 이 레이어의 재설계가 더 합리적일 수 있다.
+ */
+
 import { getAreaDistanceMinutes } from "./area";
 import { getPreferredStartSlot, isAllowedTimeSlot, minutesToSlots } from "./time";
 import type {
