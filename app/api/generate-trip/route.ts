@@ -252,15 +252,17 @@ async function fetchExperienceMetadataList(): Promise<ExperienceMetadata[]> {
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as GenerateTripRequest;
+    const body = await request.json();
 
-    const primaryResult = body.primaryResult ?? {};
-    const secondaryAnswers = body.secondaryAnswers ?? {};
+const primaryResult = body.primaryResult;
+const secondaryAnswers = body.secondaryAnswers;
 
-    const userVector = mergeUserVector(primaryResult.userVector);
+const followupPayload = body.planningInput;
 
-    const planningInput =
-      body.planningInput ?? normalizePlanningInput(secondaryAnswers);
+const planningInput =
+  followupPayload?.raw?.surveyRawAnswers
+    ? normalizePlanningInput(followupPayload.raw.surveyRawAnswers)
+    : normalizePlanningInput(secondaryAnswers);
 
     
 
