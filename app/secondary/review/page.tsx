@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import "../secondary.css";
-import { loadSecondaryDraft } from "@/lib/secondaryStorage";
+import { loadSecondaryDraft } from "@/lib/storage/secondaryDraft";
 import { MOTION, GLASS, SHADOW, COLORS, SPACE, TYPE, DENSITY, RADIUS, MAXWIDTH, FOCUS_RING } from "@/lib/MOTION_TOKENS";
 
 function toCssVars() {
