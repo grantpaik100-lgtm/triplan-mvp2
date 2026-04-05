@@ -40,12 +40,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { primaryQuestions } from "../primary/primaryQuestions";
+import { primaryQuestions } from "./primaryQuestions";
 import {
   buildPrimaryResultPayload,
   calculateType,
-} from "../primary/primaryScoring";
-import PrimaryResultView from "../primary/PrimaryResultView";
+} from "./primaryScoring";
+import PrimaryResultView from "./PrimaryResultView";
 
 import { MOTION, GLASS, SHADOW, FOCUS_RING } from "@/lib/MOTION_TOKENS";
 
