@@ -1,3 +1,40 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - Secondary/followup 계층의 입력을 engine이 이해하는 PlanningInput으로 정규화하는 변환 파일이다.
+ *
+ * Target Role:
+ * - user-facing inputs -> engine-facing PlanningInput 변환의 공식 adapter로 유지되어야 한다.
+ *
+ * Chain:
+ * - engine
+ *
+ * Inputs:
+ * - secondaryAnswers 또는 equivalent survey-derived input
+ *
+ * Outputs:
+ * - PlanningInput
+ *
+ * Called From:
+ * - app/api/generate-trip/route.ts
+ * - followup/fallback conversion paths
+ *
+ * Side Effects:
+ * - 없음
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - duplicate file(normalizeInput (1).ts)와 혼동 금지.
+ */
+
 import type { CompanionType, DiversityMode, PlanningInput } from "./types";
 
 type SecondaryAnswers = Record<string, any>;
