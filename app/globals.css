@@ -1,3 +1,39 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - 앱 전역 스타일을 정의하는 global stylesheet다.
+ *
+ * Target Role:
+ * - app-wide global styling source로 유지되어야 한다.
+ *
+ * Chain:
+ * - system
+ *
+ * Inputs:
+ * - 없음
+ *
+ * Outputs:
+ * - global CSS rules
+ *
+ * Called From:
+ * - app/layout.tsx 또는 framework styling chain
+ *
+ * Side Effects:
+ * - global style application
+ *
+ * Current Status:
+ * - canonical system file
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - framework/runtime에 직접 연결된다.
+ */
+
 :root{
   /* Travel light vibe */
   --bg: #ffffff;
