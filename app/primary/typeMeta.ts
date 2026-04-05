@@ -1,3 +1,38 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - Primary result type별 표시 메타데이터(텍스트/이미지/설명 등)를 제공하는 reference file이다.
+ *
+ * Target Role:
+ * - PrimaryResultView가 참조하는 공식 presentation metadata file로 유지되어야 한다.
+ *
+ * Chain:
+ * - primary
+ *
+ * Inputs:
+ * - type key
+ *
+ * Outputs:
+ * - 해당 type의 표시 메타데이터
+ *
+ * Called From:
+ * - app/primary/PrimaryResultView.tsx
+ *
+ * Side Effects:
+ * - 없음
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - UI 메타데이터 성격이지만 primary result 설명 계층에서 필요하다.
+ */
 export const typeMeta = {
   rest: {
     name: "휴식 설계자",
