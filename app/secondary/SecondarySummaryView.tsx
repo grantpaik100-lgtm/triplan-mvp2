@@ -1,3 +1,41 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - Secondary survey 응답 요약을 사용자에게 보여주고 followup chain으로 넘기는 summary UI 컴포넌트다.
+ *
+ * Target Role:
+ * - secondary -> followup handoff를 담당하는 공식 summary layer로 유지되어야 한다.
+ *
+ * Chain:
+ * - secondary
+ *
+ * Inputs:
+ * - secondary answers
+ * - summary text / derived display values
+ *
+ * Outputs:
+ * - summary rendering
+ * - followup seed generation trigger
+ *
+ * Called From:
+ * - app/secondary/SecondaryMiniApp.tsx
+ *
+ * Side Effects:
+ * - sessionStorage write (followup seed)
+ * - route navigation
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - followup seed가 생성되는 handoff 위치이므로 삭제하면 chain이 끊긴다.
+ */
 "use client";
 
 import type { SecondaryAnswers, SecondarySection } from "./secondarySchema";
