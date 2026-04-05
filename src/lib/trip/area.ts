@@ -1,3 +1,40 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - area/region 관련 거리감, 인접성, 지역 분류 보조 로직을 담당하는 파일이다.
+ *
+ * Target Role:
+ * - planning/scheduling에서 사용하는 지역 계산 helper로 유지되어야 한다.
+ *
+ * Chain:
+ * - engine
+ *
+ * Inputs:
+ * - area / region metadata
+ *
+ * Outputs:
+ * - area relation helpers
+ *
+ * Called From:
+ * - src/lib/trip/planning.ts
+ * - src/lib/trip/scheduling.ts
+ *
+ * Side Effects:
+ * - 없음
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - cluster/day grouping 품질에 직접 연결될 수 있다.
+ */
+
 import { AREA_DISTANCE_MINUTES } from "./constants";
 import type { Area } from "./types";
 
