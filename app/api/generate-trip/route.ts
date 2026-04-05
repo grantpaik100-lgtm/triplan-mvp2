@@ -1,3 +1,44 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - planningInput / primaryResult를 받아 experience dataset을 fetch하고 planning+scheduling engine을 실행하는 공식 API entrypoint다.
+ *
+ * Target Role:
+ * - TriPlan recommendation/planning engine의 공식 runtime boundary로 유지되어야 한다.
+ *
+ * Chain:
+ * - generate, engine
+ *
+ * Inputs:
+ * - primaryResult
+ * - planningInput
+ * - fallback secondaryAnswers
+ *
+ * Outputs:
+ * - generated trip result
+ * - debug / diagnostics
+ *
+ * Called From:
+ * - app/trip/generate/page.tsx
+ *
+ * Side Effects:
+ * - Supabase read
+ * - engine execution
+ * - logging
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - src/lib/trip/* 엔진 체인의 유일한 공식 API entrypoint다.
+ * - 삭제 금지.
+ */
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { generateTripPlan } from "@/lib/trip/engine";
