@@ -1,3 +1,43 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - scoring -> planning -> scheduling -> repair를 orchestration하는 최상위 runtime engine file이다.
+ *
+ * Target Role:
+ * - TriPlan trip engine의 공식 orchestration layer로 유지되어야 한다.
+ *
+ * Chain:
+ * - engine
+ *
+ * Inputs:
+ * - PlanningInput
+ * - primary result/user vector
+ * - experience dataset
+ *
+ * Outputs:
+ * - final trip result
+ * - debug diagnostics
+ *
+ * Called From:
+ * - app/api/generate-trip/route.ts
+ *
+ * Side Effects:
+ * - 없음
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - src/engine/*가 아니라 이 파일이 공식 엔진 진입점이다.
+ * - 삭제 금지.
+ */
+
 import { planDaysWithDiagnostics } from "./planning";
 import { repairSchedule } from "./repair";
 import { scheduleDayPlan } from "./scheduling";
