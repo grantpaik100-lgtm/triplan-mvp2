@@ -1,4 +1,4 @@
-import { normalizeArea } from "./area";
+import { normalizeArea } from "../trip/area";
 import type {
   ExperienceFeatures,
   ExperienceMetadata,
@@ -6,7 +6,7 @@ import type {
   ThemeCluster,
   TimeBucket,
   TimeFlexibility,
-} from "./types";
+} from "../trip/types";
 
 type RawExperienceRow = Record<string, string>;
 
