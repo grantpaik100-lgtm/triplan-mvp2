@@ -1,3 +1,44 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - followup seed를 읽고, followup-chat API(start/turn/finalize)와 대화하며, 최종 planningInput을 저장하는 실행 컴포넌트다.
+ *
+ * Target Role:
+ * - Secondary raw answers를 PlanningInput으로 수렴시키는 공식 followup execution file로 유지되어야 한다.
+ *
+ * Chain:
+ * - followup
+ *
+ * Inputs:
+ * - sessionStorage.triplan_followup_seed
+ *
+ * Outputs:
+ * - followup messages
+ * - followup slots
+ * - planningInput
+ * - /trip/generate 이동
+ *
+ * Called From:
+ * - app/followup/page.tsx
+ *
+ * Side Effects:
+ * - sessionStorage read/write
+ * - fetch to followup-chat APIs
+ * - route navigation
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - Followup chain의 중심 파일이다.
+ * - 여기서 생성된 planningInput은 generate 단계에서 직접 사용되어야 한다.
+ */
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
