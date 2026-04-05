@@ -1,3 +1,41 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - user preference / planning context와 experience metadata를 비교하여 candidate score를 계산하는 scoring module이다.
+ *
+ * Target Role:
+ * - recommendation scoring의 공식 계산 계층으로 유지되어야 한다.
+ *
+ * Chain:
+ * - engine
+ *
+ * Inputs:
+ * - user vector / PlanningInput
+ * - experience metadata
+ *
+ * Outputs:
+ * - scored candidates / score breakdown
+ *
+ * Called From:
+ * - src/lib/trip/planning.ts
+ * - engine orchestration chain
+ *
+ * Side Effects:
+ * - 없음
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - Experience Feature Space와 Recommendation Engine이 만나는 핵심 계산 파일이다.
+ */
+
 import type {
   ExperienceMetadata,
   PlanningInput,
