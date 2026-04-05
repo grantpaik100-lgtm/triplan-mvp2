@@ -1,3 +1,41 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - Secondary answers의 타입, 초기값, clone/normalize 보조 로직을 정의하는 schema file이다.
+ *
+ * Target Role:
+ * - Secondary answer contract의 공식 기준 타입 파일로 유지되어야 한다.
+ *
+ * Chain:
+ * - secondary
+ *
+ * Inputs:
+ * - 없음
+ *
+ * Outputs:
+ * - SecondaryAnswers type
+ * - initial answers
+ * - helper functions
+ *
+ * Called From:
+ * - app/secondary/SecondaryMiniApp.tsx
+ * - followup seed builder / planning input conversion chain
+ *
+ * Side Effects:
+ * - 없음
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - 질문 구조 변경 시 가장 먼저 검토해야 하는 contract file이다.
+ */
 export type SecondarySection = "G" | "A" | "B" | "C" | "D" | "E" | "F" | "X" | "H";
 
 export type SingleValueQuestionId =
