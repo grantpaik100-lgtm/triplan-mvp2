@@ -57,7 +57,7 @@ import {
 } from "./secondarySchema";
 
 import SecondarySummaryView from "./SecondarySummaryView";
-import { loadSecondaryDraft, saveSecondaryDraft } from "@/lib/secondaryStorage";
+import { loadSecondaryDraft, saveSecondaryDraft } from "@/lib/storage/secondaryDraft";
 
 type Mode = "intro" | "question" | "summary" | "handoff";
 
