@@ -1,3 +1,42 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - scored candidates를 바탕으로 day-level selection, anchor/core/optional 구성, cluster 전략을 결정하는 planning engine file이다.
+ *
+ * Target Role:
+ * - recommendation/planning stage의 공식 planner로 유지되어야 한다.
+ *
+ * Chain:
+ * - engine
+ *
+ * Inputs:
+ * - PlanningInput
+ * - experience candidates
+ * - scoring results
+ *
+ * Outputs:
+ * - day plan skeleton
+ * - candidate selection diagnostics
+ *
+ * Called From:
+ * - src/lib/trip/engine.ts
+ *
+ * Side Effects:
+ * - 없음
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - scheduling 전에 무엇을 선택할지 결정하는 상위 엔진이다.
+ * - TriPlan 핵심 자산 중 Recommendation Engine에 해당한다.
+ */
 import { DAILY_EXPERIENCE_COUNT_BY_DENSITY } from "./constants";
 import type {
   Area,
