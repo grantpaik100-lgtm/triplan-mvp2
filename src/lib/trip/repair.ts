@@ -1,3 +1,41 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - scheduling 중 발생한 infeasible case나 constraint violation을 보정/복구하는 repair logic file이다.
+ *
+ * Target Role:
+ * - scheduling fallback / repair의 공식 보조 엔진으로 유지되어야 한다.
+ *
+ * Chain:
+ * - engine
+ *
+ * Inputs:
+ * - broken or weak schedule
+ * - diagnostics
+ *
+ * Outputs:
+ * - repaired schedule
+ * - repair diagnostics
+ *
+ * Called From:
+ * - src/lib/trip/scheduling.ts 또는 src/lib/trip/engine.ts
+ *
+ * Side Effects:
+ * - 없음
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - scheduling 품질 안정화에 중요하다.
+ */
+
 import { evaluateFeasibility } from "./scheduling";
 import type {
   DayPlan,
