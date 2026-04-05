@@ -1,3 +1,39 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - 개별 experience/place row를 렌더링하는 result leaf-level UI 컴포넌트다.
+ *
+ * Target Role:
+ * - experience row rendering의 공식 leaf component로 유지되어야 한다.
+ *
+ * Chain:
+ * - result
+ *
+ * Inputs:
+ * - single place/experience row view model
+ *
+ * Outputs:
+ * - place row rendering
+ *
+ * Called From:
+ * - src/components/trip/TripDayCard.tsx
+ *
+ * Side Effects:
+ * - 없음
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - leaf component라서 비교적 단순하지만, result chain 최하단 UI 단위다.
+ */
+
 "use client";
 
 import type { PlaceRowViewModel } from "@/lib/trip/viewModel";
