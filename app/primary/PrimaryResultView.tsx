@@ -1,3 +1,39 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - Primary result를 사용자에게 시각적으로 보여주고 secondary chain으로 넘기는 결과 화면 컴포넌트다.
+ *
+ * Target Role:
+ * - primary result explanation / handoff UI의 공식 뷰 컴포넌트로 유지되어야 한다.
+ *
+ * Chain:
+ * - primary
+ *
+ * Inputs:
+ * - primaryResult
+ *
+ * Outputs:
+ * - result UI rendering
+ * - secondary route 이동 트리거
+ *
+ * Called From:
+ * - app/flows/PrimaryMiniApp.tsx
+ *
+ * Side Effects:
+ * - route navigation
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - Primary survey 자체보다 덜 핵심이지만, chain 연결상 삭제하면 안 된다.
+ */
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
