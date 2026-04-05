@@ -252,11 +252,10 @@ async function fetchExperienceMetadataList(): Promise<ExperienceMetadata[]> {
 
 export async function POST(req: Request) {
   try {
-    const body = await request.json();
+    const body = await req.json();
 
-const primaryResult = body.primaryResult;
-const secondaryAnswers = body.secondaryAnswers;
-
+    const primaryResult = body.primaryResult;
+    const secondaryAnswers = body.secondaryAnswers;
 const followupPayload = body.planningInput;
 
 const planningInput =
