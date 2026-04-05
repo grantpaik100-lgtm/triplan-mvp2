@@ -35,7 +35,7 @@
  */
 "use client";
 
-import PrimaryMiniApp from "./flows/PrimaryMiniApp";
+import PrimaryMiniApp from "./primary/PrimaryMiniApp";
 
 export default function Home() {
   return (
