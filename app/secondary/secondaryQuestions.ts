@@ -1,3 +1,39 @@
+/**
+ * TriPlan V3
+ * Current Role:
+ * - Secondary survey 질문 정의의 공식 source file이다.
+ *
+ * Target Role:
+ * - PlanningInput으로 이어지는 context / logistics / companion / food / pacing 질문의 canonical definition file로 유지되어야 한다.
+ *
+ * Chain:
+ * - secondary
+ *
+ * Inputs:
+ * - 없음 (정적 질문 정의)
+ *
+ * Outputs:
+ * - secondary question config / options / grouping
+ *
+ * Called From:
+ * - app/secondary/SecondaryMiniApp.tsx
+ *
+ * Side Effects:
+ * - 없음
+ *
+ * Current Status:
+ * - canonical
+ *
+ * Decision:
+ * - keep
+ *
+ * Move Target:
+ * - 없음
+ *
+ * Notes:
+ * - User Model의 context layer와 planning 제약을 수집하는 핵심 자산이다.
+ * - 삭제 금지.
+ */
 import type {
   MultiValueQuestionId,
   SecondaryAnswers,
