@@ -100,6 +100,7 @@ export default function TripGeneratePage() {
           },
           body: JSON.stringify({
             primaryResult,
+            planningInput: storedPlanning,
             secondaryAnswers,
           }),
         });
