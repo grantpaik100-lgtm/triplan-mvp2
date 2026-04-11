@@ -1,7 +1,7 @@
 /**
  * TriPlan V3
  * Current Role:
- * - scoring -> planning -> scheduling -> repair를 orchestration하는 최상위 runtime engine file이다.
+ * - scoring -> planning -> scheduling을 orchestration하는 최상위 runtime engine file이다.
  *
  * Target Role:
  * - TriPlan trip engine의 공식 orchestration layer로 유지되어야 한다.
@@ -39,11 +39,9 @@
  */
 
 import { planDaysWithDiagnostics } from "./planning";
-import { repairSchedule } from "./repair";
 import { scheduleDayPlan } from "./scheduling";
 import type {
   CandidateDiagnostics,
-  DaySchedule,
   DaySchedulingDiagnostic,
   ExperienceMetadata,
   PlanningInput,
@@ -88,14 +86,8 @@ function buildCandidateDiagnostics(
 function buildSchedulingDiagnostics(
   diagnostics: DaySchedulingDiagnostic[],
 ): SchedulingDiagnostics {
-  const totalOverflowDays = diagnostics.filter(
-    (x) => x.overflowMin > 0,
-  ).length;
-
-  const totalRepairCount = diagnostics.reduce(
-    (sum, x) => sum + x.repairs.length,
-    0,
-  );
+  const totalOverflowDays = diagnostics.filter((x) => x.overflowMin > 0).length;
+  const totalRepairCount = diagnostics.reduce((sum, x) => sum + x.repairs.length, 0);
 
   return {
     totalOverflowDays,
@@ -124,35 +116,21 @@ export function generateTripPlan(
   const schedules = [];
   const schedulingDayDiagnostics: DaySchedulingDiagnostic[] = [];
 
-  for (const dayPlan of dayPlans) {
+  for (let index = 0; index < dayPlans.length; index += 1) {
+    const dayPlan = dayPlans[index];
+
     const scheduledResult = scheduleDayPlan(
       dayPlan,
-      input.dailyStartSlot,
-      input.dailyEndSlot,
+      input,
+      index,
+      dayPlans.length,
     );
 
-    let finalSchedule = scheduledResult.schedule;
-    let finalDiagnostic = scheduledResult.diagnostic;
-
-    if (!scheduledResult.schedule.report.isFeasible) {
-      const repaired = repairSchedule(
-        dayPlan,
-        scheduledResult.schedule,
-        input.dailyEndSlot,
-        scheduledResult.diagnostic,
-      );
-
-      finalSchedule = repaired.schedule;
-      finalDiagnostic = repaired.diagnostic;
-    }
-
-    schedules.push(finalSchedule);
-    schedulingDayDiagnostics.push(finalDiagnostic);
+    schedules.push(scheduledResult.schedule);
+    schedulingDayDiagnostics.push(scheduledResult.diagnostic);
   }
 
-  const schedulingDiagnostics = buildSchedulingDiagnostics(
-    schedulingDayDiagnostics,
-  );
+  const schedulingDiagnostics = buildSchedulingDiagnostics(schedulingDayDiagnostics);
 
   return {
     dayPlans,
