@@ -123,8 +123,9 @@ export type RepairActionType =
   | "replace_meal"
   | "remove_core"
   | "trim_transition"
-  | "force_day_split";
-
+  | "force_day_split"
+  | "insert_recovery"
+  | "move_peak_earlier";
 export type FeasibilityStatus = "safe" | "tight" | "overflow";
 
 export type SelectionReason = {
