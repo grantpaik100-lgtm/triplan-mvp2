@@ -33,6 +33,7 @@
  *
  * Notes:
  * - result rendering과 engine output contract가 만나는 경계 파일이다.
+ * - Scheduling V2 diagnostics를 함께 노출해 narrative / peak / flow repair를 검증한다.
  */
 "use client";
 
@@ -94,7 +95,7 @@ export default function TripResultPage() {
 
       <div style={{ height: 24 }} />
 
-      {tripResult.debug.schedulingDiagnostics.days.length > 0 && (
+      {tripResult.debug?.schedulingDiagnostics?.days?.length > 0 && (
         <section
           style={{
             marginBottom: 24,
@@ -131,8 +132,21 @@ export default function TripResultPage() {
                   <div>status: {diag.finalStatus}</div>
                 </div>
 
-                {diag.notes.length > 0 && (
+                {diag.repairs?.length > 0 && (
+                  <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
+                    <div style={{ marginBottom: 4, fontWeight: 600 }}>repairs</div>
+                    {diag.repairs.map((repair, idx) => (
+                      <div key={idx}>
+                        • step {repair.step}: {repair.action}
+                        {repair.targetExperienceId ? ` (${repair.targetExperienceId})` : ""}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {diag.notes?.length > 0 && (
                   <div style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>
+                    <div style={{ marginBottom: 4, fontWeight: 600 }}>notes</div>
                     {diag.notes.map((note, idx) => (
                       <div key={idx}>• {note}</div>
                     ))}
