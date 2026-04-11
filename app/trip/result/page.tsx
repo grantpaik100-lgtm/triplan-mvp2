@@ -94,6 +94,56 @@ export default function TripResultPage() {
 
       <div style={{ height: 24 }} />
 
+      {tripResult.debug.schedulingDiagnostics.days.length > 0 && (
+        <section
+          style={{
+            marginBottom: 24,
+            border: "1px solid rgba(255,255,255,0.12)",
+            borderRadius: 16,
+            padding: 16,
+          }}
+        >
+          <p style={{ fontSize: 12, opacity: 0.6, letterSpacing: "0.18em" }}>
+            SCHEDULING V2 DIAGNOSTICS
+          </p>
+
+          <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
+            {tripResult.debug.schedulingDiagnostics.days.map((diag) => (
+              <div
+                key={diag.dayIndex}
+                style={{
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: 12,
+                  padding: 12,
+                }}
+              >
+                <div style={{ fontWeight: 600, marginBottom: 8 }}>
+                  DAY {diag.dayIndex}
+                </div>
+
+                <div style={{ fontSize: 14, lineHeight: 1.8 }}>
+                  <div>narrative: {diag.narrativeType}</div>
+                  <div>primary peak: {diag.primaryPeakId ?? "none"}</div>
+                  <div>
+                    flow score: {diag.flowScoreBeforeRepair} → {diag.flowScoreAfterRepair}
+                  </div>
+                  <div>overflow: {diag.overflowMin} min</div>
+                  <div>status: {diag.finalStatus}</div>
+                </div>
+
+                {diag.notes.length > 0 && (
+                  <div style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>
+                    {diag.notes.map((note, idx) => (
+                      <div key={idx}>• {note}</div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {tripResult.dayPlans.map((dayPlan, index) => {
         const schedule = tripResult.schedules[index];
         if (!schedule) return null;
