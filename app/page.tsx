@@ -1,10 +1,10 @@
 /**
  * TriPlan V3
  * Current Role:
- * - 현재 root("/")에서 PrimaryMiniApp을 진입점으로 렌더링하는 루트 엔트리 파일이다.
+ * - legacy mode shell의 루트 엔트리였으나 현재 구조와 맞지 않는다.
  *
  * Target Role:
- * - TriPlan V3 primary chain의 공식 시작점만 담당하는 최소 루트 엔트리 파일이어야 한다.
+ * - canonical primary chain("/primary")으로 보내는 최소 route boundary가 되어야 한다.
  *
  * Chain:
  * - primary
@@ -13,16 +13,16 @@
  * - 없음
  *
  * Outputs:
- * - PrimaryMiniApp 렌더링
+ * - /primary redirect
  *
  * Called From:
- * - Next.js app router root route ("/")
+ * - Next.js route "/"
  *
  * Side Effects:
- * - 없음
+ * - navigation
  *
  * Current Status:
- * - canonical, but simplified shell needed
+ * - legacy
  *
  * Decision:
  * - keep
@@ -31,16 +31,11 @@
  * - 없음
  *
  * Notes:
- * - 과거 mode-switch shell(primary/trip/assist)을 제거하고 primary entry only로 고정하는 것이 맞다.
+ * - flows 기반 legacy shell import를 모두 제거한다.
+ * - root는 더 이상 mode switch UI를 가지지 않는다.
  */
-"use client";
+import { redirect } from "next/navigation";
 
-import PrimaryMiniApp from "./primary/PrimaryMiniApp";
-
-export default function Home() {
-  return (
-    <main style={{ minHeight: "100vh" }}>
-      <PrimaryMiniApp setMode={() => {}} />
-    </main>
-  );
+export default function HomePage() {
+  redirect("/primary");
 }
