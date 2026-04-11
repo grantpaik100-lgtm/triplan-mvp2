@@ -22,7 +22,7 @@
  * - navigation
  *
  * Current Status:
- * - legacy
+ * - canonical
  *
  * Decision:
  * - keep
