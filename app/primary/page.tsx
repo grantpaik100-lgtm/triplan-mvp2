@@ -1,3 +1,5 @@
+"use client";
+
 /**
  * TriPlan V3
  * Current Role:
@@ -31,7 +33,7 @@
  * - 없음
  *
  * Notes:
- * - legacy shell을 제거한 뒤 primary chain의 route boundary 역할만 담당해야 한다.
+ * - Client Component로 선언해서 legacy setMode prop 전달 오류를 피한다.
  */
 import PrimaryMiniApp from "./PrimaryMiniApp";
 
