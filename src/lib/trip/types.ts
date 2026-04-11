@@ -184,17 +184,39 @@ export type RepairActionLog = {
   reason: string;
 };
 
+export type DayNarrativeType = "immersion" | "peak" | "recovery";
+
+export type RhythmSlotType =
+  | "warm_up"
+  | "activation"
+  | "emotional_peak"
+  | "recovery"
+  | "cool_down";
+
+export type FlowScoreBreakdown = {
+  peakReward: number;
+  fatiguePenalty: number;
+  travelPenalty: number;
+  diversityReward: number;
+  mealBalanceReward: number;
+  companionReward: number;
+  total: number;
+};
+
 export type DaySchedulingDiagnostic = {
   dayIndex: number;
+  narrativeType: DayNarrativeType;
+  primaryPeakId?: string;
   preFeasibilityStatus: FeasibilityStatus;
   estimatedTotalMin: number;
   availableMin: number;
   overflowMin: number;
+  flowScoreBeforeRepair: number;
+  flowScoreAfterRepair: number;
   repairs: RepairActionLog[];
   finalStatus: "scheduled" | "repaired" | "partial_fail";
   notes: string[];
 };
-
 export type SchedulingDiagnostics = {
   totalOverflowDays: number;
   totalRepairCount: number;
@@ -364,6 +386,8 @@ export type ScheduledItem = {
   planningTier?: PlanItemTier;
   functionalRole?: FunctionalRole;
   themeCluster?: ThemeCluster;
+  rhythmSlotType?: RhythmSlotType;
+  isPrimaryPeak?: boolean;
 };
 
 export type ScheduleIssue =
