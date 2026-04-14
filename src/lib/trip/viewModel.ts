@@ -64,12 +64,15 @@ export type DayCardViewModel = {
 };
 
 function formatSlotLabel(startSlot: number) {
-  if (startSlot < 11) return "morning";
-  if (startSlot < 14) return "midday";
-  if (startSlot < 18) return "afternoon";
-  return "evening";
+  if (startSlot < 16) return "early_morning";
+  if (startSlot < 20) return "morning";
+  if (startSlot < 24) return "late_morning";
+  if (startSlot < 28) return "lunch";
+  if (startSlot < 34) return "afternoon";
+  if (startSlot < 36) return "sunset";
+  if (startSlot < 40) return "dinner";
+  return "night";
 }
-
 export function toPlaceRowViewModel(
   item: ScheduledItem
 ): PlaceRowViewModel {
