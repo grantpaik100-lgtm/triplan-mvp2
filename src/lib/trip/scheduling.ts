@@ -35,6 +35,7 @@
  *
  * Notes:
  * - V2에서는 rough order 기반 sequential placement를 narrative + rhythm + repair 구조로 재정의한다.
+ * - 핵심 목표는 day opening collapse를 막고 peak를 edge에 묻히지 않게 하는 것이다.
  */
 
 import { getAreaDistanceMinutes } from "./area";
@@ -55,13 +56,24 @@ import type {
   ScheduledItem,
 } from "./types";
 
+type NarrativeSlotWindow = {
+  slot: RhythmSlotType;
+  minSlot: number;
+  maxSlot: number;
+};
+
 type NarrativeSlotTemplate = {
-  order: RhythmSlotType[];
+  windows: NarrativeSlotWindow[];
 };
 
 type FlowEvaluation = {
   breakdown: FlowScoreBreakdown;
   notes: string[];
+};
+
+type RealizeOptions = {
+  ignorePeakPreference?: boolean;
+  relaxSlotWindows?: boolean;
 };
 
 const FLOW_WEIGHTS = {
@@ -96,6 +108,7 @@ function estimatePlannedMinutes(items: PlannedExperience[]): number {
     (sum, item) => sum + item.experience.recommendedDuration,
     0,
   );
+
   return experienceMinutes + estimateTravelMinutes(items);
 }
 
@@ -119,28 +132,58 @@ function buildNarrativeSlotTemplate(
   itemCount: number,
 ): NarrativeSlotTemplate {
   if (itemCount <= 2) {
+    if (narrativeType === "recovery") {
+      return {
+        windows: [
+          { slot: "warm_up", minSlot: 18, maxSlot: 24 },
+          { slot: "cool_down", minSlot: 30, maxSlot: 40 },
+        ],
+      };
+    }
+
     return {
-      order: narrativeType === "recovery"
-        ? ["warm_up", "cool_down"]
-        : ["warm_up", "emotional_peak"],
+      windows: [
+        { slot: "warm_up", minSlot: 18, maxSlot: 24 },
+        { slot: "emotional_peak", minSlot: 28, maxSlot: 38 },
+      ],
     };
   }
 
   if (narrativeType === "immersion") {
     return {
-      order: ["warm_up", "activation", "emotional_peak", "cool_down"],
+      windows: [
+        { slot: "warm_up", minSlot: 18, maxSlot: 23 },
+        { slot: "activation", minSlot: 22, maxSlot: 29 },
+        { slot: "emotional_peak", minSlot: 30, maxSlot: 37 },
+        { slot: "cool_down", minSlot: 34, maxSlot: 42 },
+      ],
     };
   }
 
   if (narrativeType === "recovery") {
     return {
-      order: ["warm_up", "activation", "recovery", "cool_down"],
+      windows: [
+        { slot: "warm_up", minSlot: 18, maxSlot: 23 },
+        { slot: "activation", minSlot: 22, maxSlot: 28 },
+        { slot: "recovery", minSlot: 26, maxSlot: 34 },
+        { slot: "cool_down", minSlot: 32, maxSlot: 40 },
+      ],
     };
   }
 
   return {
-    order: ["warm_up", "activation", "emotional_peak", "recovery", "cool_down"],
+    windows: [
+      { slot: "warm_up", minSlot: 18, maxSlot: 23 },
+      { slot: "activation", minSlot: 22, maxSlot: 29 },
+      { slot: "emotional_peak", minSlot: 30, maxSlot: 37 },
+      { slot: "recovery", minSlot: 34, maxSlot: 40 },
+      { slot: "cool_down", minSlot: 36, maxSlot: 44 },
+    ],
   };
+}
+
+function getWindowMap(template: NarrativeSlotTemplate): Map<RhythmSlotType, NarrativeSlotWindow> {
+  return new Map(template.windows.map((window) => [window.slot, window]));
 }
 
 function scorePeakCandidate(item: PlannedExperience): number {
@@ -203,13 +246,12 @@ function assignToRhythmSlots(
   primaryPeakId?: string,
 ): ScheduledItem[] {
   const template = buildNarrativeSlotTemplate(narrativeType, items.length);
+  const slotOrder = new Map(template.windows.map((window, idx) => [window.slot, idx]));
 
   const slotted = items.map((item) => ({
     planned: item,
     slot: classifyRhythmSlot(item, narrativeType, primaryPeakId),
   }));
-
-  const slotOrder = new Map(template.order.map((slot, idx) => [slot, idx]));
 
   slotted.sort((a, b) => {
     const slotDiff = (slotOrder.get(a.slot) ?? 999) - (slotOrder.get(b.slot) ?? 999);
@@ -220,6 +262,20 @@ function assignToRhythmSlots(
 
     return b.planned.planningScore - a.planned.planningScore;
   });
+
+  const firstActivationIndex = slotted.findIndex(
+    (item) =>
+      item.slot === "activation" &&
+      item.planned.experience.id !== primaryPeakId &&
+      !item.planned.experience.isMeal,
+  );
+
+  if (firstActivationIndex >= 0) {
+    slotted[firstActivationIndex] = {
+      ...slotted[firstActivationIndex],
+      slot: "warm_up",
+    };
+  }
 
   return slotted.map(({ planned, slot }) => ({
     experienceId: planned.experience.id,
@@ -236,30 +292,90 @@ function assignToRhythmSlots(
   }));
 }
 
-function findNextAllowedStartSlot(
+function getWindowCenter(window?: NarrativeSlotWindow): number {
+  if (!window) return 24;
+  return Math.floor((window.minSlot + window.maxSlot) / 2);
+}
+
+function collectAllowedSlots(
   planned: PlannedExperience,
-  earliestSlot: number,
-): number {
-  for (let slot = earliestSlot; slot <= 47; slot += 1) {
+  fromSlot: number,
+  toSlot: number,
+): number[] {
+  const allowed: number[] = [];
+
+  for (let slot = fromSlot; slot <= toSlot; slot += 1) {
     if (isAllowedTimeSlot(planned.experience.allowedTimes, slot)) {
-      return slot;
+      allowed.push(slot);
     }
   }
 
-  return earliestSlot;
+  return allowed;
+}
+
+function pickBestSlot(
+  candidates: number[],
+  targetSlot: number,
+): number | undefined {
+  if (candidates.length === 0) return undefined;
+
+  return [...candidates].sort((a, b) => {
+    return Math.abs(a - targetSlot) - Math.abs(b - targetSlot);
+  })[0];
+}
+
+function findBestStartSlot(
+  planned: PlannedExperience,
+  earliestSlot: number,
+  latestSlot: number,
+  window: NarrativeSlotWindow | undefined,
+  options: {
+    preferredTargetSlot?: number;
+    relaxSlotWindows?: boolean;
+  },
+): number {
+  const boundedEarliest = Math.max(earliestSlot, 0);
+  const boundedLatest = Math.max(boundedEarliest, latestSlot);
+
+  const windowMin = options.relaxSlotWindows
+    ? boundedEarliest
+    : Math.max(boundedEarliest, window?.minSlot ?? boundedEarliest);
+
+  const windowMax = options.relaxSlotWindows
+    ? boundedLatest
+    : Math.min(boundedLatest, window?.maxSlot ?? boundedLatest);
+
+  const targetSlot =
+    options.preferredTargetSlot ??
+    getWindowCenter(window);
+
+  const windowCandidates = collectAllowedSlots(planned, windowMin, windowMax);
+  const fromWindow = pickBestSlot(windowCandidates, targetSlot);
+  if (fromWindow !== undefined) return fromWindow;
+
+  const fullCandidates = collectAllowedSlots(planned, boundedEarliest, boundedLatest);
+  const fromFull = pickBestSlot(fullCandidates, targetSlot);
+  if (fromFull !== undefined) return fromFull;
+
+  return boundedEarliest;
 }
 
 function realizeTimeline(
   slotted: ScheduledItem[],
   plannedMap: Map<string, PlannedExperience>,
+  template: NarrativeSlotTemplate,
   dayStartSlot: number,
+  dayEndSlot: number,
+  options?: RealizeOptions,
 ): ScheduledItem[] {
+  const windowMap = getWindowMap(template);
   const realized: ScheduledItem[] = [];
 
   for (const item of slotted) {
     const planned = plannedMap.get(item.experienceId);
     if (!planned) continue;
 
+    const durationSlots = minutesToSlots(item.durationMinutes);
     const prev = realized[realized.length - 1];
     const prevArea = prev
       ? plannedMap.get(prev.experienceId)?.experience.area ?? planned.experience.area
@@ -273,16 +389,26 @@ function realizeTimeline(
       ? prev.endSlot + minutesToSlots(travelMinutes)
       : dayStartSlot;
 
-    let startSlot = findNextAllowedStartSlot(planned, earliestSlot);
+    const latestStartSlot = Math.max(dayStartSlot, dayEndSlot - durationSlots);
+    const slotWindow = item.rhythmSlotType
+      ? windowMap.get(item.rhythmSlotType)
+      : undefined;
 
-    if (item.isPrimaryPeak) {
-      const preferredSlot = getPreferredStartSlot(planned.experience.preferredTime);
-      if (preferredSlot > startSlot) {
-        startSlot = findNextAllowedStartSlot(planned, preferredSlot);
-      }
-    }
+    const preferredTargetSlot =
+      item.isPrimaryPeak && !options?.ignorePeakPreference
+        ? getPreferredStartSlot(planned.experience.preferredTime)
+        : undefined;
 
-    const durationSlots = minutesToSlots(item.durationMinutes);
+    const startSlot = findBestStartSlot(
+      planned,
+      earliestSlot,
+      latestStartSlot,
+      slotWindow,
+      {
+        preferredTargetSlot,
+        relaxSlotWindows: options?.relaxSlotWindows ?? false,
+      },
+    );
 
     realized.push({
       ...item,
@@ -489,6 +615,25 @@ function removeOptionalItems(
   };
 }
 
+function dropLowestValueCore(
+  dayPlan: DayPlan,
+  items: ScheduledItem[],
+): { items: ScheduledItem[]; removedId?: string } {
+  const coreIds = new Set(dayPlan.core.map((item) => item.experience.id));
+  const dropCandidate = [...items]
+    .filter((item) => coreIds.has(item.experienceId) && !item.isPrimaryPeak)
+    .sort((a, b) => a.durationMinutes - b.durationMinutes)[0];
+
+  if (!dropCandidate) {
+    return { items };
+  }
+
+  return {
+    items: items.filter((item) => item.experienceId !== dropCandidate.experienceId),
+    removedId: dropCandidate.experienceId,
+  };
+}
+
 function moveRecoveryEarlier(items: ScheduledItem[]): { items: ScheduledItem[]; movedId?: string } {
   const recoveryIndex = items.findIndex((item) => item.rhythmSlotType === "recovery");
   if (recoveryIndex <= 1) return { items };
@@ -533,11 +678,17 @@ function hasConsecutiveHighFatigue(
   return false;
 }
 
+function getFirstStartSlot(items: ScheduledItem[]): number {
+  if (items.length === 0) return 48;
+  return items[0].startSlot;
+}
+
 function repairScheduleFlow(
   dayPlan: DayPlan,
   items: ScheduledItem[],
+  plannedMap: Map<string, PlannedExperience>,
+  template: NarrativeSlotTemplate,
   input: PlanningInput,
-  dayEndSlot: number,
   primaryPeakId?: string,
 ): {
   items: ScheduledItem[];
@@ -545,25 +696,25 @@ function repairScheduleFlow(
   flowBefore: FlowEvaluation;
   flowAfter: FlowEvaluation;
 } {
-  const plannedMap = new Map(
-    [...dayPlan.anchor, ...dayPlan.core, ...dayPlan.optional].map((item) => [
-      item.experience.id,
-      item,
-    ]),
-  );
-
   const flowBefore = evaluateFlowQuality(dayPlan, items, input, primaryPeakId);
   let working = [...items];
   const repairs: RepairActionLog[] = [];
   let step = 1;
 
-  let overflowBefore = getOverflowMin(working, dayEndSlot);
+  let overflowBefore = getOverflowMin(working, input.dailyEndSlot);
 
   if (overflowBefore > 0) {
     const removed = removeOptionalItems(dayPlan, working);
     if (removed.removedIds.length > 0) {
-      working = removed.items;
-      const overflowAfter = getOverflowMin(working, dayEndSlot);
+      working = realizeTimeline(
+        removed.items,
+        plannedMap,
+        template,
+        input.dailyStartSlot,
+        input.dailyEndSlot,
+      );
+
+      const overflowAfter = getOverflowMin(working, input.dailyEndSlot);
 
       repairs.push({
         step: step++,
@@ -577,10 +728,59 @@ function repairScheduleFlow(
     }
   }
 
+  const firstStartBefore = getFirstStartSlot(working);
+  const relaxedTimeline = realizeTimeline(
+    working,
+    plannedMap,
+    template,
+    input.dailyStartSlot,
+    input.dailyEndSlot,
+    {
+      ignorePeakPreference: true,
+      relaxSlotWindows: true,
+    },
+  );
+
+  const relaxedOverflow = getOverflowMin(relaxedTimeline, input.dailyEndSlot);
+  const relaxedFirstStart = getFirstStartSlot(relaxedTimeline);
+
+  if (
+    relaxedOverflow < overflowBefore ||
+    relaxedFirstStart < firstStartBefore
+  ) {
+    working = relaxedTimeline;
+
+    repairs.push({
+      step: step++,
+      action: "pull_day_forward",
+      reason: "Retimed schedule with relaxed slot windows to avoid late collapse",
+      beforeOverflowMin: overflowBefore,
+      afterOverflowMin: relaxedOverflow,
+    });
+
+    repairs.push({
+      step: step++,
+      action: "demote_peak_time_preference",
+      targetExperienceId: primaryPeakId,
+      reason: "Peak preferred time was softened to preserve day flow",
+      beforeOverflowMin: overflowBefore,
+      afterOverflowMin: relaxedOverflow,
+    });
+
+    overflowBefore = relaxedOverflow;
+  }
+
   if (hasConsecutiveHighFatigue(working, plannedMap)) {
     const moved = moveRecoveryEarlier(working);
     if (moved.movedId) {
-      working = moved.items;
+      working = realizeTimeline(
+        moved.items,
+        plannedMap,
+        template,
+        input.dailyStartSlot,
+        input.dailyEndSlot,
+        { ignorePeakPreference: true },
+      );
 
       repairs.push({
         step: step++,
@@ -588,8 +788,10 @@ function repairScheduleFlow(
         targetExperienceId: moved.movedId,
         reason: "Move recovery item earlier after fatigue burst",
         beforeOverflowMin: overflowBefore,
-        afterOverflowMin: getOverflowMin(working, dayEndSlot),
+        afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
       });
+
+      overflowBefore = getOverflowMin(working, input.dailyEndSlot);
     }
   }
 
@@ -597,7 +799,14 @@ function repairScheduleFlow(
   if (peakIndex >= 3) {
     const moved = movePeakEarlier(working);
     if (moved.movedId) {
-      working = moved.items;
+      working = realizeTimeline(
+        moved.items,
+        plannedMap,
+        template,
+        input.dailyStartSlot,
+        input.dailyEndSlot,
+        { ignorePeakPreference: true },
+      );
 
       repairs.push({
         step: step++,
@@ -605,16 +814,42 @@ function repairScheduleFlow(
         targetExperienceId: moved.movedId,
         reason: "Protect primary peak from late burial",
         beforeOverflowMin: overflowBefore,
-        afterOverflowMin: getOverflowMin(working, dayEndSlot),
+        afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
       });
+
+      overflowBefore = getOverflowMin(working, input.dailyEndSlot);
     }
   }
 
-  const retimed = realizeTimeline(working, plannedMap, input.dailyStartSlot);
-  const flowAfter = evaluateFlowQuality(dayPlan, retimed, input, primaryPeakId);
+  if (overflowBefore > 0) {
+    const dropped = dropLowestValueCore(dayPlan, working);
+    if (dropped.removedId) {
+      working = realizeTimeline(
+        dropped.items,
+        plannedMap,
+        template,
+        input.dailyStartSlot,
+        input.dailyEndSlot,
+        { ignorePeakPreference: true },
+      );
+
+      repairs.push({
+        step: step++,
+        action: "drop_low_value_core",
+        targetExperienceId: dropped.removedId,
+        reason: "Still overflow after optional removal, drop the least valuable core",
+        beforeOverflowMin: overflowBefore,
+        afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
+      });
+
+      overflowBefore = getOverflowMin(working, input.dailyEndSlot);
+    }
+  }
+
+  const flowAfter = evaluateFlowQuality(dayPlan, working, input, primaryPeakId);
 
   return {
-    items: retimed,
+    items: working,
     repairs,
     flowBefore,
     flowAfter,
@@ -634,6 +869,7 @@ export function scheduleDayPlan(
 
   const narrativeType = assignDayNarrativeType(dayIndex, totalDays);
   const primaryPeak = selectPrimaryPeak(flattened);
+  const template = buildNarrativeSlotTemplate(narrativeType, flattened.length);
   const plannedMap = new Map(flattened.map((item) => [item.experience.id, item]));
 
   const slotted = assignToRhythmSlots(
@@ -642,13 +878,20 @@ export function scheduleDayPlan(
     primaryPeak?.experience.id,
   );
 
-  const timed = realizeTimeline(slotted, plannedMap, input.dailyStartSlot);
+  const timed = realizeTimeline(
+    slotted,
+    plannedMap,
+    template,
+    input.dailyStartSlot,
+    input.dailyEndSlot,
+  );
 
   const repaired = repairScheduleFlow(
     dayPlan,
     timed,
+    plannedMap,
+    template,
     input,
-    input.dailyEndSlot,
     primaryPeak?.experience.id,
   );
 
@@ -680,6 +923,7 @@ export function scheduleDayPlan(
         `narrative=${narrativeType}`,
         `peak=${primaryPeak?.experience.id ?? "none"}`,
         `scheduledItems=${repaired.items.length}`,
+        `firstStart=${repaired.items[0]?.startSlot ?? "none"}`,
         `issues=${report.issues.join(",") || "none"}`,
         ...repaired.flowBefore.notes.map((note) => `before:${note}`),
         ...repaired.flowAfter.notes.map((note) => `after:${note}`),
