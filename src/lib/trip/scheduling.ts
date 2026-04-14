@@ -207,10 +207,12 @@ function selectPrimaryPeak(items: PlannedExperience[]): PlannedExperience | unde
 }
 
 function isRecoveryCandidate(item: PlannedExperience): boolean {
+  const placeType = item.experience.placeType ?? "";
+
   return (
     item.functionalRole === "rest" ||
     item.functionalRole === "transition_safe" ||
-    item.experience.placeType.toLowerCase().includes("cafe") ||
+    placeType.toLowerCase().includes("cafe") ||
     item.experience.features.quiet >= 0.6 ||
     item.themeCluster === "cafe_relax" ||
     item.themeCluster === "walk_local"
