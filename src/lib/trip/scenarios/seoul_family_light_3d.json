@@ -1,1 +1,34 @@
-seoul_couple_romantic_3d.json
+{
+  "name": "seoul_family_light_3d",
+  "primaryResult": {
+    "userVector": {
+      "food": 0.61,
+      "culture": 0.44,
+      "nature": 0.58,
+      "shopping": 0.24,
+      "entertainment": 0.18,
+      "quiet": 0.74,
+      "romantic": 0.18,
+      "local": 0.40,
+      "touristy": 0.26,
+      "luxury": 0.24,
+      "hipster": 0.16,
+      "traditional": 0.52,
+      "walkIntensity": 0.18,
+      "crowdLevel": 0.20,
+      "activityIntensity": 0.20,
+      "cost": 0.48
+    }
+  },
+  "planningInput": {
+    "days": 3,
+    "companionType": "family",
+    "dailyStartSlot": 20,
+    "dailyEndSlot": 40,
+    "dailyDensity": 2,
+    "diversityMode": "balanced",
+    "mustExperienceIds": [],
+    "preferredAreas": ["jongno", "bukchon", "yeouido"],
+    "blockedAreas": []
+  }
+}
