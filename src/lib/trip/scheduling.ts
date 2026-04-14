@@ -188,10 +188,11 @@ function getWindowMap(template: NarrativeSlotTemplate): Map<RhythmSlotType, Narr
 
 function scorePeakCandidate(item: PlannedExperience): number {
   let score = item.planningScore;
+  const selectionTags = item.selectionReason?.tags ?? [];
 
   if (item.priority === "anchor") score += 100;
-  if (item.selectionReason?.tags.includes("must_place")) score += 15;
-  if (item.selectionReason?.tags.includes("must_experience")) score += 15;
+  if (selectionTags.includes("must_place")) score += 15;
+  if (selectionTags.includes("must_experience")) score += 15;
   if (item.experience.preferredTime === "sunset") score += 10;
   if (item.experience.preferredTime === "night") score += 8;
   if (item.experience.isNightFriendly) score += 8;
@@ -200,7 +201,6 @@ function scorePeakCandidate(item: PlannedExperience): number {
 
   return score;
 }
-
 function selectPrimaryPeak(items: PlannedExperience[]): PlannedExperience | undefined {
   if (items.length === 0) return undefined;
   return [...items].sort((a, b) => scorePeakCandidate(b) - scorePeakCandidate(a))[0];
