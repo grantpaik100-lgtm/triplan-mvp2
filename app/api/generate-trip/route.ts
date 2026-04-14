@@ -309,8 +309,12 @@ export async function POST(req: Request) {
       ok: true,
       result,
     });
-  } catch (error) {
+    } catch (error) {
     const message = toErrorMessage(error);
+    const stack =
+      error instanceof Error
+        ? error.stack
+        : undefined;
 
     console.error("[generate-trip] failed:", error);
 
@@ -319,6 +323,7 @@ export async function POST(req: Request) {
         ok: false,
         error: "Failed to generate trip plan",
         detail: message,
+        stack,
       },
       { status: 500 },
     );
