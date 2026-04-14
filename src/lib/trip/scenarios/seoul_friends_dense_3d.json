@@ -1,0 +1,34 @@
+{
+  "name": "seoul_friends_dense_3d",
+  "primaryResult": {
+    "userVector": {
+      "food": 0.72,
+      "culture": 0.42,
+      "nature": 0.35,
+      "shopping": 0.77,
+      "entertainment": 0.68,
+      "quiet": 0.22,
+      "romantic": 0.18,
+      "local": 0.42,
+      "touristy": 0.72,
+      "luxury": 0.38,
+      "hipster": 0.55,
+      "traditional": 0.33,
+      "walkIntensity": 0.72,
+      "crowdLevel": 0.68,
+      "activityIntensity": 0.74,
+      "cost": 0.52
+    }
+  },
+  "planningInput": {
+    "days": 3,
+    "companionType": "friends",
+    "dailyStartSlot": 20,
+    "dailyEndSlot": 44,
+    "dailyDensity": 5,
+    "diversityMode": "balanced",
+    "mustExperienceIds": [],
+    "preferredAreas": ["jongno", "yeouido", "bukchon"],
+    "blockedAreas": []
+  }
+}
