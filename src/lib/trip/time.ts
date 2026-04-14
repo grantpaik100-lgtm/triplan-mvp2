@@ -1,19 +1,22 @@
 /**
  * TriPlan V3
  * Current Role:
- * - slot/time bucket 변환, 시간대 계산, duration 보조 로직을 담당하는 파일이다.
+ * - time bucket과 slot 변환, preferred start slot 계산, allowed time 검사 등을 담당하는 time helper file이다.
  *
  * Target Role:
- * - planning/scheduling에서 사용하는 공식 시간 계산 helper로 유지되어야 한다.
+ * - scheduling / planning에서 공통으로 사용하는 canonical time utility layer가 되어야 한다.
  *
  * Chain:
  * - engine
  *
  * Inputs:
- * - slot / time bucket / duration values
+ * - time bucket
+ * - allowed times
+ * - minutes
  *
  * Outputs:
- * - time conversion / helper results
+ * - slot number
+ * - slot allowance boolean
  *
  * Called From:
  * - src/lib/trip/planning.ts
@@ -32,33 +35,69 @@
  * - 없음
  *
  * Notes:
- * - scheduling 엔진 재설계 시 같이 검토해야 할 파일이다.
+ * - 외부 데이터 shape가 완전히 균일하지 않을 수 있으므로 항상 방어적으로 처리한다.
  */
 
-import { TIME_BUCKET_SLOTS } from "./constants";
 import type { TimeBucket } from "./types";
 
-export function slotToTimeString(slot: number): string {
-  const totalMinutes = slot * 30;
-  const hour = Math.floor(totalMinutes / 60);
-  const minute = totalMinutes % 60;
+const TIME_BUCKET_START_SLOT: Record<TimeBucket, number> = {
+  early_morning: 12,
+  morning: 16,
+  late_morning: 20,
+  lunch: 24,
+  afternoon: 28,
+  sunset: 34,
+  dinner: 36,
+  night: 40,
+};
 
-  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+const TIME_BUCKET_SLOT_RANGES: Record<TimeBucket, number[]> = {
+  early_morning: [12, 13, 14, 15],
+  morning: [16, 17, 18, 19],
+  late_morning: [20, 21, 22, 23],
+  lunch: [24, 25, 26, 27],
+  afternoon: [28, 29, 30, 31, 32, 33],
+  sunset: [34, 35],
+  dinner: [36, 37, 38, 39],
+  night: [40, 41, 42, 43, 44, 45, 46, 47],
+};
+
+function isValidTimeBucket(value: unknown): value is TimeBucket {
+  if (typeof value !== "string") return false;
+  return value in TIME_BUCKET_SLOT_RANGES;
+}
+
+function normalizeAllowedTimes(allowedTimes: unknown): TimeBucket[] {
+  if (!Array.isArray(allowedTimes)) return [];
+
+  return allowedTimes.filter(isValidTimeBucket);
 }
 
 export function minutesToSlots(minutes: number): number {
-  return Math.ceil(minutes / 30);
+  if (!Number.isFinite(minutes) || minutes <= 0) return 1;
+  return Math.max(1, Math.ceil(minutes / 30));
 }
 
-export function bucketContainsSlot(bucket: TimeBucket, slot: number): boolean {
-  return TIME_BUCKET_SLOTS[bucket].includes(slot);
+export function getPreferredStartSlot(preferredTime?: TimeBucket | null): number {
+  if (!preferredTime || !isValidTimeBucket(preferredTime)) {
+    return TIME_BUCKET_START_SLOT.afternoon;
+  }
+
+  return TIME_BUCKET_START_SLOT[preferredTime];
 }
 
-export function isAllowedTimeSlot(allowed: TimeBucket[], slot: number): boolean {
-  return allowed.some((bucket) => bucketContainsSlot(bucket, slot));
-}
+export function isAllowedTimeSlot(
+  allowedTimes: TimeBucket[] | string[] | null | undefined,
+  slot: number,
+): boolean {
+  const safeAllowedTimes = normalizeAllowedTimes(allowedTimes);
 
-export function getPreferredStartSlot(bucket: TimeBucket): number {
-  const slots = TIME_BUCKET_SLOTS[bucket];
-  return slots[Math.floor(slots.length / 2)];
+  if (safeAllowedTimes.length === 0) {
+    return true;
+  }
+
+  return safeAllowedTimes.some((bucket) => {
+    const slots = TIME_BUCKET_SLOT_RANGES[bucket] ?? [];
+    return slots.includes(slot);
+  });
 }
