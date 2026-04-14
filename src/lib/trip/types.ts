@@ -125,7 +125,12 @@ export type RepairActionType =
   | "trim_transition"
   | "force_day_split"
   | "insert_recovery"
-  | "move_peak_earlier";
+  | "move_peak_earlier"
+  | "pull_day_forward"
+  | "demote_peak_time_preference"
+  | "drop_low_value_core";
+
+
 export type FeasibilityStatus = "safe" | "tight" | "overflow";
 
 export type SelectionReason = {
