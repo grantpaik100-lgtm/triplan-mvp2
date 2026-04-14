@@ -1,0 +1,34 @@
+{
+  "name": "seoul_couple_romantic_3d",
+  "primaryResult": {
+    "userVector": {
+      "food": 0.55,
+      "culture": 0.48,
+      "nature": 0.66,
+      "shopping": 0.28,
+      "entertainment": 0.34,
+      "quiet": 0.72,
+      "romantic": 0.86,
+      "local": 0.44,
+      "touristy": 0.36,
+      "luxury": 0.58,
+      "hipster": 0.40,
+      "traditional": 0.34,
+      "walkIntensity": 0.46,
+      "crowdLevel": 0.22,
+      "activityIntensity": 0.38,
+      "cost": 0.46
+    }
+  },
+  "planningInput": {
+    "days": 3,
+    "companionType": "couple",
+    "dailyStartSlot": 20,
+    "dailyEndSlot": 42,
+    "dailyDensity": 3,
+    "diversityMode": "balanced",
+    "mustExperienceIds": [],
+    "preferredAreas": ["seongsu", "hannam", "yeouido"],
+    "blockedAreas": []
+  }
+}
