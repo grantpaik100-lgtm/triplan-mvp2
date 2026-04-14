@@ -46,6 +46,22 @@ import { normalizePlanningInput } from "@/lib/trip/normalizeInput";
 import type { ExperienceMetadata, UserVector } from "@/lib/trip/types";
 import { DEFAULT_USER_VECTOR } from "@/lib/trip/constants";
 
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return "Unknown error";
+  }
+}
+
 type GenerateTripRequest = {
   primaryResult?: {
     userVector?: Partial<UserVector>;
@@ -252,27 +268,37 @@ async function fetchExperienceMetadataList(): Promise<ExperienceMetadata[]> {
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    const body = (await req.json()) as GenerateTripRequest;
 
-    const primaryResult = body.primaryResult;
-    const secondaryAnswers = body.secondaryAnswers;
-const followupPayload = body.planningInput;
+    const primaryResult = body.primaryResult ?? {};
+    const secondaryAnswers = body.secondaryAnswers ?? {};
+    const userVector = mergeUserVector(primaryResult.userVector);
 
-const planningInput =
-  followupPayload?.raw?.surveyRawAnswers
-    ? normalizePlanningInput(followupPayload.raw.surveyRawAnswers)
-    : normalizePlanningInput(secondaryAnswers);
+    const planningInput =
+      body.planningInput ?? normalizePlanningInput(secondaryAnswers);
 
-    
+    console.log("[generate-trip] body keys", Object.keys(body ?? {}));
+    console.log("[generate-trip] primaryResult exists", Boolean(body.primaryResult));
+    console.log("[generate-trip] planningInput", planningInput);
+    console.log("[generate-trip] secondaryAnswers keys", Object.keys(secondaryAnswers));
 
     const experienceMetadataList = await fetchExperienceMetadataList();
 
-    console.log("[generate-trip] planningInput", planningInput);
-
     console.log("[generate-trip] experienceCount", experienceMetadataList.length);
     console.log("[generate-trip] tripDays", planningInput.days);
-    
-    const userVector = primaryResult?.userVector;
+
+    if (!planningInput || typeof planningInput.days !== "number") {
+      throw new Error("Invalid planningInput: days is missing");
+    }
+
+    if (!planningInput.companionType) {
+      throw new Error("Invalid planningInput: companionType is missing");
+    }
+
+    if (!planningInput.dailyStartSlot || !planningInput.dailyEndSlot) {
+      throw new Error("Invalid planningInput: dailyStartSlot/dailyEndSlot missing");
+    }
+
     const result = generateTripPlan(
       userVector,
       planningInput,
@@ -284,12 +310,15 @@ const planningInput =
       result,
     });
   } catch (error) {
+    const message = toErrorMessage(error);
+
     console.error("[generate-trip] failed:", error);
 
     return NextResponse.json(
       {
         ok: false,
         error: "Failed to generate trip plan",
+        detail: message,
       },
       { status: 500 },
     );
