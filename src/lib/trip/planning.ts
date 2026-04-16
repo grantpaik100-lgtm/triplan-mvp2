@@ -36,6 +36,7 @@
  * Notes:
  * - scheduling 전에 무엇을 선택할지 결정하는 상위 엔진이다.
  * - 이번 버전에서는 day composition(opener / peak / recovery_or_meal)을 hard rule로 반영한다.
+ * - primaryArea 안에서 composition을 만족하지 못하면 spillover pool에서 보강한다.
  */
 
 import { DAILY_EXPERIENCE_COUNT_BY_DENSITY } from "./constants";
@@ -136,7 +137,11 @@ function isRecoveryOrMealCandidate(exp: ExperienceMetadata): boolean {
   return isRestLike(exp) || exp.isMeal;
 }
 
-function getAnchorScoreBonus(item: ScoredExperience, input: PlanningInput): number {
+function getAnchorScoreBonus(
+  item: ScoredExperience,
+  input: PlanningInput,
+  narrative: DayNarrativeRole,
+): number {
   let bonus = 0;
   const exp = item.experience;
 
@@ -144,8 +149,17 @@ function getAnchorScoreBonus(item: ScoredExperience, input: PlanningInput): numb
   if (isTimeSensitive(exp)) bonus += 12;
   if (exp.priorityHints.canBeAnchor) bonus += 8;
   if (exp.isMeal) bonus += 3;
+
   if (exp.isNightFriendly && (exp.preferredTime === "sunset" || exp.preferredTime === "night")) {
-    bonus += 4;
+    bonus += narrative === "peak" ? 8 : 2;
+  }
+
+  if (narrative === "immersion" && exp.preferredTime === "night") {
+    bonus -= 8;
+  }
+
+  if (narrative === "recovery" && exp.fatigue >= 4) {
+    bonus -= 8;
   }
 
   return bonus;
@@ -189,14 +203,41 @@ function dedupeByExperienceId(items: ScoredExperience[]): ScoredExperience[] {
   return result;
 }
 
-function pickAnchors(
-  areaPool: ScoredExperience[],
-  input: PlanningInput,
+function sortByScoreDesc(items: ScoredExperience[]): ScoredExperience[] {
+  return [...items].sort((a, b) => b.score - a.score);
+}
+
+function buildPrimaryAreaPool(
+  grouped: Record<Area, ScoredExperience[]>,
+  primaryArea: Area,
+  globallyUsedIds: Set<string>,
 ): ScoredExperience[] {
-  const ranked = [...areaPool]
+  return (grouped[primaryArea] ?? []).filter(
+    (item) => !globallyUsedIds.has(item.experience.id),
+  );
+}
+
+function buildSpilloverPool(
+  scored: ScoredExperience[],
+  primaryArea: Area,
+  globallyUsedIds: Set<string>,
+): ScoredExperience[] {
+  return scored.filter(
+    (item) =>
+      item.experience.area !== primaryArea &&
+      !globallyUsedIds.has(item.experience.id),
+  );
+}
+
+function pickAnchors(
+  primaryAreaPool: ScoredExperience[],
+  input: PlanningInput,
+  narrative: DayNarrativeRole,
+): ScoredExperience[] {
+  const ranked = [...primaryAreaPool]
     .map((item) => ({
       item,
-      anchorScore: item.score + getAnchorScoreBonus(item, input),
+      anchorScore: item.score + getAnchorScoreBonus(item, input, narrative),
     }))
     .sort((a, b) => b.anchorScore - a.anchorScore);
 
@@ -214,6 +255,10 @@ function pickAnchors(
       (exp.priorityHints.canBeAnchor && item.score >= 7);
 
     if (!canAnchor) continue;
+
+    if (narrative === "immersion" && exp.preferredTime === "night" && !isMust) {
+      continue;
+    }
 
     if (input.diversityMode === "diverse" && usedClusters.has(cluster)) {
       continue;
@@ -262,7 +307,7 @@ function getCompatibleClusterSet(
 }
 
 function pickCoreAroundAnchors(
-  areaPool: ScoredExperience[],
+  primaryAreaPool: ScoredExperience[],
   anchors: ScoredExperience[],
   input: PlanningInput,
   maxCoreCount: number,
@@ -272,7 +317,7 @@ function pickCoreAroundAnchors(
   const core: ScoredExperience[] = [];
   const clusterCounts: Partial<Record<ThemeCluster, number>> = {};
 
-  const ranked = [...areaPool]
+  const ranked = [...primaryAreaPool]
     .filter((item) => !anchorIds.has(item.experience.id))
     .sort((a, b) => b.score - a.score);
 
@@ -306,11 +351,11 @@ function pickCoreAroundAnchors(
 
 function ensureMealInCoreOrOptional(
   current: ScoredExperience[],
-  areaPool: ScoredExperience[],
+  primaryAreaPool: ScoredExperience[],
 ): ScoredExperience[] {
   if (current.some((item) => item.experience.isMeal)) return current;
 
-  const mealCandidate = areaPool.find(
+  const mealCandidate = primaryAreaPool.find(
     (item) =>
       item.experience.isMeal &&
       !current.some((picked) => picked.experience.id === item.experience.id),
@@ -322,11 +367,11 @@ function ensureMealInCoreOrOptional(
 
 function ensureRestInCoreOrOptional(
   current: ScoredExperience[],
-  areaPool: ScoredExperience[],
+  primaryAreaPool: ScoredExperience[],
 ): ScoredExperience[] {
   if (current.some((item) => isRestLike(item.experience))) return current;
 
-  const restCandidate = areaPool.find(
+  const restCandidate = primaryAreaPool.find(
     (item) =>
       !current.some((picked) => picked.experience.id === item.experience.id) &&
       isRestLike(item.experience),
@@ -337,7 +382,7 @@ function ensureRestInCoreOrOptional(
 }
 
 function pickOptionalBuffer(
-  areaPool: ScoredExperience[],
+  primaryAreaPool: ScoredExperience[],
   anchors: ScoredExperience[],
   core: ScoredExperience[],
   input: PlanningInput,
@@ -351,7 +396,7 @@ function pickOptionalBuffer(
   const selected: ScoredExperience[] = [];
   const clusterCounts: Partial<Record<ThemeCluster, number>> = {};
 
-  const ranked = [...areaPool]
+  const ranked = [...primaryAreaPool]
     .filter((item) => !usedIds.has(item.experience.id))
     .sort((a, b) => {
       const aRepairFriendly =
@@ -381,8 +426,8 @@ function pickOptionalBuffer(
   }
 
   return ensureRestInCoreOrOptional(
-    ensureMealInCoreOrOptional(selected, areaPool),
-    areaPool,
+    ensureMealInCoreOrOptional(selected, primaryAreaPool),
+    primaryAreaPool,
   );
 }
 
@@ -522,9 +567,12 @@ function trimToMaxPerDay(
           coverage.recoveryIds.has(item.experience.id) && coverage.recoveryIds.size === 1;
 
         const protectedByNarrative =
-          (narrative === "immersion" && (removingLeavesNoOpener || (removingLeavesNoPeak && removingLeavesNoRecovery))) ||
-          (narrative === "peak" && (removingLeavesNoPeak || (removingLeavesNoOpener && removingLeavesNoRecovery))) ||
-          (narrative === "recovery" && (removingLeavesNoRecovery || (removingLeavesNoOpener && removingLeavesNoPeak)));
+          (narrative === "immersion" &&
+            (removingLeavesNoOpener || (removingLeavesNoPeak && removingLeavesNoRecovery))) ||
+          (narrative === "peak" &&
+            (removingLeavesNoPeak || (removingLeavesNoOpener && removingLeavesNoRecovery))) ||
+          (narrative === "recovery" &&
+            (removingLeavesNoRecovery || (removingLeavesNoOpener && removingLeavesNoPeak)));
 
         let removalScore = 0;
         if (item.priority === "optional") removalScore += 100;
@@ -546,27 +594,86 @@ function trimToMaxPerDay(
   return [...working].sort((a, b) => getOrderScore(a) - getOrderScore(b));
 }
 
+function buildCoverageCandidate(
+  scored: ScoredExperience,
+  role: "opener" | "peak" | "recovery_or_meal",
+  fromSpillover: boolean,
+): PlannedExperience {
+  if (role === "peak") {
+    return toPlannedExperience(
+      scored,
+      scored.experience.priorityHints.canBeAnchor ? "anchor" : "core",
+      scored.experience.priorityHints.canBeAnchor ? "anchor" : "core",
+      scored.experience.priorityHints.canBeAnchor ? "anchor" : "core",
+      fromSpillover
+        ? ["cluster_fit", "high_score", "feasibility_safe"]
+        : ["cluster_fit", "high_score"],
+    );
+  }
+
+  if (role === "recovery_or_meal") {
+    return toPlannedExperience(
+      scored,
+      "optional",
+      "optional",
+      scored.experience.isMeal ? "meal" : "rest",
+      scored.experience.isMeal
+        ? fromSpillover
+          ? ["meal_requirement", "feasibility_safe"]
+          : ["meal_requirement"]
+        : fromSpillover
+          ? ["rest_requirement", "feasibility_safe"]
+          : ["rest_requirement"],
+    );
+  }
+
+  return toPlannedExperience(
+    scored,
+    "optional",
+    "optional",
+    scored.experience.isMeal ? "meal" : "optional",
+    fromSpillover
+      ? ["feasibility_safe", "diversity_fill"]
+      : ["feasibility_safe"],
+  );
+}
+
 function addCoverageCandidate(
   current: PlannedExperience[],
-  areaPool: ScoredExperience[],
+  primaryAreaPool: ScoredExperience[],
+  spilloverPool: ScoredExperience[],
   predicate: (exp: ExperienceMetadata) => boolean,
-  buildItem: (scored: ScoredExperience) => PlannedExperience,
+  role: "opener" | "peak" | "recovery_or_meal",
 ): PlannedExperience[] {
   const usedIds = new Set(current.map((item) => item.experience.id));
 
-  const candidate = areaPool.find(
+  const primaryCandidate = primaryAreaPool.find(
     (item) =>
       !usedIds.has(item.experience.id) &&
       predicate(item.experience),
   );
 
-  if (!candidate) return current;
-  return [...current, buildItem(candidate)];
+  if (primaryCandidate) {
+    return [...current, buildCoverageCandidate(primaryCandidate, role, false)];
+  }
+
+  const spilloverCandidate = spilloverPool.find(
+    (item) =>
+      !usedIds.has(item.experience.id) &&
+      predicate(item.experience),
+  );
+
+  if (spilloverCandidate) {
+    return [...current, buildCoverageCandidate(spilloverCandidate, role, true)];
+  }
+
+  return current;
 }
 
 function ensureDayComposition(
   items: PlannedExperience[],
-  areaPool: ScoredExperience[],
+  primaryAreaPool: ScoredExperience[],
+  spilloverPool: ScoredExperience[],
   narrative: DayNarrativeRole,
   maxPerDay: number,
 ): PlannedExperience[] {
@@ -596,56 +703,38 @@ function ensureDayComposition(
   if (needOpener) {
     result = addCoverageCandidate(
       result,
-      areaPool,
+      primaryAreaPool,
+      spilloverPool,
       isOpenerCandidate,
-      (item) =>
-        toPlannedExperience(
-          item,
-          "optional",
-          "optional",
-          item.experience.isMeal ? "meal" : "optional",
-          item.experience.isMeal
-            ? ["meal_requirement", "feasibility_safe"]
-            : ["feasibility_safe"],
-        ),
+      "opener",
     );
   }
 
   if (needPeak) {
     result = addCoverageCandidate(
       result,
-      areaPool,
+      primaryAreaPool,
+      spilloverPool,
       isPeakCandidate,
-      (item) =>
-        toPlannedExperience(
-          item,
-          item.experience.priorityHints.canBeAnchor ? "anchor" : "core",
-          item.experience.priorityHints.canBeAnchor ? "anchor" : "core",
-          item.experience.priorityHints.canBeAnchor ? "anchor" : "core",
-          ["high_score", "cluster_fit"],
-        ),
+      "peak",
     );
   }
 
   if (needRecovery) {
     result = addCoverageCandidate(
       result,
-      areaPool,
+      primaryAreaPool,
+      spilloverPool,
       isRecoveryOrMealCandidate,
-      (item) =>
-        toPlannedExperience(
-          item,
-          "optional",
-          "optional",
-          item.experience.isMeal ? "meal" : "rest",
-          item.experience.isMeal
-            ? ["meal_requirement", "feasibility_safe"]
-            : ["rest_requirement", "feasibility_safe"],
-        ),
+      "recovery_or_meal",
     );
   }
 
   return trimToMaxPerDay(result, maxPerDay, narrative);
+}
+
+function getAreasFromMerged(merged: PlannedExperience[]): Area[] {
+  return Array.from(new Set(merged.map((item) => item.experience.area)));
 }
 
 export function planDays(
@@ -661,7 +750,7 @@ export function planDaysWithDiagnostics(
   input: PlanningInput,
   experiences: ExperienceMetadata[],
 ): { dayPlans: DayPlan[]; diagnostics: PlanningDiagnostics } {
-  const scored = scoreExperiences(user, input, experiences);
+  const scored = sortByScoreDesc(scoreExperiences(user, input, experiences));
   const grouped = groupByArea(scored);
   const chosenAreas = pickTopAreas(grouped, input.days);
 
@@ -679,11 +768,10 @@ export function planDaysWithDiagnostics(
     const primaryArea = chosenAreas[day - 1] ?? chosenAreas[0] ?? "other";
     const dayNarrative = getDayNarrativeRole(day, input.days);
 
-    const areaPool = (grouped[primaryArea] ?? []).filter(
-      (item) => !globallyUsedIds.has(item.experience.id),
-    );
+    const primaryAreaPool = buildPrimaryAreaPool(grouped, primaryArea, globallyUsedIds);
+    const spilloverPool = buildSpilloverPool(scored, primaryArea, globallyUsedIds);
 
-    if (areaPool.length === 0) {
+    if (primaryAreaPool.length === 0 && spilloverPool.length === 0) {
       dayPlans.push({
         day,
         areas: [primaryArea],
@@ -701,13 +789,13 @@ export function planDaysWithDiagnostics(
         optionalIds: [],
         totalScore: 0,
         clusterDistribution: {},
-        notes: ["empty area pool after global dedupe"],
+        notes: ["empty pool after global dedupe"],
       });
 
       continue;
     }
 
-    const anchorCandidates = pickAnchors(areaPool, input);
+    const anchorCandidates = pickAnchors(primaryAreaPool, input, dayNarrative);
 
     const maxCoreCount =
       input.diversityMode === "theme_focused"
@@ -715,7 +803,7 @@ export function planDaysWithDiagnostics(
         : Math.max(maxPerDay - anchorCandidates.length - 2, 1);
 
     const coreCandidates = pickCoreAroundAnchors(
-      areaPool,
+      primaryAreaPool,
       anchorCandidates,
       input,
       maxCoreCount,
@@ -727,7 +815,7 @@ export function planDaysWithDiagnostics(
     );
 
     const optionalCandidates = pickOptionalBuffer(
-      areaPool,
+      primaryAreaPool,
       anchorCandidates,
       coreCandidates,
       input,
@@ -753,7 +841,8 @@ export function planDaysWithDiagnostics(
     const mergedBase = [...anchors, ...core, ...optional];
     const merged = ensureDayComposition(
       mergedBase,
-      areaPool,
+      primaryAreaPool,
+      spilloverPool,
       dayNarrative,
       maxPerDay,
     );
@@ -797,8 +886,10 @@ export function planDaysWithDiagnostics(
       notes: [
         `primaryArea=${primaryArea}`,
         `narrative=${dayNarrative}`,
-        `poolSize=${areaPool.length}`,
+        `primaryPool=${primaryAreaPool.length}`,
+        `spilloverPool=${spilloverPool.length}`,
         `mergedCount=${merged.length}`,
+        `areas=${getAreasFromMerged(merged).join(",")}`,
         `hasOpener=${hasOpener(merged)}`,
         `hasPeak=${hasPeak(merged)}`,
         `hasRecoveryOrMeal=${hasRecoveryOrMeal(merged)}`,
@@ -807,7 +898,7 @@ export function planDaysWithDiagnostics(
 
     dayPlans.push({
       day,
-      areas: [primaryArea],
+      areas: getAreasFromMerged(merged),
       anchor: finalAnchor,
       core: finalCore,
       optional: finalOptional,
