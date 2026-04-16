@@ -391,18 +391,36 @@ function inferDroppedRole(
   realizedCount: number,
   primaryPeakId?: string,
 ): DroppedPlacementDiagnostic["role"] {
-  if (item.experienceId === primaryPeakId || item.isPrimaryPeak || item.priority === "anchor") {
-    return "peak";
-  }
-
-  if (item.functionalRole === "rest" || item.functionalRole === "meal") {
-    return "recovery";
-  }
-
-  if (realizedCount === 0 || item.rhythmSlotType === "warm_up") {
+  // 1. rhythm slot 기준 우선 판정
+  if (item.rhythmSlotType === "warm_up") {
     return "opener";
   }
 
+  if (
+    item.rhythmSlotType === "recovery" ||
+    item.rhythmSlotType === "cool_down"
+  ) {
+    return "recovery";
+  }
+
+  if (item.rhythmSlotType === "emotional_peak") {
+    return "peak";
+  }
+
+  // 2. peak explicit fallback
+  if (
+    item.experienceId === primaryPeakId ||
+    item.isPrimaryPeak
+  ) {
+    return "peak";
+  }
+
+  // 3. first unresolved item fallback
+  if (realizedCount === 0) {
+    return "opener";
+  }
+
+  // 4. optional fallback
   return "optional";
 }
 
