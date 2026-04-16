@@ -36,6 +36,7 @@
  * Notes:
  * - scheduling 전에 무엇을 선택할지 결정하는 상위 엔진이다.
  * - TriPlan 핵심 자산 중 Recommendation Engine에 해당한다.
+ * - 이번 버전에서는 day composition(opener / peak / recovery_or_meal)을 hard rule로 반영한다.
  */
 import { DAILY_EXPERIENCE_COUNT_BY_DENSITY } from "./constants";
 import type {
@@ -55,6 +56,8 @@ import type {
   UserVector,
 } from "./types";
 import { scoreExperiences } from "./scoring";
+
+type DayNarrativeRole = "immersion" | "peak" | "recovery";
 
 function groupByArea(scored: ScoredExperience[]): Record<Area, ScoredExperience[]> {
   return scored.reduce(
@@ -79,6 +82,12 @@ function pickTopAreas(grouped: Record<Area, ScoredExperience[]>, days: number): 
     .map((x) => x.area);
 }
 
+function getDayNarrativeRole(dayIndex: number, totalDays: number): DayNarrativeRole {
+  if (dayIndex === 1) return "immersion";
+  if (dayIndex === totalDays) return "recovery";
+  return "peak";
+}
+
 function isRestLike(exp: ExperienceMetadata): boolean {
   const placeType = exp.placeType ?? "";
 
@@ -95,6 +104,36 @@ function isTimeSensitive(exp: ExperienceMetadata): boolean {
 
 function getClusterKey(exp: ExperienceMetadata): ThemeCluster {
   return exp.themeCluster ?? "mixed";
+}
+
+function isOpenerCandidate(exp: ExperienceMetadata): boolean {
+  const allowed = exp.allowedTimes ?? [];
+
+  const hasEarlyWindow =
+    allowed.includes("morning") ||
+    allowed.includes("late_morning") ||
+    allowed.includes("lunch") ||
+    allowed.includes("afternoon");
+
+  return (
+    hasEarlyWindow &&
+    exp.fatigue <= 3 &&
+    exp.preferredTime !== "night" &&
+    exp.isNightFriendly !== true
+  );
+}
+
+function isPeakCandidate(exp: ExperienceMetadata): boolean {
+  return (
+    exp.priorityHints.canBeAnchor ||
+    exp.preferredTime === "sunset" ||
+    exp.preferredTime === "night" ||
+    exp.isNightFriendly
+  );
+}
+
+function isRecoveryOrMealCandidate(exp: ExperienceMetadata): boolean {
+  return isRestLike(exp) || exp.isMeal;
 }
 
 function getAnchorScoreBonus(item: ScoredExperience, input: PlanningInput): number {
@@ -214,7 +253,6 @@ function getCompatibleClusterSet(
     return clusterSet;
   }
 
-  // diverse
   clusterSet.add("food_discovery");
   clusterSet.add("cafe_relax");
   clusterSet.add("nature_scenery");
@@ -380,9 +418,7 @@ function buildPlannedCore(core: ScoredExperience[]): PlannedExperience[] {
     let role: FunctionalRole = "core";
     if (item.experience.isMeal) role = "meal";
     else if (isRestLike(item.experience)) role = "rest";
-    else if (
-      item.experience.functionalRoleHints?.includes("viewpoint") === true
-    ) role = "viewpoint";
+    else if (item.experience.functionalRoleHints?.includes("viewpoint") === true) role = "viewpoint";
 
     return toPlannedExperience(item, "core", "core", role, tags);
   });
@@ -405,151 +441,172 @@ function buildPlannedOptional(optional: ScoredExperience[]): PlannedExperience[]
   });
 }
 
-function isOpenerCandidate(exp: ExperienceMetadata): boolean {
-  const allowed = exp.allowedTimes ?? [];
+function getOrderScore(item: PlannedExperience): number {
+  if (item.functionalRole === "rest") return 70;
+  if (item.functionalRole === "meal") return 60;
+  if (item.priority === "anchor") return 50;
 
-  const hasEarlyWindow =
-    allowed.includes("morning") ||
-    allowed.includes("late_morning") ||
-    allowed.includes("lunch") ||
-    allowed.includes("afternoon");
-
-  return (
-    hasEarlyWindow &&
-    exp.fatigue <= 3 &&
-    !exp.isNightFriendly
-  );
-}
-
-function isPeakCandidate(exp: ExperienceMetadata): boolean {
-  return (
-    exp.priorityHints.canBeAnchor ||
-    exp.preferredTime === "sunset" ||
-    exp.preferredTime === "night" ||
-    exp.isNightFriendly
-  );
-}
-
-function isRecoveryOrMealCandidate(exp: ExperienceMetadata): boolean {
-  return isRestLike(exp) || exp.isMeal;
-}
-
-function ensureNarrativeCoverage(
-  merged: PlannedExperience[],
-  areaPool: ScoredExperience[],
-): PlannedExperience[] {
-  let result = [...merged];
-  const usedIds = new Set(result.map((item) => item.experience.id));
-
-  const hasOpener = result.some((item) => isOpenerCandidate(item.experience));
-  const hasPeak = result.some((item) => isPeakCandidate(item.experience));
-  const hasRecoveryOrMeal = result.some((item) =>
-    isRecoveryOrMealCandidate(item.experience),
-  );
-
-  if (!hasOpener) {
-    const opener = areaPool.find(
-      (item) =>
-        !usedIds.has(item.experience.id) &&
-        isOpenerCandidate(item.experience),
-    );
-
-    if (opener) {
-      result.push(
-        toPlannedExperience(
-          opener,
-          "optional",
-          "optional",
-          "optional",
-          ["feasibility_safe"],
-        ),
-      );
-      usedIds.add(opener.experience.id);
-    }
+  switch (item.experience.preferredTime) {
+    case "early_morning":
+      return 10;
+    case "morning":
+      return 15;
+    case "late_morning":
+      return 20;
+    case "lunch":
+      return 30;
+    case "afternoon":
+      return 40;
+    case "sunset":
+      return 55;
+    case "dinner":
+      return 65;
+    case "night":
+      return 80;
+    default:
+      return 45;
   }
-
-  if (!hasPeak) {
-    const peak = areaPool.find(
-      (item) =>
-        !usedIds.has(item.experience.id) &&
-        isPeakCandidate(item.experience),
-    );
-
-    if (peak) {
-      result.push(
-        toPlannedExperience(
-          peak,
-          "core",
-          "core",
-          "core",
-          ["high_score", "cluster_fit"],
-        ),
-      );
-      usedIds.add(peak.experience.id);
-    }
-  }
-
-  if (!hasRecoveryOrMeal) {
-    const recovery = areaPool.find(
-      (item) =>
-        !usedIds.has(item.experience.id) &&
-        isRecoveryOrMealCandidate(item.experience),
-    );
-
-    if (recovery) {
-      const role: FunctionalRole = recovery.experience.isMeal ? "meal" : "rest";
-
-      result.push(
-        toPlannedExperience(
-          recovery,
-          "optional",
-          "optional",
-          role,
-          recovery.experience.isMeal
-            ? ["meal_requirement", "feasibility_safe"]
-            : ["rest_requirement", "feasibility_safe"],
-        ),
-      );
-    }
-  }
-
-  return result;
 }
 
 function buildRoughOrder(items: PlannedExperience[]): string[] {
-  function getOrderScore(item: PlannedExperience): number {
-    if (item.functionalRole === "rest") return 70;
-    if (item.functionalRole === "meal") return 60;
-    if (item.priority === "anchor") return 50;
-
-    const preferredTime = item.experience.preferredTime;
-
-    switch (preferredTime) {
-      case "early_morning":
-        return 10;
-      case "morning":
-        return 15;
-      case "late_morning":
-        return 20;
-      case "lunch":
-        return 30;
-      case "afternoon":
-        return 40;
-      case "sunset":
-        return 55;
-      case "dinner":
-        return 65;
-      case "night":
-        return 80;
-      default:
-        return 45;
-    }
-  }
-
   return [...items]
     .sort((a, b) => getOrderScore(a) - getOrderScore(b))
     .map((item) => item.experience.id);
 }
+
+function hasOpener(items: PlannedExperience[]): boolean {
+  return items.some((item) => isOpenerCandidate(item.experience));
+}
+
+function hasPeak(items: PlannedExperience[]): boolean {
+  return items.some((item) => isPeakCandidate(item.experience));
+}
+
+function hasRecoveryOrMeal(items: PlannedExperience[]): boolean {
+  return items.some((item) => isRecoveryOrMealCandidate(item.experience));
+}
+
+function trimToMaxPerDay(
+  items: PlannedExperience[],
+  maxPerDay: number,
+): PlannedExperience[] {
+  if (items.length <= maxPerDay) return items;
+
+  const removabilityScore = (item: PlannedExperience): number => {
+    if (item.priority === "optional") return 100;
+    if (item.functionalRole === "rest" || item.functionalRole === "meal") return 80;
+    if (item.priority === "core") return 50;
+    return 0;
+  };
+
+  return [...items]
+    .sort((a, b) => removabilityScore(b) - removabilityScore(a))
+    .slice(0, maxPerDay)
+    .sort((a, b) => getOrderScore(a) - getOrderScore(b));
+}
+
+function addCoverageCandidate(
+  current: PlannedExperience[],
+  areaPool: ScoredExperience[],
+  predicate: (exp: ExperienceMetadata) => boolean,
+  buildItem: (scored: ScoredExperience) => PlannedExperience,
+): PlannedExperience[] {
+  const usedIds = new Set(current.map((item) => item.experience.id));
+
+  const candidate = areaPool.find(
+    (item) =>
+      !usedIds.has(item.experience.id) &&
+      predicate(item.experience),
+  );
+
+  if (!candidate) return current;
+  return [...current, buildItem(candidate)];
+}
+
+function ensureDayComposition(
+  items: PlannedExperience[],
+  areaPool: ScoredExperience[],
+  narrative: DayNarrativeRole,
+  maxPerDay: number,
+): PlannedExperience[] {
+  let result = [...items];
+
+  const needOpener =
+    narrative === "immersion"
+      ? !hasOpener(result)
+      : narrative === "peak"
+        ? !hasOpener(result) && !hasRecoveryOrMeal(result)
+        : !hasOpener(result) && !hasPeak(result);
+
+  const needPeak =
+    narrative === "peak"
+      ? !hasPeak(result)
+      : narrative === "immersion"
+        ? !hasPeak(result) && !hasRecoveryOrMeal(result)
+        : false;
+
+  const needRecovery =
+    narrative === "recovery"
+      ? !hasRecoveryOrMeal(result)
+      : narrative === "peak"
+        ? !hasRecoveryOrMeal(result) && !hasOpener(result)
+        : false;
+
+  if (needOpener) {
+    result = addCoverageCandidate(
+      result,
+      areaPool,
+      isOpenerCandidate,
+      (item) =>
+        toPlannedExperience(
+          item,
+          "optional",
+          "optional",
+          item.experience.isMeal ? "meal" : "optional",
+          item.experience.isMeal
+            ? ["meal_requirement", "feasibility_safe"]
+            : ["feasibility_safe"],
+        ),
+    );
+  }
+
+  if (needPeak) {
+    result = addCoverageCandidate(
+      result,
+      areaPool,
+      isPeakCandidate,
+      (item) =>
+        toPlannedExperience(
+          item,
+          item.experience.priorityHints.canBeAnchor ? "anchor" : "core",
+          item.experience.priorityHints.canBeAnchor ? "anchor" : "core",
+          item.experience.priorityHints.canBeAnchor ? "anchor" : "core",
+          ["high_score", "cluster_fit"],
+        ),
+    );
+  }
+
+  if (needRecovery) {
+    result = addCoverageCandidate(
+      result,
+      areaPool,
+      isRecoveryOrMealCandidate,
+      (item) =>
+        toPlannedExperience(
+          item,
+          "optional",
+          "optional",
+          item.experience.isMeal ? "meal" : "rest",
+          item.experience.isMeal
+            ? ["meal_requirement", "feasibility_safe"]
+            : ["rest_requirement", "feasibility_safe"],
+        ),
+    );
+  }
+
+  return trimToMaxPerDay(result, maxPerDay);
+}
+
 export function planDays(
   user: UserVector,
   input: PlanningInput,
@@ -574,41 +631,43 @@ export function planDaysWithDiagnostics(
   let totalAnchors = 0;
   let totalCore = 0;
   let totalOptional = 0;
-  
+
   const globallyUsedIds = new Set<string>();
 
   for (let day = 1; day <= input.days; day += 1) {
     const primaryArea = chosenAreas[day - 1] ?? chosenAreas[0] ?? "other";
+    const dayNarrative = getDayNarrativeRole(day, input.days);
+
     const areaPool = (grouped[primaryArea] ?? []).filter(
       (item) => !globallyUsedIds.has(item.experience.id),
     );
 
     if (areaPool.length === 0) {
-  dayPlans.push({
-    day,
-    areas: [primaryArea],
-    anchor: [],
-    core: [],
-    optional: [],
-    roughOrder: [],
-  });
+      dayPlans.push({
+        day,
+        areas: [primaryArea],
+        anchor: [],
+        core: [],
+        optional: [],
+        roughOrder: [],
+      });
 
-  dayDiagnostics.push({
-    dayIndex: day,
-    targetClusterStrategy: "empty_pool_fallback",
-    anchorIds: [],
-    coreIds: [],
-    optionalIds: [],
-    totalScore: 0,
-    clusterDistribution: {},
-    notes: ["empty area pool after global dedupe"],
-  });
+      dayDiagnostics.push({
+        dayIndex: day,
+        targetClusterStrategy: "empty_pool_fallback",
+        anchorIds: [],
+        coreIds: [],
+        optionalIds: [],
+        totalScore: 0,
+        clusterDistribution: {},
+        notes: ["empty area pool after global dedupe"],
+      });
 
-  continue;
-}
-    
+      continue;
+    }
 
     const anchorCandidates = pickAnchors(areaPool, input);
+
     const maxCoreCount =
       input.diversityMode === "theme_focused"
         ? Math.max(maxPerDay - anchorCandidates.length - 1, 1)
@@ -627,19 +686,21 @@ export function planDaysWithDiagnostics(
     );
 
     const optionalCandidates = pickOptionalBuffer(
-  areaPool,
-  anchorCandidates,
-  coreCandidates,
-  input,
-  maxOptionalCount,
-).slice(0, maxOptionalCount);
+      areaPool,
+      anchorCandidates,
+      coreCandidates,
+      input,
+      maxOptionalCount,
+    ).slice(0, maxOptionalCount);
 
     const anchors = buildPlannedAnchors(dedupeByExperienceId(anchorCandidates), input);
+
     const core = buildPlannedCore(
       dedupeByExperienceId(coreCandidates).filter(
         (item) => !anchors.some((x) => x.experience.id === item.experience.id),
       ),
     );
+
     const optional = buildPlannedOptional(
       dedupeByExperienceId(optionalCandidates).filter(
         (item) =>
@@ -649,22 +710,23 @@ export function planDaysWithDiagnostics(
     );
 
     const mergedBase = [...anchors, ...core, ...optional];
-const mergedWithNarrativeCoverage = ensureNarrativeCoverage(
-  mergedBase,
-  areaPool,
-);
+    const merged = ensureDayComposition(
+      mergedBase,
+      areaPool,
+      dayNarrative,
+      maxPerDay,
+    );
 
-const merged = mergedWithNarrativeCoverage.slice(0, maxPerDay);
+    for (const item of merged) {
+      globallyUsedIds.add(item.experience.id);
+    }
 
-for (const item of merged) {
-  globallyUsedIds.add(item.experience.id);
-}
+    const roughOrder = buildRoughOrder(merged);
 
-const roughOrder = buildRoughOrder(merged);
+    const finalAnchor = merged.filter((x) => x.priority === "anchor");
+    const finalCore = merged.filter((x) => x.priority === "core");
+    const finalOptional = merged.filter((x) => x.priority === "optional");
 
-const finalAnchor = merged.filter((x) => x.priority === "anchor");
-const finalCore = merged.filter((x) => x.priority === "core");
-const finalOptional = merged.filter((x) => x.priority === "optional");
     totalAnchors += finalAnchor.length;
     totalCore += finalCore.length;
     totalOptional += finalOptional.length;
@@ -692,13 +754,14 @@ const finalOptional = merged.filter((x) => x.priority === "optional");
       totalScore: merged.reduce((sum, item) => sum + item.planningScore, 0),
       clusterDistribution,
       notes: [
-  `primaryArea=${primaryArea}`,
-  `poolSize=${areaPool.length}`,
-  `mergedCount=${merged.length}`,
-  `hasOpener=${merged.some((x) => isOpenerCandidate(x.experience))}`,
-  `hasPeak=${merged.some((x) => isPeakCandidate(x.experience))}`,
-  `hasRecoveryOrMeal=${merged.some((x) => isRecoveryOrMealCandidate(x.experience))}`,
-],
+        `primaryArea=${primaryArea}`,
+        `narrative=${dayNarrative}`,
+        `poolSize=${areaPool.length}`,
+        `mergedCount=${merged.length}`,
+        `hasOpener=${hasOpener(merged)}`,
+        `hasPeak=${hasPeak(merged)}`,
+        `hasRecoveryOrMeal=${hasRecoveryOrMeal(merged)}`,
+      ],
     });
 
     dayPlans.push({
