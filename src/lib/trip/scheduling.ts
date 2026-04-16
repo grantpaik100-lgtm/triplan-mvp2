@@ -35,7 +35,8 @@
  *
  * Notes:
  * - V2에서는 rough order 기반 sequential placement를 narrative + rhythm + repair 구조로 재정의한다.
- * - 이번 버전에서는 invalid placement 발생 시 dropped item을 replacement candidate로 재사용한다.
+ * - 이번 버전에서는 invalid placement 발생 시 dropped item diagnostics를 기록하고,
+ *   opener / peak / recovery 역할 기반 replacement repair를 시도한다.
  */
 
 import { getAreaDistanceMinutes } from "./area";
@@ -76,10 +77,25 @@ type RealizeOptions = {
   relaxSlotWindows?: boolean;
 };
 
+type DroppedPlacementDiagnostic = {
+  experienceId: string;
+  placeName: string;
+  role: "opener" | "peak" | "recovery" | "optional";
+  reason:
+    | "time_window_mismatch"
+    | "slot_conflict"
+    | "travel_overflow"
+    | "peak_rule_violation";
+  preferredTime?: string;
+  allowedTimes?: string[];
+  rhythmSlotType?: RhythmSlotType;
+};
+
 type TimelineRealization = {
   items: ScheduledItem[];
   hasInvalidPlacement: boolean;
   droppedExperienceIds: string[];
+  droppedItems: DroppedPlacementDiagnostic[];
 };
 
 const FLOW_WEIGHTS = {
@@ -370,6 +386,74 @@ function findBestStartSlot(
   return null;
 }
 
+function inferDroppedRole(
+  item: ScheduledItem,
+  realizedCount: number,
+  primaryPeakId?: string,
+): DroppedPlacementDiagnostic["role"] {
+  if (item.experienceId === primaryPeakId || item.isPrimaryPeak || item.priority === "anchor") {
+    return "peak";
+  }
+
+  if (item.functionalRole === "rest" || item.functionalRole === "meal") {
+    return "recovery";
+  }
+
+  if (realizedCount === 0 || item.rhythmSlotType === "warm_up") {
+    return "opener";
+  }
+
+  return "optional";
+}
+
+function inferDroppedReason(params: {
+  planned: PlannedExperience;
+  earliestSlot: number;
+  latestStartSlot: number;
+  slotWindow: NarrativeSlotWindow | undefined;
+  preferredTargetSlot?: number;
+  relaxSlotWindows?: boolean;
+}): DroppedPlacementDiagnostic["reason"] {
+  const {
+    planned,
+    earliestSlot,
+    latestStartSlot,
+    slotWindow,
+    preferredTargetSlot,
+    relaxSlotWindows,
+  } = params;
+
+  if (earliestSlot > latestStartSlot) {
+    return "travel_overflow";
+  }
+
+  const boundedEarliest = Math.max(earliestSlot, 0);
+  const boundedLatest = Math.max(boundedEarliest, latestStartSlot);
+
+  const windowMin = relaxSlotWindows
+    ? boundedEarliest
+    : Math.max(boundedEarliest, slotWindow?.minSlot ?? boundedEarliest);
+
+  const windowMax = relaxSlotWindows
+    ? boundedLatest
+    : Math.min(boundedLatest, slotWindow?.maxSlot ?? boundedLatest);
+
+  const windowCandidates = collectAllowedSlots(planned, windowMin, windowMax);
+  if (windowCandidates.length > 0) {
+    return "slot_conflict";
+  }
+
+  const fullCandidates = collectAllowedSlots(planned, boundedEarliest, boundedLatest);
+  if (fullCandidates.length > 0) {
+    if (preferredTargetSlot !== undefined) {
+      return "peak_rule_violation";
+    }
+    return "slot_conflict";
+  }
+
+  return "time_window_mismatch";
+}
+
 function realizeTimeline(
   slotted: ScheduledItem[],
   plannedMap: Map<string, PlannedExperience>,
@@ -381,6 +465,7 @@ function realizeTimeline(
   const windowMap = getWindowMap(template);
   const realized: ScheduledItem[] = [];
   const droppedExperienceIds: string[] = [];
+  const droppedItems: DroppedPlacementDiagnostic[] = [];
   let hasInvalidPlacement = false;
 
   for (const item of slotted) {
@@ -426,6 +511,22 @@ function realizeTimeline(
     if (startSlot === null) {
       hasInvalidPlacement = true;
       droppedExperienceIds.push(item.experienceId);
+      droppedItems.push({
+        experienceId: item.experienceId,
+        placeName: item.placeName,
+        role: inferDroppedRole(item, realized.length, planned.experience.id),
+        reason: inferDroppedReason({
+          planned,
+          earliestSlot,
+          latestStartSlot,
+          slotWindow,
+          preferredTargetSlot,
+          relaxSlotWindows: options?.relaxSlotWindows ?? false,
+        }),
+        preferredTime: planned.experience.preferredTime,
+        allowedTimes: planned.experience.allowedTimes ?? [],
+        rhythmSlotType: item.rhythmSlotType,
+      });
       continue;
     }
 
@@ -440,6 +541,7 @@ function realizeTimeline(
     items: realized,
     hasInvalidPlacement,
     droppedExperienceIds,
+    droppedItems,
   };
 }
 
@@ -794,6 +896,65 @@ function sortByBaseOrder(items: ScheduledItem[], allSlotted: ScheduledItem[]): S
   );
 }
 
+function rolePriorityForCandidate(
+  candidate: ScheduledItem,
+  neededRole: "opener" | "peak" | "recovery" | "optional",
+  primaryPeakId?: string,
+): number {
+  if (neededRole === "peak") {
+    if (candidate.experienceId === primaryPeakId || candidate.isPrimaryPeak || candidate.priority === "anchor") {
+      return 100;
+    }
+    return 0;
+  }
+
+  if (neededRole === "opener") {
+    if (candidate.rhythmSlotType === "warm_up") return 100;
+    if (candidate.rhythmSlotType === "activation") return 60;
+    return 0;
+  }
+
+  if (neededRole === "recovery") {
+    if (candidate.rhythmSlotType === "recovery" || candidate.rhythmSlotType === "cool_down") return 100;
+    if (candidate.functionalRole === "rest" || candidate.functionalRole === "meal") return 60;
+    return 0;
+  }
+
+  return candidate.priority === "optional" ? 100 : 10;
+}
+
+function sortReplacementCandidatesByNeededRole(
+  candidates: ScheduledItem[],
+  neededRole: "opener" | "peak" | "recovery" | "optional",
+  primaryPeakId?: string,
+): ScheduledItem[] {
+  return [...candidates].sort((a, b) => {
+    return (
+      rolePriorityForCandidate(b, neededRole, primaryPeakId) -
+      rolePriorityForCandidate(a, neededRole, primaryPeakId)
+    );
+  });
+}
+
+function getCriticalDroppedRole(
+  droppedItems: DroppedPlacementDiagnostic[],
+): "opener" | "peak" | "recovery" | "optional" | null {
+  if (droppedItems.some((item) => item.role === "opener")) return "opener";
+  if (droppedItems.some((item) => item.role === "peak")) return "peak";
+  if (droppedItems.some((item) => item.role === "recovery")) return "recovery";
+  if (droppedItems.length > 0) return "optional";
+  return null;
+}
+
+function getRepairActionForRole(
+  role: "opener" | "peak" | "recovery" | "optional" | null,
+): RepairActionLog["action"] {
+  if (role === "peak") return "replace_meal";
+  if (role === "recovery") return "replace_meal";
+  if (role === "opener") return "replace_meal";
+  return "replace_meal";
+}
+
 function tryReplacementRepair(params: {
   currentItems: ScheduledItem[];
   allSlotted: ScheduledItem[];
@@ -803,15 +964,23 @@ function tryReplacementRepair(params: {
   dayPlan: DayPlan;
   primaryPeakId?: string;
   narrativeType: DayNarrativeType;
+  droppedItems: DroppedPlacementDiagnostic[];
 }): {
   accepted: boolean;
   result?: TimelineRealization;
   replacedOutId?: string;
   replacedInId?: string;
+  targetedRole?: "opener" | "peak" | "recovery" | "optional" | null;
 } {
-  const replacements = buildReplacementCandidates(params.allSlotted, params.currentItems);
   const removable = getRemovableItems(params.currentItems, params.primaryPeakId);
   const currentCoverage = getRoleCoverage(params.currentItems, params.primaryPeakId);
+  const targetedRole = getCriticalDroppedRole(params.droppedItems);
+
+  const replacements = sortReplacementCandidatesByNeededRole(
+    buildReplacementCandidates(params.allSlotted, params.currentItems),
+    targetedRole ?? "optional",
+    params.primaryPeakId,
+  );
 
   for (const candidate of replacements) {
     for (const target of removable) {
@@ -867,12 +1036,13 @@ function tryReplacementRepair(params: {
           result: retimed,
           replacedOutId: target.experienceId,
           replacedInId: candidate.experienceId,
+          targetedRole,
         };
       }
     }
   }
 
-  return { accepted: false };
+  return { accepted: false, targetedRole };
 }
 
 function repairScheduleFlow(
@@ -890,10 +1060,14 @@ function repairScheduleFlow(
   flowBefore: FlowEvaluation;
   flowAfter: FlowEvaluation;
   hadInvalidPlacement: boolean;
+  finalDroppedItems: DroppedPlacementDiagnostic[];
+  initialDroppedItems: DroppedPlacementDiagnostic[];
 } {
   const flowBefore = evaluateFlowQuality(dayPlan, initialTimeline.items, input, primaryPeakId);
   let working = [...initialTimeline.items];
   let hadInvalidPlacement = initialTimeline.hasInvalidPlacement;
+  let currentDroppedItems = [...initialTimeline.droppedItems];
+  const initialDroppedItems = [...initialTimeline.droppedItems];
   const repairs: RepairActionLog[] = [];
   let step = 1;
 
@@ -909,17 +1083,19 @@ function repairScheduleFlow(
       dayPlan,
       primaryPeakId,
       narrativeType,
+      droppedItems: initialTimeline.droppedItems,
     });
 
     if (replacement.accepted && replacement.result) {
       working = replacement.result.items;
       hadInvalidPlacement = hadInvalidPlacement || replacement.result.hasInvalidPlacement;
+      currentDroppedItems = replacement.result.droppedItems;
 
       repairs.push({
         step: step++,
-        action: "replace_meal",
+        action: getRepairActionForRole(replacement.targetedRole ?? null),
         targetExperienceId: replacement.replacedInId,
-        reason: `Replace unschedulable item by swapping out ${replacement.replacedOutId ?? "unknown"}`,
+        reason: `Replace dropped ${replacement.targetedRole ?? "optional"} by swapping out ${replacement.replacedOutId ?? "unknown"}`,
         beforeOverflowMin: overflowBefore,
         afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
       });
@@ -956,6 +1132,7 @@ function repairScheduleFlow(
   ) {
     working = relaxedTimeline.items;
     hadInvalidPlacement = hadInvalidPlacement || relaxedTimeline.hasInvalidPlacement;
+    currentDroppedItems = relaxedTimeline.droppedItems;
 
     repairs.push({
       step: step++,
@@ -998,6 +1175,7 @@ function repairScheduleFlow(
       ) {
         working = retimed.items;
         hadInvalidPlacement = hadInvalidPlacement || retimed.hasInvalidPlacement;
+        currentDroppedItems = retimed.droppedItems;
 
         repairs.push({
           step: step++,
@@ -1041,6 +1219,7 @@ function repairScheduleFlow(
       ) {
         working = retimed.items;
         hadInvalidPlacement = hadInvalidPlacement || retimed.hasInvalidPlacement;
+        currentDroppedItems = retimed.droppedItems;
 
         repairs.push({
           step: step++,
@@ -1084,6 +1263,7 @@ function repairScheduleFlow(
       ) {
         working = retimed.items;
         hadInvalidPlacement = hadInvalidPlacement || retimed.hasInvalidPlacement;
+        currentDroppedItems = retimed.droppedItems;
 
         repairs.push({
           step: step++,
@@ -1126,6 +1306,7 @@ function repairScheduleFlow(
       ) {
         working = retimed.items;
         hadInvalidPlacement = hadInvalidPlacement || retimed.hasInvalidPlacement;
+        currentDroppedItems = retimed.droppedItems;
 
         repairs.push({
           step: step++,
@@ -1149,6 +1330,8 @@ function repairScheduleFlow(
     flowBefore,
     flowAfter,
     hadInvalidPlacement,
+    finalDroppedItems: currentDroppedItems,
+    initialDroppedItems,
   };
 }
 
@@ -1196,8 +1379,12 @@ export function scheduleDayPlan(
   const report = evaluateFeasibility(dayPlan, repaired.items, input.dailyEndSlot);
   const preFeasibilityStatus = toFeasibilityStatus(overflowMin);
 
+  const criticalFinalDrop = repaired.finalDroppedItems.some(
+    (item) => item.role === "opener" || item.role === "peak" || item.role === "recovery",
+  );
+
   const finalStatus =
-    repaired.hadInvalidPlacement
+    repaired.hadInvalidPlacement && criticalFinalDrop
       ? "partial_fail"
       : repaired.repairs.length > 0
         ? (report.isFeasible ? "repaired" : "partial_fail")
@@ -1228,7 +1415,18 @@ export function scheduleDayPlan(
         `scheduledItems=${repaired.items.length}`,
         `firstStart=${repaired.items[0]?.startSlot ?? "none"}`,
         `invalidPlacement=${repaired.hadInvalidPlacement}`,
+        `initialDropped=${repaired.initialDroppedItems.length}`,
+        `finalDropped=${repaired.finalDroppedItems.length}`,
+        `droppedRoles=${repaired.finalDroppedItems.map((item) => item.role).join(",") || "none"}`,
         `issues=${report.issues.join(",") || "none"}`,
+        ...repaired.initialDroppedItems.map(
+          (item, idx) =>
+            `initialDrop${idx + 1}:${item.role}:${item.experienceId}:${item.reason}:${item.rhythmSlotType ?? "unknown"}`,
+        ),
+        ...repaired.finalDroppedItems.map(
+          (item, idx) =>
+            `finalDrop${idx + 1}:${item.role}:${item.experienceId}:${item.reason}:${item.rhythmSlotType ?? "unknown"}`,
+        ),
         ...repaired.flowBefore.notes.map((note) => `before:${note}`),
         ...repaired.flowAfter.notes.map((note) => `after:${note}`),
       ],
