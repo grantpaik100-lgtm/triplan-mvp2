@@ -793,10 +793,9 @@ function tryAcceptRepair(params: {
 
   return {
     accepted: true,
-    flowAfter,
+    flowAfter: afterFlow,
   };
 }
-
 function repairScheduleFlow(
   dayPlan: DayPlan,
   items: ScheduledItem[],
