@@ -36,6 +36,7 @@
  * Notes:
  * - V2에서는 rough order 기반 sequential placement를 narrative + rhythm + repair 구조로 재정의한다.
  * - 핵심 목표는 day opening collapse를 막고 peak를 edge에 묻히지 않게 하는 것이다.
+ * - 이번 버전에서는 repair reject rule을 추가해 나쁜 repair를 채택하지 않는다.
  */
 
 import { getAreaDistanceMinutes } from "./area";
@@ -74,6 +75,11 @@ type FlowEvaluation = {
 type RealizeOptions = {
   ignorePeakPreference?: boolean;
   relaxSlotWindows?: boolean;
+};
+
+type TimelineRealization = {
+  items: ScheduledItem[];
+  hasInvalidPlacement: boolean;
 };
 
 const FLOW_WEIGHTS = {
@@ -201,6 +207,7 @@ function scorePeakCandidate(item: PlannedExperience): number {
 
   return score;
 }
+
 function selectPrimaryPeak(items: PlannedExperience[]): PlannedExperience | undefined {
   if (items.length === 0) return undefined;
   return [...items].sort((a, b) => scorePeakCandidate(b) - scorePeakCandidate(a))[0];
@@ -235,6 +242,7 @@ function classifyRhythmSlot(
   }
 
   if (item.priority === "anchor") return "activation";
+
   if (item.priority === "optional") {
     return narrativeType === "recovery" ? "cool_down" : "recovery";
   }
@@ -335,7 +343,7 @@ function findBestStartSlot(
     preferredTargetSlot?: number;
     relaxSlotWindows?: boolean;
   },
-): number {
+): number | null {
   const boundedEarliest = Math.max(earliestSlot, 0);
   const boundedLatest = Math.max(boundedEarliest, latestSlot);
 
@@ -359,7 +367,7 @@ function findBestStartSlot(
   const fromFull = pickBestSlot(fullCandidates, targetSlot);
   if (fromFull !== undefined) return fromFull;
 
-  return boundedEarliest;
+  return null;
 }
 
 function realizeTimeline(
@@ -369,9 +377,10 @@ function realizeTimeline(
   dayStartSlot: number,
   dayEndSlot: number,
   options?: RealizeOptions,
-): ScheduledItem[] {
+): TimelineRealization {
   const windowMap = getWindowMap(template);
   const realized: ScheduledItem[] = [];
+  let hasInvalidPlacement = false;
 
   for (const item of slotted) {
     const planned = plannedMap.get(item.experienceId);
@@ -379,6 +388,7 @@ function realizeTimeline(
 
     const durationSlots = minutesToSlots(item.durationMinutes);
     const prev = realized[realized.length - 1];
+
     const prevArea = prev
       ? plannedMap.get(prev.experienceId)?.experience.area ?? planned.experience.area
       : planned.experience.area;
@@ -412,6 +422,11 @@ function realizeTimeline(
       },
     );
 
+    if (startSlot === null) {
+      hasInvalidPlacement = true;
+      continue;
+    }
+
     realized.push({
       ...item,
       startSlot,
@@ -419,7 +434,10 @@ function realizeTimeline(
     });
   }
 
-  return realized;
+  return {
+    items: realized,
+    hasInvalidPlacement,
+  };
 }
 
 export function evaluateFeasibility(
@@ -685,18 +703,114 @@ function getFirstStartSlot(items: ScheduledItem[]): number {
   return items[0].startSlot;
 }
 
+function hasCenteredPeak(items: ScheduledItem[], primaryPeakId?: string): boolean {
+  if (!primaryPeakId) return false;
+
+  const peakIndex = items.findIndex((item) => item.experienceId === primaryPeakId);
+  if (peakIndex < 0) return false;
+
+  return peakIndex > 0 && peakIndex < items.length - 1;
+}
+
+function isRepairCandidateAcceptable(params: {
+  beforeItems: ScheduledItem[];
+  afterItems: ScheduledItem[];
+  beforeFlow: FlowEvaluation;
+  afterFlow: FlowEvaluation;
+  primaryPeakId?: string;
+  invalidPlacement?: boolean;
+  narrativeType: DayNarrativeType;
+}): boolean {
+  const {
+    beforeItems,
+    afterItems,
+    beforeFlow,
+    afterFlow,
+    primaryPeakId,
+    invalidPlacement,
+    narrativeType,
+  } = params;
+
+  if (invalidPlacement) return false;
+
+  if (afterFlow.breakdown.total < beforeFlow.breakdown.total) {
+    return false;
+  }
+
+  const beforeCentered = hasCenteredPeak(beforeItems, primaryPeakId);
+  const afterCentered = hasCenteredPeak(afterItems, primaryPeakId);
+
+  if (beforeCentered && !afterCentered) {
+    return false;
+  }
+
+  if ((narrativeType === "immersion" || narrativeType === "peak") && afterItems.length < 3) {
+    return false;
+  }
+
+  if (getFirstStartSlot(afterItems) > getFirstStartSlot(beforeItems)) {
+    return false;
+  }
+
+  return true;
+}
+
+function tryAcceptRepair(params: {
+  currentItems: ScheduledItem[];
+  candidateResult: TimelineRealization;
+  dayPlan: DayPlan;
+  input: PlanningInput;
+  primaryPeakId?: string;
+  narrativeType: DayNarrativeType;
+}): { accepted: boolean; flowAfter?: FlowEvaluation } {
+  const beforeFlow = evaluateFlowQuality(
+    params.dayPlan,
+    params.currentItems,
+    params.input,
+    params.primaryPeakId,
+  );
+
+  const afterFlow = evaluateFlowQuality(
+    params.dayPlan,
+    params.candidateResult.items,
+    params.input,
+    params.primaryPeakId,
+  );
+
+  const acceptable = isRepairCandidateAcceptable({
+    beforeItems: params.currentItems,
+    afterItems: params.candidateResult.items,
+    beforeFlow,
+    afterFlow,
+    primaryPeakId: params.primaryPeakId,
+    invalidPlacement: params.candidateResult.hasInvalidPlacement,
+    narrativeType: params.narrativeType,
+  });
+
+  if (!acceptable) {
+    return { accepted: false };
+  }
+
+  return {
+    accepted: true,
+    flowAfter,
+  };
+}
+
 function repairScheduleFlow(
   dayPlan: DayPlan,
   items: ScheduledItem[],
   plannedMap: Map<string, PlannedExperience>,
   template: NarrativeSlotTemplate,
   input: PlanningInput,
+  narrativeType: DayNarrativeType,
   primaryPeakId?: string,
 ): {
   items: ScheduledItem[];
   repairs: RepairActionLog[];
   flowBefore: FlowEvaluation;
   flowAfter: FlowEvaluation;
+  hadInvalidPlacement: boolean;
 } {
   const flowBefore = evaluateFlowQuality(dayPlan, items, input, primaryPeakId);
   let working = [...items];
@@ -704,33 +818,8 @@ function repairScheduleFlow(
   let step = 1;
 
   let overflowBefore = getOverflowMin(working, input.dailyEndSlot);
+  let hadInvalidPlacement = false;
 
-  if (overflowBefore > 0) {
-    const removed = removeOptionalItems(dayPlan, working);
-    if (removed.removedIds.length > 0) {
-      working = realizeTimeline(
-        removed.items,
-        plannedMap,
-        template,
-        input.dailyStartSlot,
-        input.dailyEndSlot,
-      );
-
-      const overflowAfter = getOverflowMin(working, input.dailyEndSlot);
-
-      repairs.push({
-        step: step++,
-        action: "remove_optional",
-        reason: "Remove optional items first to protect anchor/core flow",
-        beforeOverflowMin: overflowBefore,
-        afterOverflowMin: overflowAfter,
-      });
-
-      overflowBefore = overflowAfter;
-    }
-  }
-
-  const firstStartBefore = getFirstStartSlot(working);
   const relaxedTimeline = realizeTimeline(
     working,
     plannedMap,
@@ -743,65 +832,36 @@ function repairScheduleFlow(
     },
   );
 
-  const relaxedOverflow = getOverflowMin(relaxedTimeline, input.dailyEndSlot);
-  const relaxedFirstStart = getFirstStartSlot(relaxedTimeline);
+  const relaxedDecision = tryAcceptRepair({
+    currentItems: working,
+    candidateResult: relaxedTimeline,
+    dayPlan,
+    input,
+    primaryPeakId,
+    narrativeType,
+  });
 
-  if (
-    relaxedOverflow < overflowBefore ||
-    relaxedFirstStart < firstStartBefore
-  ) {
-    working = relaxedTimeline;
-
-    repairs.push({
-      step: step++,
-      action: "pull_day_forward",
-      reason: "Retimed schedule with relaxed slot windows to avoid late collapse",
-      beforeOverflowMin: overflowBefore,
-      afterOverflowMin: relaxedOverflow,
-    });
+  if (relaxedDecision.accepted) {
+    working = relaxedTimeline.items;
+    hadInvalidPlacement = hadInvalidPlacement || relaxedTimeline.hasInvalidPlacement;
 
     repairs.push({
       step: step++,
-      action: "demote_peak_time_preference",
+      action: "trim_transition",
       targetExperienceId: primaryPeakId,
-      reason: "Peak preferred time was softened to preserve day flow",
+      reason: "Retimed with relaxed slot windows and softer peak preference",
       beforeOverflowMin: overflowBefore,
-      afterOverflowMin: relaxedOverflow,
+      afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
     });
 
-    overflowBefore = relaxedOverflow;
-  }
-
-  if (hasConsecutiveHighFatigue(working, plannedMap)) {
-    const moved = moveRecoveryEarlier(working);
-    if (moved.movedId) {
-      working = realizeTimeline(
-        moved.items,
-        plannedMap,
-        template,
-        input.dailyStartSlot,
-        input.dailyEndSlot,
-        { ignorePeakPreference: true },
-      );
-
-      repairs.push({
-        step: step++,
-        action: "insert_recovery",
-        targetExperienceId: moved.movedId,
-        reason: "Move recovery item earlier after fatigue burst",
-        beforeOverflowMin: overflowBefore,
-        afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
-      });
-
-      overflowBefore = getOverflowMin(working, input.dailyEndSlot);
-    }
+    overflowBefore = getOverflowMin(working, input.dailyEndSlot);
   }
 
   const peakIndex = working.findIndex((item) => item.experienceId === primaryPeakId);
   if (peakIndex >= 3) {
     const moved = movePeakEarlier(working);
     if (moved.movedId) {
-      working = realizeTimeline(
+      const retimed = realizeTimeline(
         moved.items,
         plannedMap,
         template,
@@ -810,23 +870,114 @@ function repairScheduleFlow(
         { ignorePeakPreference: true },
       );
 
-      repairs.push({
-        step: step++,
-        action: "move_peak_earlier",
-        targetExperienceId: moved.movedId,
-        reason: "Protect primary peak from late burial",
-        beforeOverflowMin: overflowBefore,
-        afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
+      const movedDecision = tryAcceptRepair({
+        currentItems: working,
+        candidateResult: retimed,
+        dayPlan,
+        input,
+        primaryPeakId,
+        narrativeType,
       });
 
-      overflowBefore = getOverflowMin(working, input.dailyEndSlot);
+      if (movedDecision.accepted) {
+        working = retimed.items;
+        hadInvalidPlacement = hadInvalidPlacement || retimed.hasInvalidPlacement;
+
+        repairs.push({
+          step: step++,
+          action: "move_peak_earlier",
+          targetExperienceId: moved.movedId,
+          reason: "Protect primary peak from late burial",
+          beforeOverflowMin: overflowBefore,
+          afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
+        });
+
+        overflowBefore = getOverflowMin(working, input.dailyEndSlot);
+      }
+    }
+  }
+
+  if (hasConsecutiveHighFatigue(working, plannedMap)) {
+    const moved = moveRecoveryEarlier(working);
+    if (moved.movedId) {
+      const retimed = realizeTimeline(
+        moved.items,
+        plannedMap,
+        template,
+        input.dailyStartSlot,
+        input.dailyEndSlot,
+        { ignorePeakPreference: true },
+      );
+
+      const recoveryDecision = tryAcceptRepair({
+        currentItems: working,
+        candidateResult: retimed,
+        dayPlan,
+        input,
+        primaryPeakId,
+        narrativeType,
+      });
+
+      if (recoveryDecision.accepted) {
+        working = retimed.items;
+        hadInvalidPlacement = hadInvalidPlacement || retimed.hasInvalidPlacement;
+
+        repairs.push({
+          step: step++,
+          action: "insert_recovery",
+          targetExperienceId: moved.movedId,
+          reason: "Move recovery item earlier after fatigue burst",
+          beforeOverflowMin: overflowBefore,
+          afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
+        });
+
+        overflowBefore = getOverflowMin(working, input.dailyEndSlot);
+      }
+    }
+  }
+
+  if (overflowBefore > 0) {
+    const removed = removeOptionalItems(dayPlan, working);
+    if (removed.removedIds.length > 0) {
+      const retimed = realizeTimeline(
+        removed.items,
+        plannedMap,
+        template,
+        input.dailyStartSlot,
+        input.dailyEndSlot,
+        { ignorePeakPreference: true },
+      );
+
+      const removeDecision = tryAcceptRepair({
+        currentItems: working,
+        candidateResult: retimed,
+        dayPlan,
+        input,
+        primaryPeakId,
+        narrativeType,
+      });
+
+      if (removeDecision.accepted) {
+        working = retimed.items;
+        hadInvalidPlacement = hadInvalidPlacement || retimed.hasInvalidPlacement;
+
+        repairs.push({
+          step: step++,
+          action: "remove_optional",
+          reason: "Remove optional items only after retime-based repairs fail",
+          beforeOverflowMin: overflowBefore,
+          afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
+        });
+
+        overflowBefore = getOverflowMin(working, input.dailyEndSlot);
+      }
     }
   }
 
   if (overflowBefore > 0) {
     const dropped = dropLowestValueCore(dayPlan, working);
     if (dropped.removedId) {
-      working = realizeTimeline(
+      const retimed = realizeTimeline(
         dropped.items,
         plannedMap,
         template,
@@ -835,16 +986,30 @@ function repairScheduleFlow(
         { ignorePeakPreference: true },
       );
 
-      repairs.push({
-        step: step++,
-        action: "drop_low_value_core",
-        targetExperienceId: dropped.removedId,
-        reason: "Still overflow after optional removal, drop the least valuable core",
-        beforeOverflowMin: overflowBefore,
-        afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
+      const dropDecision = tryAcceptRepair({
+        currentItems: working,
+        candidateResult: retimed,
+        dayPlan,
+        input,
+        primaryPeakId,
+        narrativeType,
       });
 
-      overflowBefore = getOverflowMin(working, input.dailyEndSlot);
+      if (dropDecision.accepted) {
+        working = retimed.items;
+        hadInvalidPlacement = hadInvalidPlacement || retimed.hasInvalidPlacement;
+
+        repairs.push({
+          step: step++,
+          action: "remove_core",
+          targetExperienceId: dropped.removedId,
+          reason: "Still overflow after optional removal, drop the least valuable core",
+          beforeOverflowMin: overflowBefore,
+          afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
+        });
+
+        overflowBefore = getOverflowMin(working, input.dailyEndSlot);
+      }
     }
   }
 
@@ -855,6 +1020,7 @@ function repairScheduleFlow(
     repairs,
     flowBefore,
     flowAfter,
+    hadInvalidPlacement,
   };
 }
 
@@ -880,7 +1046,7 @@ export function scheduleDayPlan(
     primaryPeak?.experience.id,
   );
 
-  const timed = realizeTimeline(
+  const timedResult = realizeTimeline(
     slotted,
     plannedMap,
     template,
@@ -890,15 +1056,23 @@ export function scheduleDayPlan(
 
   const repaired = repairScheduleFlow(
     dayPlan,
-    timed,
+    timedResult.items,
     plannedMap,
     template,
     input,
+    narrativeType,
     primaryPeak?.experience.id,
   );
 
   const report = evaluateFeasibility(dayPlan, repaired.items, input.dailyEndSlot);
   const preFeasibilityStatus = toFeasibilityStatus(overflowMin);
+
+  const finalStatus =
+    repaired.hadInvalidPlacement || timedResult.hasInvalidPlacement
+      ? "partial_fail"
+      : repaired.repairs.length > 0
+        ? (report.isFeasible ? "repaired" : "partial_fail")
+        : (report.isFeasible ? "scheduled" : "partial_fail");
 
   return {
     schedule: {
@@ -917,15 +1091,14 @@ export function scheduleDayPlan(
       flowScoreBeforeRepair: repaired.flowBefore.breakdown.total,
       flowScoreAfterRepair: repaired.flowAfter.breakdown.total,
       repairs: repaired.repairs,
-      finalStatus: repaired.repairs.length > 0
-        ? (report.isFeasible ? "repaired" : "partial_fail")
-        : (report.isFeasible ? "scheduled" : "partial_fail"),
+      finalStatus,
       notes: [
         `plannedItems=${flattened.length}`,
         `narrative=${narrativeType}`,
         `peak=${primaryPeak?.experience.id ?? "none"}`,
         `scheduledItems=${repaired.items.length}`,
         `firstStart=${repaired.items[0]?.startSlot ?? "none"}`,
+        `invalidPlacement=${timedResult.hasInvalidPlacement || repaired.hadInvalidPlacement}`,
         `issues=${report.issues.join(",") || "none"}`,
         ...repaired.flowBefore.notes.map((note) => `before:${note}`),
         ...repaired.flowAfter.notes.map((note) => `after:${note}`),
