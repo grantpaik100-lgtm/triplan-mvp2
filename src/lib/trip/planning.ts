@@ -35,9 +35,9 @@
  *
  * Notes:
  * - scheduling 전에 무엇을 선택할지 결정하는 상위 엔진이다.
- * - TriPlan 핵심 자산 중 Recommendation Engine에 해당한다.
  * - 이번 버전에서는 day composition(opener / peak / recovery_or_meal)을 hard rule로 반영한다.
  */
+
 import { DAILY_EXPERIENCE_COUNT_BY_DENSITY } from "./constants";
 import type {
   Area,
@@ -486,23 +486,64 @@ function hasRecoveryOrMeal(items: PlannedExperience[]): boolean {
   return items.some((item) => isRecoveryOrMealCandidate(item.experience));
 }
 
+function getCoverageSet(items: PlannedExperience[]) {
+  return {
+    openerIds: new Set(
+      items.filter((item) => isOpenerCandidate(item.experience)).map((item) => item.experience.id),
+    ),
+    peakIds: new Set(
+      items.filter((item) => isPeakCandidate(item.experience)).map((item) => item.experience.id),
+    ),
+    recoveryIds: new Set(
+      items
+        .filter((item) => isRecoveryOrMealCandidate(item.experience))
+        .map((item) => item.experience.id),
+    ),
+  };
+}
+
 function trimToMaxPerDay(
   items: PlannedExperience[],
   maxPerDay: number,
+  narrative: DayNarrativeRole,
 ): PlannedExperience[] {
-  if (items.length <= maxPerDay) return items;
+  let working = [...items];
 
-  const removabilityScore = (item: PlannedExperience): number => {
-    if (item.priority === "optional") return 100;
-    if (item.functionalRole === "rest" || item.functionalRole === "meal") return 80;
-    if (item.priority === "core") return 50;
-    return 0;
-  };
+  while (working.length > maxPerDay) {
+    const coverage = getCoverageSet(working);
 
-  return [...items]
-    .sort((a, b) => removabilityScore(b) - removabilityScore(a))
-    .slice(0, maxPerDay)
-    .sort((a, b) => getOrderScore(a) - getOrderScore(b));
+    const removable = working
+      .map((item) => {
+        const removingLeavesNoOpener =
+          coverage.openerIds.has(item.experience.id) && coverage.openerIds.size === 1;
+        const removingLeavesNoPeak =
+          coverage.peakIds.has(item.experience.id) && coverage.peakIds.size === 1;
+        const removingLeavesNoRecovery =
+          coverage.recoveryIds.has(item.experience.id) && coverage.recoveryIds.size === 1;
+
+        const protectedByNarrative =
+          (narrative === "immersion" && (removingLeavesNoOpener || (removingLeavesNoPeak && removingLeavesNoRecovery))) ||
+          (narrative === "peak" && (removingLeavesNoPeak || (removingLeavesNoOpener && removingLeavesNoRecovery))) ||
+          (narrative === "recovery" && (removingLeavesNoRecovery || (removingLeavesNoOpener && removingLeavesNoPeak)));
+
+        let removalScore = 0;
+        if (item.priority === "optional") removalScore += 100;
+        if (item.priority === "core") removalScore += 50;
+        if (item.functionalRole === "rest" || item.functionalRole === "meal") removalScore += 10;
+        if (item.priority === "anchor") removalScore -= 100;
+        if (protectedByNarrative) removalScore -= 200;
+
+        return { item, removalScore };
+      })
+      .sort((a, b) => b.removalScore - a.removalScore);
+
+    const target = removable[0]?.item;
+    if (!target) break;
+
+    working = working.filter((item) => item.experience.id !== target.experience.id);
+  }
+
+  return [...working].sort((a, b) => getOrderScore(a) - getOrderScore(b));
 }
 
 function addCoverageCandidate(
@@ -604,7 +645,7 @@ function ensureDayComposition(
     );
   }
 
-  return trimToMaxPerDay(result, maxPerDay);
+  return trimToMaxPerDay(result, maxPerDay, narrative);
 }
 
 export function planDays(
@@ -690,8 +731,8 @@ export function planDaysWithDiagnostics(
       anchorCandidates,
       coreCandidates,
       input,
-      maxOptionalCount,
-    ).slice(0, maxOptionalCount);
+      maxOptionalCount + 1,
+    ).slice(0, maxOptionalCount + 1);
 
     const anchors = buildPlannedAnchors(dedupeByExperienceId(anchorCandidates), input);
 
