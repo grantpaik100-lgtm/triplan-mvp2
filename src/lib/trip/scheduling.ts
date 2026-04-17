@@ -249,17 +249,33 @@ function classifyRhythmSlot(
 ): RhythmSlotType {
   if (item.experience.id === primaryPeakId) return "emotional_peak";
 
+  const lateTailOk = supportsLateTail(item);
+
   if (isRecoveryCandidate(item)) {
-    return narrativeType === "recovery" ? "recovery" : "cool_down";
+    if (lateTailOk) {
+      return narrativeType === "recovery" ? "recovery" : "cool_down";
+    }
+
+    // late-tail이 불가능한 recovery는 뒤로 보내면 계속 drop되므로
+    // peak day에서는 peak 직전 완충 구간으로, 나머지는 activation으로 보낸다.
+    return narrativeType === "peak" ? "recovery" : "activation";
   }
 
   if (item.experience.isMeal && item.priority !== "optional") {
-    return narrativeType === "immersion" ? "activation" : "cool_down";
+    if (lateTailOk) {
+      return narrativeType === "immersion" ? "activation" : "cool_down";
+    }
+
+    return narrativeType === "peak" ? "recovery" : "activation";
   }
 
   if (item.priority === "anchor") return "activation";
 
   if (item.priority === "optional") {
+    if (!lateTailOk) {
+      return narrativeType === "peak" ? "recovery" : "activation";
+    }
+
     return narrativeType === "recovery" ? "cool_down" : "recovery";
   }
 
@@ -272,7 +288,13 @@ function assignToRhythmSlots(
   primaryPeakId?: string,
 ): ScheduledItem[] {
   const template = buildNarrativeSlotTemplate(narrativeType, items.length);
-  const slotOrder = new Map(template.windows.map((window, idx) => [window.slot, idx]));
+
+  const orderForSorting: RhythmSlotType[] =
+    narrativeType === "peak"
+      ? ["warm_up", "activation", "recovery", "emotional_peak", "cool_down"]
+      : (template.windows.map((window) => window.slot) as RhythmSlotType[]);
+
+  const slotOrder = new Map(orderForSorting.map((slot, idx) => [slot, idx]));
 
   const slotted = items.map((item) => ({
     planned: item,
@@ -317,7 +339,6 @@ function assignToRhythmSlots(
     isPrimaryPeak: planned.experience.id === primaryPeakId,
   }));
 }
-
 function getWindowCenter(window?: NarrativeSlotWindow): number {
   if (!window) return 24;
   return Math.floor((window.minSlot + window.maxSlot) / 2);
