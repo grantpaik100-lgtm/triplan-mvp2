@@ -242,6 +242,18 @@ function isRecoveryCandidate(item: PlannedExperience): boolean {
   );
 }
 
+function supportsLateTail(item: PlannedExperience): boolean {
+  const allowed = item.experience.allowedTimes ?? [];
+
+  return (
+    allowed.includes("sunset") ||
+    allowed.includes("dinner") ||
+    allowed.includes("night")
+  );
+}
+
+
+
 function classifyRhythmSlot(
   item: PlannedExperience,
   narrativeType: DayNarrativeType,
