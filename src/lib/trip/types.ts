@@ -191,6 +191,17 @@ export type PlanningSelectionSummary = {
   items: PlanningSelectionItem[];
 };
 
+export type DayPlan = {
+  day: number;
+  areas: Area[];
+  anchor: PlannedExperience[];
+  core: PlannedExperience[];
+  optional: PlannedExperience[];
+  roughOrder: string[];
+  selection?: PlanningSelectionSummary;
+  lateFallbackReserve?: PlannedExperience[];
+};
+
 export type DayPlanningDiagnostic = {
   dayIndex: number;
   targetClusterStrategy: string;
