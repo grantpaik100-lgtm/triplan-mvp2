@@ -911,17 +911,17 @@ function compactDaySelection(params: {
   ]);
 
   const reserveLateFallbackPool = [...primaryAreaPool, ...spilloverPool]
-    .filter((item) => !selectedBaseIds.has(item.experience.id))
-    .filter((item) => canServeAsLateRecovery(item.experience))
-    .map((item) =>
-      toPlannedExperience(
-        item,
-        "optional",
-        "optional",
-        item.experience.isMeal ? "meal" : isRestLike(item.experience) ? "rest" : "optional",
-        ["feasibility_safe", "diversity_fill"],
-      ),
-    );
+  .filter((item) => !selectedBaseIds.has(item.experience.id))
+  .filter((item) => canServeAsLateRecovery(item.experience))
+  .map((item) =>
+    toPlannedExperience(
+      item,
+      "optional",
+      "optional",
+      item.experience.isMeal ? "meal" : isRestLike(item.experience) ? "rest" : "optional",
+      ["feasibility_safe", "diversity_fill"],
+    ),
+  );
 
   const lateFallbackIds = [...optionalPool, ...reserveLateFallbackPool]
     .filter((item) => item.experience.id !== peakCandidate?.experience.id)
