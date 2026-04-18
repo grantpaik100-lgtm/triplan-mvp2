@@ -1655,7 +1655,10 @@ export function scheduleDayPlan(
     input,
   });
 
-  const plannedMap = new Map(flattened.map((item) => [item.experience.id, item]));
+  const reserveItems = dayPlan.lateFallbackReserve ?? [];
+  const plannedMap = new Map(
+    [...flattened, ...reserveItems].map((item) => [item.experience.id, item]),
+  );
 
   const repaired = repairTimeline({
     fitted,
