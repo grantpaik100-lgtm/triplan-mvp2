@@ -71,6 +71,7 @@ type PlanningCompactSelectionResult = {
   targetItemCount: number;
   peakCandidate?: PlannedExperience;
   recoveryCandidate?: PlannedExperience;
+  lateFallbackIds: string[];
   spareCapacity: number;
 };
 
@@ -889,11 +890,38 @@ function compactDaySelection(params: {
     .filter((item) => isPeakCandidate(item.experience))
     .sort((a, b) => scorePeakForPlanning(b) - scorePeakForPlanning(a))[0];
 
-  const recoveryCandidate = pickFeasibleRecoveryCandidate(
+    const recoveryCandidate = pickFeasibleRecoveryCandidate(
     merged,
     optionalPool,
     peakCandidate,
   );
+
+  const lateFallbackIds = [...optionalPool, ...merged]
+    .filter((item) => item.experience.id !== peakCandidate?.experience.id)
+    .filter((item) => item.experience.id !== recoveryCandidate?.experience.id)
+    .filter((item) => canServeAsLateRecovery(item.experience))
+    .sort((a, b) => {
+      const aSameArea =
+        (recoveryCandidate && a.experience.area === recoveryCandidate.experience.area ? 2 : 0) +
+        (peakCandidate && a.experience.area === peakCandidate.experience.area ? 1 : 0);
+
+      const bSameArea =
+        (recoveryCandidate && b.experience.area === recoveryCandidate.experience.area ? 2 : 0) +
+        (peakCandidate && b.experience.area === peakCandidate.experience.area ? 1 : 0);
+
+      const aSameCluster =
+        (recoveryCandidate && a.themeCluster === recoveryCandidate.themeCluster ? 2 : 0) +
+        (peakCandidate && a.themeCluster === peakCandidate.themeCluster ? 1 : 0);
+
+      const bSameCluster =
+        (recoveryCandidate && b.themeCluster === recoveryCandidate.themeCluster ? 2 : 0) +
+        (peakCandidate && b.themeCluster === peakCandidate.themeCluster ? 1 : 0);
+
+      return (bSameArea + bSameCluster + b.planningScore) - (aSameArea + aSameCluster + a.planningScore);
+    })
+    .map((item) => item.experience.id)
+    .filter((id, index, arr) => arr.indexOf(id) === index)
+    .slice(0, 3);
 
   let targetItemCount =
     skeletonType === "relaxed" || skeletonType === "short" ? 3 : 4;
@@ -966,13 +994,14 @@ function compactDaySelection(params: {
 
   const trimmed = selected.slice(0, targetItemCount);
 
-  return {
+    return {
     items: trimmed,
     skeletonType,
     hardCap,
     targetItemCount,
     peakCandidate,
     recoveryCandidate,
+    lateFallbackIds,
     spareCapacity: Math.max(0, hardCap - trimmed.length),
   };
 }
@@ -1169,12 +1198,13 @@ export function planDaysWithDiagnostics(
       core: finalCore,
       optional: finalOptional,
       roughOrder,
-      selection: {
+            selection: {
         skeletonType: compact.skeletonType,
         hardCap: compact.hardCap,
         targetItemCount: compact.targetItemCount,
         peakCandidateId: compact.peakCandidate?.experience.id,
         recoveryCandidateId: compact.recoveryCandidate?.experience.id,
+        lateFallbackIds: compact.lateFallbackIds,
         selectedOrder: roughOrder,
         spareCapacity: compact.spareCapacity,
         items: compact.items.map((item) => ({
