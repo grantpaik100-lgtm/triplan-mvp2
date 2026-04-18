@@ -878,12 +878,21 @@ function pickFeasibleRecoveryCandidate(
 function compactDaySelection(params: {
   merged: PlannedExperience[];
   optionalPool: PlannedExperience[];
+  primaryAreaPool: ScoredExperience[];
+  spilloverPool: ScoredExperience[];
   skeletonType: DaySkeletonType;
   maxPerDay: number;
   narrative: DayNarrativeRole;
 }): PlanningCompactSelectionResult {
-  const { merged, optionalPool, skeletonType, maxPerDay, narrative } = params;
-
+    const {
+    merged,
+    optionalPool,
+    primaryAreaPool,
+    spilloverPool,
+    skeletonType,
+    maxPerDay,
+    narrative,
+  } = params;
   const hardCap = Math.min(getSkeletonHardCap(skeletonType), maxPerDay);
 
   const peakCandidate = [...merged]
@@ -896,7 +905,25 @@ function compactDaySelection(params: {
     peakCandidate,
   );
 
-  const lateFallbackIds = [...optionalPool, ...merged]
+    const selectedBaseIds = new Set([
+    ...merged.map((item) => item.experience.id),
+    ...optionalPool.map((item) => item.experience.id),
+  ]);
+
+  const reserveLateFallbackPool = [...primaryAreaPool, ...spilloverPool]
+    .filter((item) => !selectedBaseIds.has(item.experience.id))
+    .filter((item) => canServeAsLateRecovery(item.experience))
+    .map((item) =>
+      toPlannedExperience(
+        item,
+        "optional",
+        "optional",
+        item.experience.isMeal ? "meal" : isRestLike(item.experience) ? "rest" : "optional",
+        ["feasibility_safe", "diversity_fill"],
+      ),
+    );
+
+  const lateFallbackIds = [...optionalPool, ...reserveLateFallbackPool]
     .filter((item) => item.experience.id !== peakCandidate?.experience.id)
     .filter((item) => item.experience.id !== recoveryCandidate?.experience.id)
     .filter((item) => canServeAsLateRecovery(item.experience))
@@ -917,12 +944,24 @@ function compactDaySelection(params: {
         (recoveryCandidate && b.themeCluster === recoveryCandidate.themeCluster ? 2 : 0) +
         (peakCandidate && b.themeCluster === peakCandidate.themeCluster ? 1 : 0);
 
-      return (bSameArea + bSameCluster + b.planningScore) - (aSameArea + aSameCluster + a.planningScore);
+      const aMealOrRest =
+        (a.experience.isMeal ? 1.2 : 0) +
+        (isRestLike(a.experience) ? 1.0 : 0) +
+        (a.experience.timeFlexibility === "high" ? 0.6 : 0);
+
+      const bMealOrRest =
+        (b.experience.isMeal ? 1.2 : 0) +
+        (isRestLike(b.experience) ? 1.0 : 0) +
+        (b.experience.timeFlexibility === "high" ? 0.6 : 0);
+
+      const aScore = aSameArea + aSameCluster + aMealOrRest + a.planningScore;
+      const bScore = bSameArea + bSameCluster + bMealOrRest + b.planningScore;
+
+      return bScore - aScore;
     })
     .map((item) => item.experience.id)
     .filter((id, index, arr) => arr.indexOf(id) === index)
-    .slice(0, 3);
-
+    .slice(0, 4);
   let targetItemCount =
     skeletonType === "relaxed" || skeletonType === "short" ? 3 : 4;
 
@@ -1124,6 +1163,8 @@ export function planDaysWithDiagnostics(
     const compact = compactDaySelection({
       merged,
       optionalPool: optional,
+      primaryAreaPool,
+      spilloverPool,
       skeletonType,
       maxPerDay: densityMaxPerDay,
       narrative: dayNarrative,
