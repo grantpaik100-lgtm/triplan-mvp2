@@ -1095,6 +1095,139 @@ function hasPreservedRecovery(items: ScheduledItem[], recoveryId?: string): bool
   return items.some((item) => item.experienceId === recoveryId);
 }
 
+function isLateFallbackCandidate(
+  item: PlannedExperience,
+  referencePeak?: PlannedExperience,
+  referenceRecovery?: PlannedExperience,
+): boolean {
+  if (item.experience.recommendedDuration > 90) return false;
+  if (item.experience.fatigue > 3) return false;
+
+  const allowed = safeAllowedTimes(item.experience);
+  const lateFriendly =
+    allowed.length === 0 ||
+    allowed.includes("afternoon") ||
+    allowed.includes("sunset") ||
+    allowed.includes("dinner") ||
+    allowed.includes("night");
+
+  if (!lateFriendly) return false;
+
+  const isMeal = item.experience.isMeal;
+  const isRest = isRecoveryCandidate(item);
+  const highFlex = item.experience.timeFlexibility === "high";
+
+  if (!isMeal && !isRest && !highFlex) return false;
+
+  if (referenceRecovery) {
+    if (
+      item.experience.area === referenceRecovery.experience.area ||
+      item.themeCluster === referenceRecovery.themeCluster
+    ) {
+      return true;
+    }
+  }
+
+  if (referencePeak) {
+    if (
+      item.experience.area === referencePeak.experience.area ||
+      item.themeCluster === referencePeak.themeCluster
+    ) {
+      return true;
+    }
+  }
+
+  return isMeal || isRest || highFlex;
+}
+
+function pickLateFallbackCandidate(params: {
+  working: ScheduledItem[];
+  plannedMap: Map<string, PlannedExperience>;
+  primaryPeak?: PlannedExperience;
+  primaryRecovery?: PlannedExperience;
+}): PlannedExperience | undefined {
+  const { working, plannedMap, primaryPeak, primaryRecovery } = params;
+
+  const usedIds = new Set(working.map((item) => item.experienceId));
+
+  const pool = Array.from(plannedMap.values())
+    .filter((item) => !usedIds.has(item.experience.id))
+    .filter((item) =>
+      isLateFallbackCandidate(item, primaryPeak, primaryRecovery),
+    )
+    .sort((a, b) => {
+      const aSameArea =
+        (primaryRecovery && a.experience.area === primaryRecovery.experience.area ? 2 : 0) +
+        (primaryPeak && a.experience.area === primaryPeak.experience.area ? 1 : 0);
+
+      const bSameArea =
+        (primaryRecovery && b.experience.area === primaryRecovery.experience.area ? 2 : 0) +
+        (primaryPeak && b.experience.area === primaryPeak.experience.area ? 1 : 0);
+
+      const aSameCluster =
+        (primaryRecovery && a.themeCluster === primaryRecovery.themeCluster ? 2 : 0) +
+        (primaryPeak && a.themeCluster === primaryPeak.themeCluster ? 1 : 0);
+
+      const bSameCluster =
+        (primaryRecovery && b.themeCluster === primaryRecovery.themeCluster ? 2 : 0) +
+        (primaryPeak && b.themeCluster === primaryPeak.themeCluster ? 1 : 0);
+
+      const aMealOrRest =
+        (a.experience.isMeal ? 1.2 : 0) +
+        (isRecoveryCandidate(a) ? 1.0 : 0) +
+        (a.experience.timeFlexibility === "high" ? 0.6 : 0);
+
+      const bMealOrRest =
+        (b.experience.isMeal ? 1.2 : 0) +
+        (isRecoveryCandidate(b) ? 1.0 : 0) +
+        (b.experience.timeFlexibility === "high" ? 0.6 : 0);
+
+      const aScore = aSameArea + aSameCluster + aMealOrRest + a.planningScore;
+      const bScore = bSameArea + bSameCluster + bMealOrRest + b.planningScore;
+
+      return bScore - aScore;
+    });
+
+  return pool[0];
+}
+
+function tryInsertLateFallbackSupport(params: {
+  working: ScheduledItem[];
+  input: PlanningInput;
+  plannedMap: Map<string, PlannedExperience>;
+  primaryPeak?: PlannedExperience;
+  primaryRecovery?: PlannedExperience;
+}): { items: ScheduledItem[]; insertedId?: string } {
+  const { working, input, plannedMap, primaryPeak, primaryRecovery } = params;
+
+  const fallback = pickLateFallbackCandidate({
+    working,
+    plannedMap,
+    primaryPeak,
+    primaryRecovery,
+  });
+
+  if (!fallback) {
+    return { items: working };
+  }
+
+  const inserted = tryReinsertCriticalItem({
+    working,
+    target: fallback,
+    forcedRole: "soft_end",
+    input,
+    plannedMap,
+  });
+
+  const insertedOk = inserted.some(
+    (item) => item.experienceId === fallback.experience.id,
+  );
+
+  return {
+    items: inserted,
+    insertedId: insertedOk ? fallback.experience.id : undefined,
+  };
+}
 function tryReinsertCriticalItem(params: {
   working: ScheduledItem[];
   target: PlannedExperience;
@@ -1255,12 +1388,14 @@ function repairTimeline(params: {
     });
   }
 
+   const substitutedExperienceIds: string[] = [];
+
   if (primaryRecovery && !hasPreservedRecovery(working, primaryRecovery.experience.id)) {
     const beforeOverflowMin = getOverflowMin(working, input.dailyEndSlot);
     const trimmed = [...working]
       .filter((item) => !(item.priority === "optional" && item.flowRole !== "peak"));
 
-    working = tryReinsertCriticalItem({
+    const reinjectedRecovery = tryReinsertCriticalItem({
       working: trimmed,
       target: primaryRecovery,
       forcedRole: "recovery",
@@ -1268,14 +1403,53 @@ function repairTimeline(params: {
       plannedMap,
     });
 
-    repairs.push({
-      step: step++,
-      action: "insert_recovery",
-      targetExperienceId: primaryRecovery.experience.id,
-      beforeOverflowMin,
-      afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
-      reason: "Reinsert missing recovery after trimming non-critical support",
-    });
+    const recoveryRestored = hasPreservedRecovery(
+      reinjectedRecovery,
+      primaryRecovery.experience.id,
+    );
+
+    if (recoveryRestored) {
+      working = reinjectedRecovery;
+
+      repairs.push({
+        step: step++,
+        action: "insert_recovery",
+        targetExperienceId: primaryRecovery.experience.id,
+        beforeOverflowMin,
+        afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
+        reason: "Reinsert missing recovery after trimming non-critical support",
+      });
+    } else {
+      const fallbackInserted = tryInsertLateFallbackSupport({
+        working: trimmed,
+        input,
+        plannedMap,
+        primaryPeak,
+        primaryRecovery,
+      });
+
+      working = fallbackInserted.items;
+
+      if (fallbackInserted.insertedId) {
+        substitutedExperienceIds.push(fallbackInserted.insertedId);
+        notes.push(
+          `lateFallbackInsert=${fallbackInserted.insertedId}:after_missing_recovery`,
+        );
+
+        repairs.push({
+          step: step++,
+          action: "insert_recovery",
+          targetExperienceId: fallbackInserted.insertedId,
+          beforeOverflowMin,
+          afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
+          reason: "Fallback late support inserted after recovery soft miss",
+        });
+      } else {
+        notes.push(
+          `softMiss=${primaryRecovery.experience.id}:protected_role=${primaryRecovery.functionalRole === "rest" ? "soft_end" : "recovery"}`,
+        );
+      }
+    }
   }
 
   const preservedPeak = hasPreservedPeak(working, primaryPeak?.experience.id);
@@ -1283,16 +1457,24 @@ function repairTimeline(params: {
     ? hasPreservedRecovery(working, primaryRecovery.experience.id)
     : true;
 
+   const preservedPeak = hasPreservedPeak(working, primaryPeak?.experience.id);
+  const preservedRecovery = hasPreservedRecovery(
+    working,
+    primaryRecovery?.experience.id,
+  );
+  const recoverySoftRecovered =
+    preservedRecovery || substitutedExperienceIds.length > 0 || !primaryRecovery;
+
   const timelineDiagnostics: TimelineDiagnostics = {
     overflowMin: overflow,
     invalidPlacement:
       fitted.invalidPlacement ||
       !preservedPeak,
     compressedExperienceIds: Array.from(new Set(compressedExperienceIds)),
-    substitutedExperienceIds: [],
+    substitutedExperienceIds: Array.from(new Set(substitutedExperienceIds)),
     droppedOptionalIds: Array.from(new Set(droppedOptionalIds)),
     preservedPeak,
-    preservedRecovery,
+    preservedRecovery: recoverySoftRecovered,
     notes,
   };
 
@@ -1480,7 +1662,7 @@ export function scheduleDayPlan(
 
   const report = evaluateFeasibility(dayPlan, repaired.items, input.dailyEndSlot);
 
-  const criticalFailure =
+    const criticalFailure =
     !repaired.timelineDiagnostics.preservedPeak ||
     repaired.timelineDiagnostics.invalidPlacement;
 
