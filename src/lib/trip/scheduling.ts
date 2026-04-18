@@ -1,10 +1,10 @@
 /**
  * TriPlan V3
  * Current Role:
- * - planning 결과를 시간 순서와 duration, 이동, fatigue, time window 제약에 맞게 실제 일정 시퀀스로 배치하는 scheduling engine file이다.
+ * - planning 결과를 실제 하루 일정으로 배치하는 scheduling engine file이다.
  *
  * Target Role:
- * - feasible time placement가 아니라 narrative-aware experience flow sequence를 생성하는 공식 scheduling layer가 되어야 한다.
+ * - slot-first 배치기가 아니라 sequence-first Experience Flow Engine이어야 한다.
  *
  * Chain:
  * - engine
@@ -34,9 +34,10 @@
  * - 없음
  *
  * Notes:
- * - V2에서는 rough order 기반 sequential placement를 narrative + rhythm + repair 구조로 재정의한다.
- * - 이번 버전에서는 invalid placement 발생 시 dropped item diagnostics를 기록하고,
- *   opener / peak / recovery 역할 기반 replacement repair를 시도한다.
+ * - Scheduling V3는 experience sequence를 먼저 만들고,
+ *   그 다음 order-preserving 방식으로 timeline fitting을 수행한다.
+ * - recovery는 hard-preserve 대상이다.
+ * - peak는 day middle에 위치하도록 sequence와 fitting 단계에서 모두 보호한다.
  */
 
 import { getAreaDistanceMinutes } from "./area";
@@ -46,66 +47,57 @@ import type {
   DayPlan,
   DaySchedule,
   DaySchedulingDiagnostic,
+  DaySkeletonType,
+  ExperienceMetadata,
+  ExperienceSequenceNode,
   FeasibilityReport,
   FeasibilityStatus,
-  FlowScoreBreakdown,
+  FlowRole,
+  FlowRoleAffinity,
   PlannedExperience,
   PlanningInput,
   RepairActionLog,
   RhythmSlotType,
   ScheduleIssue,
   ScheduledItem,
+  SequenceDiagnostics,
+  TimelineDiagnostics,
 } from "./types";
 
-type NarrativeSlotWindow = {
-  slot: RhythmSlotType;
-  minSlot: number;
-  maxSlot: number;
-};
-
-type NarrativeSlotTemplate = {
-  windows: NarrativeSlotWindow[];
-};
-
-type FlowEvaluation = {
-  breakdown: FlowScoreBreakdown;
+type SequenceBuildResult = {
+  skeletonType: DaySkeletonType;
+  ordered: PlannedExperience[];
+  nodes: ExperienceSequenceNode[];
+  primaryPeak?: PlannedExperience;
+  primaryRecovery?: PlannedExperience;
   notes: string[];
 };
 
-type RealizeOptions = {
-  ignorePeakPreference?: boolean;
-  relaxSlotWindows?: boolean;
+type SequenceEvaluation = {
+  flowScore: number;
+  smoothnessScore: number;
+  fatigueScore: number;
+  peakPositionScore: number;
+  recoveryScore: number;
+  continuityScore: number;
+  notes: string[];
 };
 
-type DroppedPlacementDiagnostic = {
-  experienceId: string;
-  placeName: string;
-  role: "opener" | "peak" | "recovery" | "optional";
-  reason:
-    | "time_window_mismatch"
-    | "slot_conflict"
-    | "travel_overflow"
-    | "peak_rule_violation";
-  preferredTime?: string;
-  allowedTimes?: string[];
-  rhythmSlotType?: RhythmSlotType;
-};
-
-type TimelineRealization = {
+type TimelineFitResult = {
   items: ScheduledItem[];
-  hasInvalidPlacement: boolean;
-  droppedExperienceIds: string[];
-  droppedItems: DroppedPlacementDiagnostic[];
+  invalidPlacement: boolean;
+  droppedOptionalIds: string[];
+  compressedExperienceIds: string[];
+  notes: string[];
 };
 
-const FLOW_WEIGHTS = {
-  PEAK: 10,
-  FATIGUE: 5,
-  TRAVEL: 4,
-  DIVERSITY: 4,
-  MEAL: 3,
-  COMPANION: 4,
-} as const;
+type RepairResult = {
+  items: ScheduledItem[];
+  repairs: RepairActionLog[];
+  timelineDiagnostics: TimelineDiagnostics;
+};
+
+const MAX_FATIGUE_SAFE = 15;
 
 function flattenDayPlan(dayPlan: DayPlan): PlannedExperience[] {
   const orderMap = new Map(dayPlan.roughOrder.map((id, idx) => [id, idx]));
@@ -140,459 +132,911 @@ function toFeasibilityStatus(overflowMin: number): FeasibilityStatus {
   return "overflow";
 }
 
-function assignDayNarrativeType(
-  dayIndex: number,
-  totalDays: number,
-): DayNarrativeType {
-  if (dayIndex === 0) return "immersion";
-  if (dayIndex === totalDays - 1) return "recovery";
-  return "peak";
+function toNarrativeType(skeletonType: DaySkeletonType): DayNarrativeType {
+  if (skeletonType === "relaxed") return "recovery";
+  if (skeletonType === "peak_centric") return "peak";
+  return "immersion";
 }
 
-function buildNarrativeSlotTemplate(
-  narrativeType: DayNarrativeType,
-  itemCount: number,
-): NarrativeSlotTemplate {
-  if (itemCount <= 2) {
-    if (narrativeType === "recovery") {
-      return {
-        windows: [
-          { slot: "warm_up", minSlot: 18, maxSlot: 24 },
-          { slot: "cool_down", minSlot: 30, maxSlot: 40 },
-        ],
-      };
-    }
-
-    return {
-      windows: [
-        { slot: "warm_up", minSlot: 18, maxSlot: 24 },
-        { slot: "emotional_peak", minSlot: 28, maxSlot: 38 },
-      ],
-    };
+function flowRoleToRhythmSlotType(role: FlowRole): RhythmSlotType {
+  switch (role) {
+    case "opener":
+      return "warm_up";
+    case "activation":
+    case "support":
+      return "activation";
+    case "peak":
+      return "emotional_peak";
+    case "recovery":
+    case "soft_end":
+      return "cool_down";
+    default:
+      return "activation";
   }
-
-  if (narrativeType === "immersion") {
-    return {
-      windows: [
-        { slot: "warm_up", minSlot: 18, maxSlot: 23 },
-        { slot: "activation", minSlot: 22, maxSlot: 29 },
-        { slot: "emotional_peak", minSlot: 30, maxSlot: 37 },
-        { slot: "cool_down", minSlot: 34, maxSlot: 42 },
-      ],
-    };
-  }
-
-  if (narrativeType === "recovery") {
-    return {
-      windows: [
-        { slot: "warm_up", minSlot: 18, maxSlot: 23 },
-        { slot: "activation", minSlot: 22, maxSlot: 28 },
-        { slot: "recovery", minSlot: 26, maxSlot: 34 },
-        { slot: "cool_down", minSlot: 32, maxSlot: 40 },
-      ],
-    };
-  }
-
-  return {
-    windows: [
-      { slot: "warm_up", minSlot: 18, maxSlot: 23 },
-      { slot: "activation", minSlot: 22, maxSlot: 29 },
-      { slot: "emotional_peak", minSlot: 30, maxSlot: 37 },
-      { slot: "recovery", minSlot: 34, maxSlot: 40 },
-      { slot: "cool_down", minSlot: 36, maxSlot: 44 },
-    ],
-  };
 }
 
-function getWindowMap(template: NarrativeSlotTemplate): Map<RhythmSlotType, NarrativeSlotWindow> {
-  return new Map(template.windows.map((window) => [window.slot, window]));
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  if (value <= 0) return 0;
+  if (value >= 1) return 1;
+  return value;
 }
 
-function scorePeakCandidate(item: PlannedExperience): number {
-  let score = item.planningScore;
-  const selectionTags = item.selectionReason?.tags ?? [];
-
-  if (item.priority === "anchor") score += 100;
-  if (selectionTags.includes("must_place")) score += 15;
-  if (selectionTags.includes("must_experience")) score += 15;
-  if (item.experience.preferredTime === "sunset") score += 10;
-  if (item.experience.preferredTime === "night") score += 8;
-  if (item.experience.isNightFriendly) score += 8;
-  if (item.experience.isMeal) score += 4;
-  if (item.themeCluster === "night_view") score += 6;
-
-  return score;
+function normalizeCountScore(count: number, target: number, spread = 2): number {
+  const gap = Math.abs(count - target);
+  return Math.max(0, 1 - gap / spread);
 }
 
-function selectPrimaryPeak(items: PlannedExperience[]): PlannedExperience | undefined {
-  if (items.length === 0) return undefined;
-  return [...items].sort((a, b) => scorePeakCandidate(b) - scorePeakCandidate(a))[0];
+function safeAllowedTimes(exp: ExperienceMetadata) {
+  return Array.isArray(exp.allowedTimes) ? exp.allowedTimes : [];
 }
 
 function isRecoveryCandidate(item: PlannedExperience): boolean {
-  const placeType = item.experience.placeType ?? "";
+  const placeType = (item.experience.placeType ?? "").toLowerCase();
 
   return (
     item.functionalRole === "rest" ||
     item.functionalRole === "transition_safe" ||
-    placeType.toLowerCase().includes("cafe") ||
+    placeType.includes("cafe") ||
     item.experience.features.quiet >= 0.6 ||
     item.themeCluster === "cafe_relax" ||
-    item.themeCluster === "walk_local"
+    item.themeCluster === "walk_local" ||
+    item.themeCluster === "nature_scenery"
   );
 }
 
-function supportsLateTail(item: PlannedExperience): boolean {
-  const allowed = item.experience.allowedTimes ?? [];
+function isOpenerCandidate(item: PlannedExperience): boolean {
+  const allowed = safeAllowedTimes(item.experience);
+
+  const earlyFriendly =
+    allowed.length === 0 ||
+    allowed.includes("morning") ||
+    allowed.includes("late_morning") ||
+    allowed.includes("lunch") ||
+    allowed.includes("afternoon");
 
   return (
-    allowed.includes("sunset") ||
-    allowed.includes("dinner") ||
-    allowed.includes("night")
+    earlyFriendly &&
+    item.experience.fatigue <= 3 &&
+    !item.experience.isNightFriendly
   );
 }
 
-
-
-function classifyRhythmSlot(
-  item: PlannedExperience,
-  narrativeType: DayNarrativeType,
-  primaryPeakId?: string,
-): RhythmSlotType {
-  if (item.experience.id === primaryPeakId) return "emotional_peak";
-
-  const lateTailOk = supportsLateTail(item);
-
-  if (isRecoveryCandidate(item)) {
-    if (lateTailOk) {
-      return narrativeType === "recovery" ? "recovery" : "cool_down";
-    }
-
-    // late-tail이 불가능한 recovery는 뒤로 보내면 계속 drop되므로
-    // peak day에서는 peak 직전 완충 구간으로, 나머지는 activation으로 보낸다.
-    return narrativeType === "peak" ? "recovery" : "activation";
+function isPeakLikeCandidate(item: PlannedExperience): boolean {
+  if (item.priority === "anchor") return true;
+  if (item.themeCluster === "night_view") return true;
+  if (item.functionalRole === "viewpoint") return true;
+  if (item.experience.preferredTime === "sunset" || item.experience.preferredTime === "night") {
+    return true;
   }
 
-  if (item.experience.isMeal && item.priority !== "optional") {
-    if (lateTailOk) {
-      return narrativeType === "immersion" ? "activation" : "cool_down";
-    }
-
-    return narrativeType === "peak" ? "recovery" : "activation";
-  }
-
-  if (item.priority === "anchor") return "activation";
-
-  if (item.priority === "optional") {
-    if (!lateTailOk) {
-      return narrativeType === "peak" ? "recovery" : "activation";
-    }
-
-    return narrativeType === "recovery" ? "cool_down" : "recovery";
-  }
-
-  return "activation";
+  return item.planningScore >= 0.75 * Math.max(item.planningScore, 1);
 }
 
-function assignToRhythmSlots(
+function hasStrongAnchor(items: PlannedExperience[]): boolean {
+  return items.some((item) => {
+    const tags = item.selectionReason?.tags ?? [];
+    return (
+      item.priority === "anchor" ||
+      tags.includes("must_place") ||
+      tags.includes("must_experience") ||
+      item.experience.priorityHints.canBeAnchor
+    );
+  });
+}
+
+function computeAvailableMinutes(input: PlanningInput): number {
+  return Math.max(0, (input.dailyEndSlot - input.dailyStartSlot) * 30);
+}
+
+function selectDaySkeleton(params: {
+  items: PlannedExperience[];
+  input: PlanningInput;
+  dayIndex: number;
+  totalDays: number;
+}): DaySkeletonType {
+  const { items, input, dayIndex, totalDays } = params;
+  const availableMin = computeAvailableMinutes(input);
+  const candidateCount = items.length;
+  const hasAnchor = hasStrongAnchor(items);
+  const restBias = items.reduce((sum, item) => sum + item.experience.features.quiet, 0) / Math.max(items.length, 1);
+
+  if (availableMin <= 300 || candidateCount <= 3) {
+    return "short";
+  }
+
+  if (input.dailyDensity >= 4 && candidateCount >= 5) {
+    return "extended";
+  }
+
+  if (hasAnchor && dayIndex > 0 && dayIndex < totalDays - 1) {
+    return "peak_centric";
+  }
+
+  if (restBias >= 0.62 || (dayIndex === totalDays - 1 && input.dailyDensity <= 3)) {
+    return "relaxed";
+  }
+
+  return "balanced";
+}
+
+function computeFlowRoleAffinity(item: PlannedExperience): FlowRoleAffinity {
+  const exp = item.experience;
+  const allowed = safeAllowedTimes(exp);
+  const quiet = clamp01(exp.features.quiet);
+  const activity = clamp01(exp.features.activityIntensity);
+  const romantic = clamp01(exp.features.romantic);
+  const local = clamp01(exp.features.local);
+  const nature = clamp01(exp.features.nature);
+  const fatiguePenalty = exp.fatigue / 5;
+
+  const opener =
+    (isOpenerCandidate(item) ? 0.45 : 0.15) +
+    (1 - fatiguePenalty) * 0.25 +
+    quiet * 0.2 +
+    (allowed.includes("morning") || allowed.includes("late_morning") || allowed.length === 0 ? 0.1 : 0);
+
+  const activation =
+    0.2 +
+    activity * 0.35 +
+    local * 0.15 +
+    (item.priority === "anchor" ? 0.1 : 0) +
+    (exp.isMeal ? 0.05 : 0);
+
+  const support =
+    0.2 +
+    clamp01(exp.features.shopping) * 0.15 +
+    clamp01(exp.features.culture) * 0.15 +
+    local * 0.1 +
+    (exp.isMeal ? 0.15 : 0) +
+    (item.priority === "optional" ? 0.1 : 0);
+
+  const peak =
+    (item.priority === "anchor" ? 0.35 : 0.15) +
+    (isPeakLikeCandidate(item) ? 0.25 : 0.05) +
+    activity * 0.15 +
+    romantic * 0.1 +
+    (exp.preferredTime === "sunset" ? 0.1 : 0) +
+    (exp.preferredTime === "night" ? 0.08 : 0) +
+    (item.functionalRole === "viewpoint" ? 0.1 : 0);
+
+  const recovery =
+    (isRecoveryCandidate(item) ? 0.4 : 0.1) +
+    quiet * 0.25 +
+    (1 - fatiguePenalty) * 0.15 +
+    (exp.isMeal ? 0.1 : 0.05) +
+    (allowed.includes("dinner") || allowed.includes("night") || allowed.length === 0 ? 0.1 : 0);
+
+  const softEnd =
+    (isRecoveryCandidate(item) ? 0.35 : 0.1) +
+    quiet * 0.2 +
+    (exp.isNightFriendly ? 0.15 : 0.05) +
+    romantic * 0.1 +
+    (allowed.includes("night") || allowed.length === 0 ? 0.15 : 0);
+
+  return {
+    opener: clamp01(opener),
+    activation: clamp01(activation),
+    support: clamp01(support),
+    peak: clamp01(peak),
+    recovery: clamp01(recovery),
+    softEnd: clamp01(softEnd),
+  };
+}
+
+function getAdjacencyCompatibility(prev: PlannedExperience, next: PlannedExperience): number {
+  const travel = getAreaDistanceMinutes(prev.experience.area, next.experience.area);
+  const fatigueGap = Math.abs(prev.experience.fatigue - next.experience.fatigue);
+  const sameCluster = prev.themeCluster && next.themeCluster && prev.themeCluster === next.themeCluster ? 1 : 0;
+  const indoorMix = prev.experience.isIndoor !== next.experience.isIndoor ? 0.1 : 0;
+
+  let score = 1;
+  score -= Math.min(0.45, travel / 120);
+  score -= fatigueGap * 0.08;
+  score += sameCluster ? 0.12 : 0;
+  score += indoorMix;
+
+  return clamp01(score);
+}
+
+function getMiddleTimeCompatibility(item: PlannedExperience, input: PlanningInput): number {
+  const preferred = getPreferredStartSlot(item.experience.preferredTime);
+  const middle = Math.floor((input.dailyStartSlot + input.dailyEndSlot) / 2);
+  const gap = Math.abs(preferred - middle);
+
+  const allowed = safeAllowedTimes(item.experience);
+  const middleAllowed =
+    allowed.length === 0 ||
+    isAllowedTimeSlot(allowed, middle) ||
+    isAllowedTimeSlot(allowed, middle - 1) ||
+    isAllowedTimeSlot(allowed, middle + 1);
+
+  let score = Math.max(0, 1 - gap / 16);
+  if (middleAllowed) score += 0.2;
+
+  return clamp01(score);
+}
+
+function selectPeak(items: PlannedExperience[], input: PlanningInput): PlannedExperience | undefined {
+  if (items.length === 0) return undefined;
+
+  return [...items]
+    .map((item) => {
+      const affinity = computeFlowRoleAffinity(item);
+      const middleFit = getMiddleTimeCompatibility(item, input);
+      const selectionTags = item.selectionReason?.tags ?? [];
+
+      const score =
+        item.planningScore * 0.35 +
+        affinity.peak * 0.25 +
+        middleFit * 0.15 +
+        (item.priority === "anchor" ? 0.1 : 0) +
+        (selectionTags.includes("must_place") || selectionTags.includes("must_experience") ? 0.1 : 0) +
+        (item.experience.isNightFriendly ? 0.05 : 0);
+
+      return { item, score };
+    })
+    .sort((a, b) => b.score - a.score)[0]?.item;
+}
+
+function selectRecovery(
   items: PlannedExperience[],
-  narrativeType: DayNarrativeType,
-  primaryPeakId?: string,
-): ScheduledItem[] {
-  const template = buildNarrativeSlotTemplate(narrativeType, items.length);
+  peak: PlannedExperience | undefined,
+): PlannedExperience | undefined {
+  if (items.length === 0) return undefined;
 
-  const orderForSorting: RhythmSlotType[] =
-    narrativeType === "peak"
-      ? ["warm_up", "activation", "recovery", "emotional_peak", "cool_down"]
-      : (template.windows.map((window) => window.slot) as RhythmSlotType[]);
+  const peakArea = peak?.experience.area;
 
-  const slotOrder = new Map(orderForSorting.map((slot, idx) => [slot, idx]));
+  return [...items]
+    .filter((item) => item.experience.id !== peak?.experience.id)
+    .map((item) => {
+      const affinity = computeFlowRoleAffinity(item);
+      const proximity = peakArea
+        ? clamp01(1 - getAreaDistanceMinutes(peakArea, item.experience.area) / 120)
+        : 0.5;
 
-  const slotted = items.map((item) => ({
-    planned: item,
-    slot: classifyRhythmSlot(item, narrativeType, primaryPeakId),
-  }));
+      const score =
+        affinity.recovery * 0.45 +
+        affinity.softEnd * 0.15 +
+        proximity * 0.2 +
+        (item.experience.timeFlexibility === "high" ? 0.1 : item.experience.timeFlexibility === "medium" ? 0.05 : 0) +
+        (item.experience.fatigue <= 3 ? 0.1 : 0);
 
-  slotted.sort((a, b) => {
-    const slotDiff = (slotOrder.get(a.slot) ?? 999) - (slotOrder.get(b.slot) ?? 999);
-    if (slotDiff !== 0) return slotDiff;
+      return { item, score };
+    })
+    .sort((a, b) => b.score - a.score)[0]?.item;
+}
 
-    if (a.planned.experience.id === primaryPeakId) return -1;
-    if (b.planned.experience.id === primaryPeakId) return 1;
+function selectBestByRole(params: {
+  items: PlannedExperience[];
+  usedIds: Set<string>;
+  role: Exclude<FlowRole, "peak">;
+  prev?: PlannedExperience;
+  next?: PlannedExperience;
+}): PlannedExperience | undefined {
+  const { items, usedIds, role, prev, next } = params;
 
-    return b.planned.planningScore - a.planned.planningScore;
+  return [...items]
+    .filter((item) => !usedIds.has(item.experience.id))
+    .map((item) => {
+      const affinity = computeFlowRoleAffinity(item);
+
+      const roleScore =
+        role === "opener"
+          ? affinity.opener
+          : role === "activation"
+            ? affinity.activation
+            : role === "support"
+              ? affinity.support
+              : role === "recovery"
+                ? affinity.recovery
+                : affinity.softEnd;
+
+      let adjacencyScore = 0.5;
+      if (prev) adjacencyScore = (adjacencyScore + getAdjacencyCompatibility(prev, item)) / 2;
+      if (next) adjacencyScore = (adjacencyScore + getAdjacencyCompatibility(item, next)) / 2;
+
+      const total =
+        roleScore * 0.55 +
+        adjacencyScore * 0.25 +
+        item.planningScore * 0.2;
+
+      return { item, score: total };
+    })
+    .sort((a, b) => b.score - a.score)[0]?.item;
+}
+
+function buildSkeletonRoles(skeletonType: DaySkeletonType): FlowRole[] {
+  switch (skeletonType) {
+    case "short":
+      return ["opener", "peak", "recovery"];
+    case "extended":
+      return ["opener", "activation", "support", "peak", "recovery"];
+    case "peak_centric":
+      return ["opener", "support", "peak", "recovery"];
+    case "relaxed":
+      return ["opener", "activation", "recovery", "soft_end"];
+    case "balanced":
+    default:
+      return ["opener", "activation", "peak", "recovery"];
+  }
+}
+
+function localOptimizeSequence(
+  ordered: PlannedExperience[],
+  peakId?: string,
+): PlannedExperience[] {
+  if (ordered.length <= 3) return ordered;
+
+  const optimized = [...ordered];
+  const peakIndex = optimized.findIndex((item) => item.experience.id === peakId);
+
+  if (peakIndex > 0 && peakIndex === optimized.length - 1) {
+    const [peak] = optimized.splice(peakIndex, 1);
+    optimized.splice(Math.max(1, optimized.length - 1), 0, peak);
+  }
+
+  for (let i = 1; i < optimized.length; i += 1) {
+    const prev = optimized[i - 1];
+    const current = optimized[i];
+
+    if (
+      prev.experience.fatigue >= 4 &&
+      current.experience.fatigue >= 4 &&
+      i + 1 < optimized.length
+    ) {
+      const next = optimized[i + 1];
+      if (next.experience.fatigue <= 3) {
+        optimized[i] = next;
+        optimized[i + 1] = current;
+      }
+    }
+  }
+
+  return optimized;
+}
+
+function buildExperienceSequence(params: {
+  dayPlan: DayPlan;
+  items: PlannedExperience[];
+  input: PlanningInput;
+  dayIndex: number;
+  totalDays: number;
+}): SequenceBuildResult {
+  const { items, input, dayIndex, totalDays } = params;
+
+  const skeletonType = selectDaySkeleton({
+    items,
+    input,
+    dayIndex,
+    totalDays,
   });
 
-  const firstActivationIndex = slotted.findIndex(
-    (item) =>
-      item.slot === "activation" &&
-      item.planned.experience.id !== primaryPeakId &&
-      !item.planned.experience.isMeal,
-  );
+  const skeletonRoles = buildSkeletonRoles(skeletonType);
+  const peak = selectPeak(items, input);
+  const recovery = selectRecovery(items, peak);
+  const usedIds = new Set<string>();
 
-  if (firstActivationIndex >= 0) {
-    slotted[firstActivationIndex] = {
-      ...slotted[firstActivationIndex],
-      slot: "warm_up",
-    };
+  const orderedByRole: Array<{ role: FlowRole; item: PlannedExperience }> = [];
+
+  if (peak) {
+    usedIds.add(peak.experience.id);
+  }
+  if (recovery) {
+    usedIds.add(recovery.experience.id);
   }
 
-  return slotted.map(({ planned, slot }) => ({
-    experienceId: planned.experience.id,
-    placeName: planned.experience.placeName,
-    startSlot: 0,
-    endSlot: 0,
-    durationMinutes: planned.experience.recommendedDuration,
-    priority: planned.priority,
-    planningTier: planned.planningTier,
-    functionalRole: planned.functionalRole,
-    themeCluster: planned.themeCluster,
-    rhythmSlotType: slot,
-    isPrimaryPeak: planned.experience.id === primaryPeakId,
-  }));
-}
-function getWindowCenter(window?: NarrativeSlotWindow): number {
-  if (!window) return 24;
-  return Math.floor((window.minSlot + window.maxSlot) / 2);
-}
-
-function collectAllowedSlots(
-  planned: PlannedExperience,
-  fromSlot: number,
-  toSlot: number,
-): number[] {
-  const allowed: number[] = [];
-
-  for (let slot = fromSlot; slot <= toSlot; slot += 1) {
-    if (isAllowedTimeSlot(planned.experience.allowedTimes, slot)) {
-      allowed.push(slot);
-    }
-  }
-
-  return allowed;
-}
-
-function pickBestSlot(
-  candidates: number[],
-  targetSlot: number,
-): number | undefined {
-  if (candidates.length === 0) return undefined;
-
-  return [...candidates].sort((a, b) => {
-    return Math.abs(a - targetSlot) - Math.abs(b - targetSlot);
-  })[0];
-}
-
-function findBestStartSlot(
-  planned: PlannedExperience,
-  earliestSlot: number,
-  latestSlot: number,
-  window: NarrativeSlotWindow | undefined,
-  options: {
-    preferredTargetSlot?: number;
-    relaxSlotWindows?: boolean;
-  },
-): number | null {
-  const boundedEarliest = Math.max(earliestSlot, 0);
-  const boundedLatest = Math.max(boundedEarliest, latestSlot);
-
-  const windowMin = options.relaxSlotWindows
-    ? boundedEarliest
-    : Math.max(boundedEarliest, window?.minSlot ?? boundedEarliest);
-
-  const windowMax = options.relaxSlotWindows
-    ? boundedLatest
-    : Math.min(boundedLatest, window?.maxSlot ?? boundedLatest);
-
-  const targetSlot =
-    options.preferredTargetSlot ??
-    getWindowCenter(window);
-
-  const windowCandidates = collectAllowedSlots(planned, windowMin, windowMax);
-  const fromWindow = pickBestSlot(windowCandidates, targetSlot);
-  if (fromWindow !== undefined) return fromWindow;
-
-  const fullCandidates = collectAllowedSlots(planned, boundedEarliest, boundedLatest);
-  const fromFull = pickBestSlot(fullCandidates, targetSlot);
-  if (fromFull !== undefined) return fromFull;
-
-  return null;
-}
-
-function inferDroppedRole(
-  item: ScheduledItem,
-  realizedCount: number,
-  primaryPeakId?: string,
-): DroppedPlacementDiagnostic["role"] {
-  // 1. rhythm slot 기준 우선 판정
-  if (item.rhythmSlotType === "warm_up") {
-    return "opener";
-  }
-
-  if (
-    item.rhythmSlotType === "recovery" ||
-    item.rhythmSlotType === "cool_down"
-  ) {
-    return "recovery";
-  }
-
-  if (item.rhythmSlotType === "emotional_peak") {
-    return "peak";
-  }
-
-  // 2. peak explicit fallback
-  if (
-    item.experienceId === primaryPeakId ||
-    item.isPrimaryPeak
-  ) {
-    return "peak";
-  }
-
-  // 3. first unresolved item fallback
-  if (realizedCount === 0) {
-    return "opener";
-  }
-
-  // 4. optional fallback
-  return "optional";
-}
-
-function inferDroppedReason(params: {
-  planned: PlannedExperience;
-  earliestSlot: number;
-  latestStartSlot: number;
-  slotWindow: NarrativeSlotWindow | undefined;
-  preferredTargetSlot?: number;
-  relaxSlotWindows?: boolean;
-}): DroppedPlacementDiagnostic["reason"] {
-  const {
-    planned,
-    earliestSlot,
-    latestStartSlot,
-    slotWindow,
-    preferredTargetSlot,
-    relaxSlotWindows,
-  } = params;
-
-  if (earliestSlot > latestStartSlot) {
-    return "travel_overflow";
-  }
-
-  const boundedEarliest = Math.max(earliestSlot, 0);
-  const boundedLatest = Math.max(boundedEarliest, latestStartSlot);
-
-  const windowMin = relaxSlotWindows
-    ? boundedEarliest
-    : Math.max(boundedEarliest, slotWindow?.minSlot ?? boundedEarliest);
-
-  const windowMax = relaxSlotWindows
-    ? boundedLatest
-    : Math.min(boundedLatest, slotWindow?.maxSlot ?? boundedLatest);
-
-  const windowCandidates = collectAllowedSlots(planned, windowMin, windowMax);
-  if (windowCandidates.length > 0) {
-    return "slot_conflict";
-  }
-
-  const fullCandidates = collectAllowedSlots(planned, boundedEarliest, boundedLatest);
-  if (fullCandidates.length > 0) {
-    if (preferredTargetSlot !== undefined) {
-      return "peak_rule_violation";
-    }
-    return "slot_conflict";
-  }
-
-  return "time_window_mismatch";
-}
-
-function realizeTimeline(
-  slotted: ScheduledItem[],
-  plannedMap: Map<string, PlannedExperience>,
-  template: NarrativeSlotTemplate,
-  dayStartSlot: number,
-  dayEndSlot: number,
-  options?: RealizeOptions,
-): TimelineRealization {
-  const windowMap = getWindowMap(template);
-  const realized: ScheduledItem[] = [];
-  const droppedExperienceIds: string[] = [];
-  const droppedItems: DroppedPlacementDiagnostic[] = [];
-  let hasInvalidPlacement = false;
-
-  for (const item of slotted) {
-    const planned = plannedMap.get(item.experienceId);
-    if (!planned) continue;
-
-    const durationSlots = minutesToSlots(item.durationMinutes);
-    const prev = realized[realized.length - 1];
-
-    const prevArea = prev
-      ? plannedMap.get(prev.experienceId)?.experience.area ?? planned.experience.area
-      : planned.experience.area;
-
-    const travelMinutes = prev
-      ? getAreaDistanceMinutes(prevArea, planned.experience.area)
-      : 0;
-
-    const earliestSlot = prev
-      ? prev.endSlot + minutesToSlots(travelMinutes)
-      : dayStartSlot;
-
-    const latestStartSlot = Math.max(dayStartSlot, dayEndSlot - durationSlots);
-    const slotWindow = item.rhythmSlotType
-      ? windowMap.get(item.rhythmSlotType)
-      : undefined;
-
-    const preferredTargetSlot =
-      item.isPrimaryPeak && !options?.ignorePeakPreference
-        ? getPreferredStartSlot(planned.experience.preferredTime)
-        : undefined;
-
-    const startSlot = findBestStartSlot(
-      planned,
-      earliestSlot,
-      latestStartSlot,
-      slotWindow,
-      {
-        preferredTargetSlot,
-        relaxSlotWindows: options?.relaxSlotWindows ?? false,
-      },
-    );
-
-    if (startSlot === null) {
-      hasInvalidPlacement = true;
-      droppedExperienceIds.push(item.experienceId);
-      droppedItems.push({
-        experienceId: item.experienceId,
-        placeName: item.placeName,
-        role: inferDroppedRole(item, realized.length, planned.experience.id),
-        reason: inferDroppedReason({
-          planned,
-          earliestSlot,
-          latestStartSlot,
-          slotWindow,
-          preferredTargetSlot,
-          relaxSlotWindows: options?.relaxSlotWindows ?? false,
-        }),
-        preferredTime: planned.experience.preferredTime,
-        allowedTimes: planned.experience.allowedTimes ?? [],
-        rhythmSlotType: item.rhythmSlotType,
-      });
+  for (const role of skeletonRoles) {
+    if (role === "peak" && peak) {
+      orderedByRole.push({ role, item: peak });
       continue;
     }
 
-    realized.push({
-      ...item,
-      startSlot,
-      endSlot: startSlot + durationSlots,
+    if (role === "recovery" && recovery) {
+      orderedByRole.push({ role, item: recovery });
+      continue;
+    }
+
+    const prev = orderedByRole[orderedByRole.length - 1]?.item;
+    const next =
+      role === "opener" || role === "activation" || role === "support"
+        ? peak
+        : undefined;
+
+    const picked = selectBestByRole({
+      items,
+      usedIds,
+      role,
+      prev,
+      next,
     });
+
+    if (picked) {
+      usedIds.add(picked.experience.id);
+      orderedByRole.push({ role, item: picked });
+    }
+  }
+
+  const seen = new Set<string>();
+  let ordered = orderedByRole
+    .filter(({ item }) => {
+      if (seen.has(item.experience.id)) return false;
+      seen.add(item.experience.id);
+      return true;
+    })
+    .map((entry) => entry.item);
+
+  if (peak && !ordered.some((x) => x.experience.id === peak.experience.id)) {
+    const insertAt = Math.max(1, Math.floor(ordered.length / 2));
+    ordered.splice(insertAt, 0, peak);
+  }
+
+  if (recovery && !ordered.some((x) => x.experience.id === recovery.experience.id)) {
+    ordered.push(recovery);
+  }
+
+  ordered = localOptimizeSequence(ordered, peak?.experience.id);
+
+  const nodeRoleMap = new Map<string, FlowRole>();
+  for (const entry of orderedByRole) {
+    nodeRoleMap.set(entry.item.experience.id, entry.role);
+  }
+
+  if (peak) nodeRoleMap.set(peak.experience.id, "peak");
+  if (recovery) nodeRoleMap.set(recovery.experience.id, skeletonType === "relaxed" ? "soft_end" : "recovery");
+
+  const nodes: ExperienceSequenceNode[] = ordered.map((item, index) => ({
+    experienceId: item.experience.id,
+    placeName: item.experience.placeName,
+    priority: item.priority,
+    planningTier: item.planningTier,
+    functionalRole: item.functionalRole,
+    themeCluster: item.themeCluster,
+    flowRole: nodeRoleMap.get(item.experience.id) ?? (index === 0 ? "opener" : index === ordered.length - 1 ? "recovery" : "support"),
+    sequenceIndex: index,
+    isPrimaryPeak: item.experience.id === peak?.experience.id,
+    roleAffinity: computeFlowRoleAffinity(item),
+  }));
+
+  return {
+    skeletonType,
+    ordered,
+    nodes,
+    primaryPeak: peak,
+    primaryRecovery: recovery,
+    notes: [
+      `skeleton=${skeletonType}`,
+      `sequenceCount=${ordered.length}`,
+      `peak=${peak?.experience.id ?? "none"}`,
+      `recovery=${recovery?.experience.id ?? "none"}`,
+    ],
+  };
+}
+
+function evaluateSequenceFlow(params: {
+  ordered: PlannedExperience[];
+  nodes: ExperienceSequenceNode[];
+  skeletonType: DaySkeletonType;
+  input: PlanningInput;
+  primaryPeak?: PlannedExperience;
+  primaryRecovery?: PlannedExperience;
+}): SequenceEvaluation {
+  const { ordered, nodes, input, primaryPeak, primaryRecovery } = params;
+
+  let smoothnessScore = 0;
+  let fatigueScore = 0;
+  let peakPositionScore = 0;
+  let recoveryScore = 0;
+  let continuityScore = 0;
+  const notes: string[] = [];
+
+  if (ordered.length === 0) {
+    return {
+      flowScore: 0,
+      smoothnessScore: 0,
+      fatigueScore: 0,
+      peakPositionScore: 0,
+      recoveryScore: 0,
+      continuityScore: 0,
+      notes: ["empty_sequence"],
+    };
+  }
+
+  for (let i = 1; i < ordered.length; i += 1) {
+    const prev = ordered[i - 1];
+    const current = ordered[i];
+    smoothnessScore += getAdjacencyCompatibility(prev, current);
+
+    const fatigueDelta = current.experience.fatigue - prev.experience.fatigue;
+    if (i < ordered.length - 1) {
+      if (fatigueDelta <= 2) fatigueScore += 0.7;
+      else fatigueScore += 0.2;
+    } else {
+      if (fatigueDelta <= 0) fatigueScore += 0.8;
+      else fatigueScore += 0.2;
+    }
+
+    if (prev.themeCluster !== current.themeCluster) {
+      continuityScore += 0.5;
+    } else {
+      continuityScore += 0.8;
+    }
+  }
+
+  const peakIndex = primaryPeak
+    ? ordered.findIndex((x) => x.experience.id === primaryPeak.experience.id)
+    : -1;
+
+  if (peakIndex >= 0) {
+    const target = Math.floor(ordered.length / 2);
+    const gap = Math.abs(peakIndex - target);
+    peakPositionScore = Math.max(0, 1 - gap / Math.max(1, ordered.length / 2));
+    notes.push(`peakIndex=${peakIndex}`);
+  } else {
+    notes.push("missing_peak");
+  }
+
+  const recoveryIndex = primaryRecovery
+    ? ordered.findIndex((x) => x.experience.id === primaryRecovery.experience.id)
+    : -1;
+
+  if (recoveryIndex >= 0) {
+    const peakFatigue = primaryPeak?.experience.fatigue ?? 5;
+    const recoveryFatigue = primaryRecovery?.experience.fatigue ?? 5;
+    const afterPeak = peakIndex >= 0 ? recoveryIndex > peakIndex : recoveryIndex === ordered.length - 1;
+
+    recoveryScore =
+      (afterPeak ? 0.5 : 0) +
+      (recoveryFatigue <= peakFatigue ? 0.3 : 0) +
+      (isRecoveryCandidate(primaryRecovery) ? 0.2 : 0);
+
+    notes.push(`recoveryIndex=${recoveryIndex}`);
+  } else {
+    notes.push("missing_recovery");
+  }
+
+  if (nodes[0]?.flowRole === "opener") continuityScore += 0.4;
+  if (nodes[nodes.length - 1]?.flowRole === "recovery" || nodes[nodes.length - 1]?.flowRole === "soft_end") {
+    continuityScore += 0.4;
+  }
+
+  const normalizedSmooth = ordered.length > 1 ? smoothnessScore / (ordered.length - 1) : 0.8;
+  const normalizedFatigue = ordered.length > 1 ? fatigueScore / (ordered.length - 1) : 0.8;
+  const normalizedContinuity = ordered.length > 1 ? continuityScore / (ordered.length - 1) : continuityScore;
+
+  const flowScore =
+    normalizedSmooth * 30 +
+    normalizedFatigue * 25 +
+    peakPositionScore * 25 +
+    recoveryScore * 20 +
+    normalizedContinuity * 10;
+
+  if (input.companionType === "family") {
+    const veryHighFatigueCount = ordered.filter((item) => item.experience.fatigue >= 4).length;
+    if (veryHighFatigueCount >= 2) {
+      notes.push("family_high_fatigue_risk");
+    }
   }
 
   return {
-    items: realized,
-    hasInvalidPlacement,
-    droppedExperienceIds,
-    droppedItems,
+    flowScore,
+    smoothnessScore: normalizedSmooth,
+    fatigueScore: normalizedFatigue,
+    peakPositionScore,
+    recoveryScore,
+    continuityScore: normalizedContinuity,
+    notes,
+  };
+}
+
+function getRoleForItem(
+  item: PlannedExperience,
+  sequenceNodes: ExperienceSequenceNode[],
+): FlowRole {
+  return sequenceNodes.find((node) => node.experienceId === item.experience.id)?.flowRole ?? "support";
+}
+
+function chooseDurationMinutes(
+  item: PlannedExperience,
+  overflowPressureMin: number,
+): number {
+  const recommended = item.experience.recommendedDuration;
+  const min = item.experience.minDuration;
+
+  if (overflowPressureMin <= 0) return recommended;
+  if (item.priority === "optional") return Math.max(min, recommended - 30);
+  if (item.functionalRole === "rest" || item.experience.isMeal) return Math.max(min, recommended - 30);
+
+  return recommended;
+}
+
+function findFeasibleStartSlot(params: {
+  item: PlannedExperience;
+  earliestSlot: number;
+  latestStartSlot: number;
+}): number | null {
+  const { item, earliestSlot, latestStartSlot } = params;
+
+  if (earliestSlot > latestStartSlot) return null;
+
+  const preferred = getPreferredStartSlot(item.experience.preferredTime);
+  const candidates: number[] = [];
+
+  for (let slot = earliestSlot; slot <= latestStartSlot; slot += 1) {
+    if (isAllowedTimeSlot(item.experience.allowedTimes, slot)) {
+      candidates.push(slot);
+    }
+  }
+
+  if (candidates.length === 0) return null;
+
+  return [...candidates].sort((a, b) => {
+    const aGap = Math.abs(a - preferred);
+    const bGap = Math.abs(b - preferred);
+    return aGap - bGap;
+  })[0];
+}
+
+function fitSequenceToTimeline(params: {
+  ordered: PlannedExperience[];
+  nodes: ExperienceSequenceNode[];
+  input: PlanningInput;
+}): TimelineFitResult {
+  const { ordered, nodes, input } = params;
+
+  const items: ScheduledItem[] = [];
+  const droppedOptionalIds: string[] = [];
+  const compressedExperienceIds: string[] = [];
+  const notes: string[] = [];
+  let invalidPlacement = false;
+
+  let currentSlot = input.dailyStartSlot;
+
+  for (let i = 0; i < ordered.length; i += 1) {
+    const planned = ordered[i];
+    const prev = i > 0 ? ordered[i - 1] : undefined;
+    const flowRole = getRoleForItem(planned, nodes);
+    const travelMin = prev
+      ? getAreaDistanceMinutes(prev.experience.area, planned.experience.area)
+      : 0;
+
+    const overflowPressureMin = Math.max(
+      0,
+      items.length > 0
+        ? (currentSlot - input.dailyEndSlot) * 30
+        : 0,
+    );
+
+    const chosenDuration = chooseDurationMinutes(planned, overflowPressureMin);
+    const durationSlots = minutesToSlots(chosenDuration);
+
+    if (chosenDuration < planned.experience.recommendedDuration) {
+      compressedExperienceIds.push(planned.experience.id);
+    }
+
+    const earliestSlot = currentSlot + minutesToSlots(travelMin);
+    const latestStartSlot = Math.max(input.dailyStartSlot, input.dailyEndSlot - durationSlots);
+    const startSlot = findFeasibleStartSlot({
+      item: planned,
+      earliestSlot,
+      latestStartSlot,
+    });
+
+    if (startSlot === null) {
+      if (planned.priority === "optional" && flowRole !== "recovery" && flowRole !== "soft_end") {
+        droppedOptionalIds.push(planned.experience.id);
+        notes.push(`dropOptional=${planned.experience.id}:time_window_mismatch`);
+        continue;
+      }
+
+      invalidPlacement = true;
+      notes.push(`invalidPlacement=${planned.experience.id}:critical_role=${flowRole}`);
+      continue;
+    }
+
+    const endSlot = startSlot + durationSlots;
+    if (endSlot > input.dailyEndSlot && planned.priority === "optional" && flowRole !== "recovery" && flowRole !== "soft_end") {
+      droppedOptionalIds.push(planned.experience.id);
+      notes.push(`dropOptional=${planned.experience.id}:overflow`);
+      continue;
+    }
+
+    if (endSlot > input.dailyEndSlot) {
+      invalidPlacement = true;
+      notes.push(`criticalOverflow=${planned.experience.id}`);
+      continue;
+    }
+
+    items.push({
+      experienceId: planned.experience.id,
+      placeName: planned.experience.placeName,
+      startSlot,
+      endSlot,
+      durationMinutes: durationSlots * 30,
+      priority: planned.priority,
+      planningTier: planned.planningTier,
+      functionalRole: planned.functionalRole,
+      themeCluster: planned.themeCluster,
+      flowRole,
+      rhythmSlotType: flowRoleToRhythmSlotType(flowRole),
+      isPrimaryPeak: flowRole === "peak",
+    });
+
+    currentSlot = endSlot;
+  }
+
+  return {
+    items,
+    invalidPlacement,
+    droppedOptionalIds,
+    compressedExperienceIds,
+    notes,
+  };
+}
+
+function recomputeSequentialTimeline(
+  fittedItems: ScheduledItem[],
+  plannedMap: Map<string, PlannedExperience>,
+  input: PlanningInput,
+): ScheduledItem[] {
+  if (fittedItems.length === 0) return [];
+
+  const recomputed: ScheduledItem[] = [];
+  let currentSlot = input.dailyStartSlot;
+
+  for (let i = 0; i < fittedItems.length; i += 1) {
+    const base = fittedItems[i];
+    const planned = plannedMap.get(base.experienceId);
+    if (!planned) continue;
+
+    const prev = i > 0 ? recomputed[i - 1] : undefined;
+    const prevPlanned = prev ? plannedMap.get(prev.experienceId) : undefined;
+    const travel = prevPlanned
+      ? getAreaDistanceMinutes(prevPlanned.experience.area, planned.experience.area)
+      : 0;
+
+    const earliest = prev ? prev.endSlot + minutesToSlots(travel) : input.dailyStartSlot;
+    const durationSlots = minutesToSlots(base.durationMinutes);
+    const latestStart = Math.max(input.dailyStartSlot, input.dailyEndSlot - durationSlots);
+    const start = findFeasibleStartSlot({
+      item: planned,
+      earliestSlot: earliest,
+      latestStartSlot: latestStart,
+    });
+
+    if (start === null) continue;
+
+    recomputed.push({
+      ...base,
+      startSlot: start,
+      endSlot: start + durationSlots,
+    });
+
+    currentSlot = start + durationSlots;
+  }
+
+  void currentSlot;
+  return recomputed;
+}
+
+function getOverflowMin(items: ScheduledItem[], dayEndSlot: number): number {
+  if (items.length === 0) return 0;
+  return Math.max(0, (items[items.length - 1].endSlot - dayEndSlot) * 30);
+}
+
+function hasPreservedPeak(items: ScheduledItem[], peakId?: string): boolean {
+  if (!peakId) return false;
+  return items.some((item) => item.experienceId === peakId);
+}
+
+function hasPreservedRecovery(items: ScheduledItem[], recoveryId?: string): boolean {
+  if (!recoveryId) return false;
+  return items.some((item) => item.experienceId === recoveryId);
+}
+
+function repairTimeline(params: {
+  fitted: TimelineFitResult;
+  ordered: PlannedExperience[];
+  input: PlanningInput;
+  primaryPeak?: PlannedExperience;
+  primaryRecovery?: PlannedExperience;
+  plannedMap: Map<string, PlannedExperience>;
+}): RepairResult {
+  const { fitted, ordered, input, primaryPeak, primaryRecovery, plannedMap } = params;
+
+  let working = [...fitted.items];
+  const repairs: RepairActionLog[] = [];
+  const substitutedExperienceIds: string[] = [];
+  const compressedExperienceIds = [...fitted.compressedExperienceIds];
+  const droppedOptionalIds = [...fitted.droppedOptionalIds];
+  const notes = [...fitted.notes];
+  let step = 1;
+
+  const initialOverflow = getOverflowMin(working, input.dailyEndSlot);
+
+  if (working.length > 1) {
+    const peakIndex = working.findIndex((item) => item.experienceId === primaryPeak?.experience.id);
+    const recoveryIndex = working.findIndex((item) => item.experienceId === primaryRecovery?.experience.id);
+
+    if (peakIndex === working.length - 1 && working.length >= 3) {
+      const [peakItem] = working.splice(peakIndex, 1);
+      working.splice(Math.floor(working.length / 2), 0, peakItem);
+
+      working = recomputeSequentialTimeline(working, plannedMap, input);
+
+      repairs.push({
+        step: step++,
+        action: "move_peak_earlier",
+        targetExperienceId: peakItem.experienceId,
+        beforeOverflowMin: initialOverflow,
+        afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
+        reason: "Protect middle peak positioning",
+      });
+    }
+
+    if (recoveryIndex >= 0 && peakIndex >= 0 && recoveryIndex <= peakIndex && working.length >= 3) {
+      const [recoveryItem] = working.splice(recoveryIndex, 1);
+      working.push(recoveryItem);
+
+      working = recomputeSequentialTimeline(working, plannedMap, input);
+
+      repairs.push({
+        step: step++,
+        action: "insert_recovery",
+        targetExperienceId: recoveryItem.experienceId,
+        beforeOverflowMin: initialOverflow,
+        afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
+        reason: "Push recovery after peak to restore closing structure",
+      });
+    }
+  }
+
+  let overflow = getOverflowMin(working, input.dailyEndSlot);
+  if (overflow > 0) {
+    const removable = [...working]
+      .filter((item) => item.priority === "optional" && !item.isPrimaryPeak && item.flowRole !== "recovery" && item.flowRole !== "soft_end")
+      .sort((a, b) => b.durationMinutes - a.durationMinutes);
+
+    for (const target of removable) {
+      if (overflow <= 0) break;
+
+      const beforeOverflowMin = overflow;
+      working = working.filter((item) => item.experienceId !== target.experienceId);
+      working = recomputeSequentialTimeline(working, plannedMap, input);
+      overflow = getOverflowMin(working, input.dailyEndSlot);
+      droppedOptionalIds.push(target.experienceId);
+
+      repairs.push({
+        step: step++,
+        action: "remove_optional",
+        targetExperienceId: target.experienceId,
+        beforeOverflowMin,
+        afterOverflowMin: overflow,
+        reason: "Remove optional support before touching peak/recovery",
+      });
+    }
+  }
+
+  const timelineDiagnostics: TimelineDiagnostics = {
+    overflowMin: overflow,
+    invalidPlacement:
+      fitted.invalidPlacement ||
+      !hasPreservedPeak(working, primaryPeak?.experience.id) ||
+      !hasPreservedRecovery(working, primaryRecovery?.experience.id),
+    compressedExperienceIds: Array.from(new Set(compressedExperienceIds)),
+    substitutedExperienceIds: Array.from(new Set(substitutedExperienceIds)),
+    droppedOptionalIds: Array.from(new Set(droppedOptionalIds)),
+    preservedPeak: hasPreservedPeak(working, primaryPeak?.experience.id),
+    preservedRecovery: hasPreservedRecovery(working, primaryRecovery?.experience.id),
+    notes,
+  };
+
+  void ordered;
+
+  return {
+    items: working,
+    repairs,
+    timelineDiagnostics,
   };
 }
 
@@ -626,7 +1070,7 @@ export function evaluateFeasibility(
     }
   }
 
-  if (totalFatigue > 15) {
+  if (totalFatigue > MAX_FATIGUE_SAFE) {
     issues.push("fatigue_overflow");
   }
 
@@ -662,727 +1106,26 @@ export function evaluateFeasibility(
   };
 }
 
-function evaluateFlowQuality(
-  dayPlan: DayPlan,
-  items: ScheduledItem[],
-  input: PlanningInput,
-  primaryPeakId?: string,
-): FlowEvaluation {
-  const plannedItems = [...dayPlan.anchor, ...dayPlan.core, ...dayPlan.optional];
-  const plannedMap = new Map(plannedItems.map((item) => [item.experience.id, item]));
-
-  let peakReward = 0;
-  let fatiguePenalty = 0;
-  let travelPenalty = 0;
-  let diversityReward = 0;
-  let mealBalanceReward = 0;
-  let companionReward = 0;
-
-  const notes: string[] = [];
-
-  const peakIndex = items.findIndex((item) => item.experienceId === primaryPeakId);
-  if (peakIndex >= 0) {
-    peakReward += FLOW_WEIGHTS.PEAK;
-    if (peakIndex > 0 && peakIndex < items.length - 1) {
-      peakReward += 4;
-      notes.push("peak_position=centered");
-    } else {
-      notes.push("peak_position=edge");
-    }
-  }
-
-  let consecutiveHighFatiguePairs = 0;
-
-  for (let i = 0; i < items.length; i += 1) {
-    const current = plannedMap.get(items[i].experienceId);
-    if (!current) continue;
-
-    if (current.experience.fatigue >= 4) {
-      fatiguePenalty += FLOW_WEIGHTS.FATIGUE;
-      if (i > 0) {
-        const prev = plannedMap.get(items[i - 1].experienceId);
-        if (prev && prev.experience.fatigue >= 4) {
-          consecutiveHighFatiguePairs += 1;
-        }
-      }
-    }
-
-    if (current.experience.isMeal) {
-      mealBalanceReward += FLOW_WEIGHTS.MEAL;
-    }
-
-    if (isRecoveryCandidate(current)) {
-      diversityReward += 1;
-    }
-
-    if (input.companionType === "couple" && current.experience.isNightFriendly) {
-      companionReward += FLOW_WEIGHTS.COMPANION;
-    }
-
-    if (input.companionType === "family" && current.experience.fatigue >= 4) {
-      fatiguePenalty += 2;
-    }
-  }
-
-  fatiguePenalty += consecutiveHighFatiguePairs * 6;
-  if (consecutiveHighFatiguePairs > 0) {
-    notes.push(`fatigue_burst=${consecutiveHighFatiguePairs}`);
-  }
-
-  for (let i = 1; i < items.length; i += 1) {
-    const prev = plannedMap.get(items[i - 1].experienceId);
-    const current = plannedMap.get(items[i].experienceId);
-    if (!prev || !current) continue;
-
-    const travel = getAreaDistanceMinutes(prev.experience.area, current.experience.area);
-    travelPenalty += Math.floor(travel / 15) * FLOW_WEIGHTS.TRAVEL;
-
-    if (travel >= 45) {
-      notes.push(`long_jump=${prev.experience.id}->${current.experience.id}`);
-    }
-
-    if (prev.themeCluster !== current.themeCluster) {
-      diversityReward += FLOW_WEIGHTS.DIVERSITY;
-    }
-
-    if (prev.experience.isIndoor !== current.experience.isIndoor) {
-      diversityReward += 1;
-    }
-  }
-
-  const total =
-    peakReward +
-    diversityReward +
-    mealBalanceReward +
-    companionReward -
-    fatiguePenalty -
-    travelPenalty;
+function buildSequenceDiagnostics(params: {
+  skeletonType: DaySkeletonType;
+  primaryPeak?: PlannedExperience;
+  primaryRecovery?: PlannedExperience;
+  sequenceEval: SequenceEvaluation;
+  notes: string[];
+}): SequenceDiagnostics {
+  const { skeletonType, primaryPeak, primaryRecovery, sequenceEval, notes } = params;
 
   return {
-    breakdown: {
-      peakReward,
-      fatiguePenalty,
-      travelPenalty,
-      diversityReward,
-      mealBalanceReward,
-      companionReward,
-      total,
-    },
+    skeletonType,
+    selectedPeakId: primaryPeak?.experience.id,
+    selectedRecoveryId: primaryRecovery?.experience.id,
+    flowScore: sequenceEval.flowScore,
+    smoothnessScore: sequenceEval.smoothnessScore,
+    fatigueScore: sequenceEval.fatigueScore,
+    peakPositionScore: sequenceEval.peakPositionScore,
+    recoveryScore: sequenceEval.recoveryScore,
+    continuityScore: sequenceEval.continuityScore,
     notes,
-  };
-}
-
-function getOverflowMin(items: ScheduledItem[], dayEndSlot: number): number {
-  if (items.length === 0) return 0;
-  return Math.max(0, (items[items.length - 1].endSlot - dayEndSlot) * 30);
-}
-
-function removeOptionalItems(
-  dayPlan: DayPlan,
-  items: ScheduledItem[],
-): { items: ScheduledItem[]; removedIds: string[] } {
-  const optionalIds = new Set(dayPlan.optional.map((x) => x.experience.id));
-
-  return {
-    items: items.filter((item) => !optionalIds.has(item.experienceId)),
-    removedIds: items
-      .filter((item) => optionalIds.has(item.experienceId))
-      .map((item) => item.experienceId),
-  };
-}
-
-function dropLowestValueCore(
-  dayPlan: DayPlan,
-  items: ScheduledItem[],
-): { items: ScheduledItem[]; removedId?: string } {
-  const coreIds = new Set(dayPlan.core.map((item) => item.experience.id));
-  const dropCandidate = [...items]
-    .filter((item) => coreIds.has(item.experienceId) && !item.isPrimaryPeak)
-    .sort((a, b) => a.durationMinutes - b.durationMinutes)[0];
-
-  if (!dropCandidate) {
-    return { items };
-  }
-
-  return {
-    items: items.filter((item) => item.experienceId !== dropCandidate.experienceId),
-    removedId: dropCandidate.experienceId,
-  };
-}
-
-function moveRecoveryEarlier(items: ScheduledItem[]): { items: ScheduledItem[]; movedId?: string } {
-  const recoveryIndex = items.findIndex((item) => item.rhythmSlotType === "recovery");
-  if (recoveryIndex <= 1) return { items };
-
-  const copied = [...items];
-  const [recoveryItem] = copied.splice(recoveryIndex, 1);
-  copied.splice(2, 0, recoveryItem);
-
-  return {
-    items: copied,
-    movedId: recoveryItem.experienceId,
-  };
-}
-
-function movePeakEarlier(items: ScheduledItem[]): { items: ScheduledItem[]; movedId?: string } {
-  const peakIndex = items.findIndex((item) => item.isPrimaryPeak);
-  if (peakIndex <= 1) return { items };
-
-  const copied = [...items];
-  const [peakItem] = copied.splice(peakIndex, 1);
-  copied.splice(1, 0, peakItem);
-
-  return {
-    items: copied,
-    movedId: peakItem.experienceId,
-  };
-}
-
-function hasConsecutiveHighFatigue(
-  items: ScheduledItem[],
-  plannedMap: Map<string, PlannedExperience>,
-): boolean {
-  for (let i = 1; i < items.length; i += 1) {
-    const prev = plannedMap.get(items[i - 1].experienceId);
-    const current = plannedMap.get(items[i].experienceId);
-
-    if (prev && current && prev.experience.fatigue >= 4 && current.experience.fatigue >= 4) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function getFirstStartSlot(items: ScheduledItem[]): number {
-  if (items.length === 0) return 48;
-  return items[0].startSlot;
-}
-
-function hasCenteredPeak(items: ScheduledItem[], primaryPeakId?: string): boolean {
-  if (!primaryPeakId) return false;
-
-  const peakIndex = items.findIndex((item) => item.experienceId === primaryPeakId);
-  if (peakIndex < 0) return false;
-
-  return peakIndex > 0 && peakIndex < items.length - 1;
-}
-
-function isRepairCandidateAcceptable(params: {
-  beforeItems: ScheduledItem[];
-  afterItems: ScheduledItem[];
-  beforeFlow: FlowEvaluation;
-  afterFlow: FlowEvaluation;
-  primaryPeakId?: string;
-  invalidPlacement?: boolean;
-  narrativeType: DayNarrativeType;
-}): boolean {
-  const {
-    beforeItems,
-    afterItems,
-    beforeFlow,
-    afterFlow,
-    primaryPeakId,
-    invalidPlacement,
-    narrativeType,
-  } = params;
-
-  if (invalidPlacement) return false;
-
-  if (afterFlow.breakdown.total < beforeFlow.breakdown.total) {
-    return false;
-  }
-
-  const beforeCentered = hasCenteredPeak(beforeItems, primaryPeakId);
-  const afterCentered = hasCenteredPeak(afterItems, primaryPeakId);
-
-  if (beforeCentered && !afterCentered) {
-    return false;
-  }
-
-  if ((narrativeType === "immersion" || narrativeType === "peak") && afterItems.length < 3) {
-    return false;
-  }
-
-  if (getFirstStartSlot(afterItems) > getFirstStartSlot(beforeItems)) {
-    return false;
-  }
-
-  return true;
-}
-
-function getRoleCoverage(items: ScheduledItem[], primaryPeakId?: string) {
-  return {
-    hasWarmUp: items.some((item) => item.rhythmSlotType === "warm_up"),
-    hasPeak: items.some((item) => item.experienceId === primaryPeakId),
-    hasRecovery: items.some(
-      (item) => item.rhythmSlotType === "recovery" || item.rhythmSlotType === "cool_down",
-    ),
-  };
-}
-
-function getRemovableItems(items: ScheduledItem[], primaryPeakId?: string): ScheduledItem[] {
-  return [...items]
-    .filter((item) => !item.isPrimaryPeak && item.experienceId !== primaryPeakId)
-    .sort((a, b) => {
-      const aScore = a.priority === "optional" ? 100 : a.priority === "core" ? 50 : 0;
-      const bScore = b.priority === "optional" ? 100 : b.priority === "core" ? 50 : 0;
-      return bScore - aScore;
-    });
-}
-
-function buildReplacementCandidates(
-  allSlotted: ScheduledItem[],
-  currentItems: ScheduledItem[],
-): ScheduledItem[] {
-  const usedIds = new Set(currentItems.map((item) => item.experienceId));
-
-  return allSlotted.filter((item) => !usedIds.has(item.experienceId));
-}
-
-function sortByBaseOrder(items: ScheduledItem[], allSlotted: ScheduledItem[]): ScheduledItem[] {
-  const orderMap = new Map(allSlotted.map((item, idx) => [item.experienceId, idx]));
-  return [...items].sort(
-    (a, b) => (orderMap.get(a.experienceId) ?? 999) - (orderMap.get(b.experienceId) ?? 999),
-  );
-}
-
-function rolePriorityForCandidate(
-  candidate: ScheduledItem,
-  neededRole: "opener" | "peak" | "recovery" | "optional",
-  primaryPeakId?: string,
-): number {
-  if (neededRole === "peak") {
-    if (candidate.experienceId === primaryPeakId || candidate.isPrimaryPeak || candidate.priority === "anchor") {
-      return 100;
-    }
-    return 0;
-  }
-
-  if (neededRole === "opener") {
-    if (candidate.rhythmSlotType === "warm_up") return 100;
-    if (candidate.rhythmSlotType === "activation") return 60;
-    return 0;
-  }
-
-  if (neededRole === "recovery") {
-    if (candidate.rhythmSlotType === "recovery" || candidate.rhythmSlotType === "cool_down") return 100;
-    if (candidate.functionalRole === "rest" || candidate.functionalRole === "meal") return 60;
-    return 0;
-  }
-
-  return candidate.priority === "optional" ? 100 : 10;
-}
-
-function sortReplacementCandidatesByNeededRole(
-  candidates: ScheduledItem[],
-  neededRole: "opener" | "peak" | "recovery" | "optional",
-  primaryPeakId?: string,
-): ScheduledItem[] {
-  return [...candidates].sort((a, b) => {
-    return (
-      rolePriorityForCandidate(b, neededRole, primaryPeakId) -
-      rolePriorityForCandidate(a, neededRole, primaryPeakId)
-    );
-  });
-}
-
-function getCriticalDroppedRole(
-  droppedItems: DroppedPlacementDiagnostic[],
-): "opener" | "peak" | "recovery" | "optional" | null {
-  if (droppedItems.some((item) => item.role === "opener")) return "opener";
-  if (droppedItems.some((item) => item.role === "peak")) return "peak";
-  if (droppedItems.some((item) => item.role === "recovery")) return "recovery";
-  if (droppedItems.length > 0) return "optional";
-  return null;
-}
-
-function getRepairActionForRole(
-  role: "opener" | "peak" | "recovery" | "optional" | null,
-): RepairActionLog["action"] {
-  if (role === "peak") return "replace_meal";
-  if (role === "recovery") return "replace_meal";
-  if (role === "opener") return "replace_meal";
-  return "replace_meal";
-}
-
-function tryReplacementRepair(params: {
-  currentItems: ScheduledItem[];
-  allSlotted: ScheduledItem[];
-  plannedMap: Map<string, PlannedExperience>;
-  template: NarrativeSlotTemplate;
-  input: PlanningInput;
-  dayPlan: DayPlan;
-  primaryPeakId?: string;
-  narrativeType: DayNarrativeType;
-  droppedItems: DroppedPlacementDiagnostic[];
-}): {
-  accepted: boolean;
-  result?: TimelineRealization;
-  replacedOutId?: string;
-  replacedInId?: string;
-  targetedRole?: "opener" | "peak" | "recovery" | "optional" | null;
-} {
-  const removable = getRemovableItems(params.currentItems, params.primaryPeakId);
-  const currentCoverage = getRoleCoverage(params.currentItems, params.primaryPeakId);
-  const targetedRole = getCriticalDroppedRole(params.droppedItems);
-
-  const replacements = sortReplacementCandidatesByNeededRole(
-    buildReplacementCandidates(params.allSlotted, params.currentItems),
-    targetedRole ?? "optional",
-    params.primaryPeakId,
-  );
-
-  for (const candidate of replacements) {
-    for (const target of removable) {
-      const swapped = sortByBaseOrder(
-        [
-          ...params.currentItems.filter((item) => item.experienceId !== target.experienceId),
-          candidate,
-        ],
-        params.allSlotted,
-      );
-
-      const swappedCoverage = getRoleCoverage(swapped, params.primaryPeakId);
-
-      if (!currentCoverage.hasWarmUp && !swappedCoverage.hasWarmUp) continue;
-      if (!currentCoverage.hasRecovery && !swappedCoverage.hasRecovery) continue;
-      if (!currentCoverage.hasPeak && !swappedCoverage.hasPeak) continue;
-
-      const retimed = realizeTimeline(
-        swapped,
-        params.plannedMap,
-        params.template,
-        params.input.dailyStartSlot,
-        params.input.dailyEndSlot,
-        { ignorePeakPreference: true, relaxSlotWindows: true },
-      );
-
-      const beforeFlow = evaluateFlowQuality(
-        params.dayPlan,
-        params.currentItems,
-        params.input,
-        params.primaryPeakId,
-      );
-      const afterFlow = evaluateFlowQuality(
-        params.dayPlan,
-        retimed.items,
-        params.input,
-        params.primaryPeakId,
-      );
-
-      if (
-        isRepairCandidateAcceptable({
-          beforeItems: params.currentItems,
-          afterItems: retimed.items,
-          beforeFlow,
-          afterFlow,
-          primaryPeakId: params.primaryPeakId,
-          invalidPlacement: retimed.hasInvalidPlacement,
-          narrativeType: params.narrativeType,
-        })
-      ) {
-        return {
-          accepted: true,
-          result: retimed,
-          replacedOutId: target.experienceId,
-          replacedInId: candidate.experienceId,
-          targetedRole,
-        };
-      }
-    }
-  }
-
-  return { accepted: false, targetedRole };
-}
-
-function repairScheduleFlow(
-  dayPlan: DayPlan,
-  allSlotted: ScheduledItem[],
-  initialTimeline: TimelineRealization,
-  plannedMap: Map<string, PlannedExperience>,
-  template: NarrativeSlotTemplate,
-  input: PlanningInput,
-  narrativeType: DayNarrativeType,
-  primaryPeakId?: string,
-): {
-  items: ScheduledItem[];
-  repairs: RepairActionLog[];
-  flowBefore: FlowEvaluation;
-  flowAfter: FlowEvaluation;
-  hadInvalidPlacement: boolean;
-  finalDroppedItems: DroppedPlacementDiagnostic[];
-  initialDroppedItems: DroppedPlacementDiagnostic[];
-} {
-  const flowBefore = evaluateFlowQuality(dayPlan, initialTimeline.items, input, primaryPeakId);
-  let working = [...initialTimeline.items];
-  let hadInvalidPlacement = initialTimeline.hasInvalidPlacement;
-  let currentDroppedItems = [...initialTimeline.droppedItems];
-  const initialDroppedItems = [...initialTimeline.droppedItems];
-  const repairs: RepairActionLog[] = [];
-  let step = 1;
-
-  let overflowBefore = getOverflowMin(working, input.dailyEndSlot);
-
-  if (initialTimeline.droppedExperienceIds.length > 0) {
-    const replacement = tryReplacementRepair({
-      currentItems: working,
-      allSlotted,
-      plannedMap,
-      template,
-      input,
-      dayPlan,
-      primaryPeakId,
-      narrativeType,
-      droppedItems: initialTimeline.droppedItems,
-    });
-
-    if (replacement.accepted && replacement.result) {
-      working = replacement.result.items;
-      hadInvalidPlacement = hadInvalidPlacement || replacement.result.hasInvalidPlacement;
-      currentDroppedItems = replacement.result.droppedItems;
-
-      repairs.push({
-        step: step++,
-        action: getRepairActionForRole(replacement.targetedRole ?? null),
-        targetExperienceId: replacement.replacedInId,
-        reason: `Replace dropped ${replacement.targetedRole ?? "optional"} by swapping out ${replacement.replacedOutId ?? "unknown"}`,
-        beforeOverflowMin: overflowBefore,
-        afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
-      });
-
-      overflowBefore = getOverflowMin(working, input.dailyEndSlot);
-    }
-  }
-
-  const relaxedTimeline = realizeTimeline(
-    working,
-    plannedMap,
-    template,
-    input.dailyStartSlot,
-    input.dailyEndSlot,
-    {
-      ignorePeakPreference: true,
-      relaxSlotWindows: true,
-    },
-  );
-
-  const beforeFlowForRelax = evaluateFlowQuality(dayPlan, working, input, primaryPeakId);
-  const afterFlowForRelax = evaluateFlowQuality(dayPlan, relaxedTimeline.items, input, primaryPeakId);
-
-  if (
-    isRepairCandidateAcceptable({
-      beforeItems: working,
-      afterItems: relaxedTimeline.items,
-      beforeFlow: beforeFlowForRelax,
-      afterFlow: afterFlowForRelax,
-      primaryPeakId,
-      invalidPlacement: relaxedTimeline.hasInvalidPlacement,
-      narrativeType,
-    })
-  ) {
-    working = relaxedTimeline.items;
-    hadInvalidPlacement = hadInvalidPlacement || relaxedTimeline.hasInvalidPlacement;
-    currentDroppedItems = relaxedTimeline.droppedItems;
-
-    repairs.push({
-      step: step++,
-      action: "trim_transition",
-      targetExperienceId: primaryPeakId,
-      reason: "Retimed with relaxed slot windows and softer peak preference",
-      beforeOverflowMin: overflowBefore,
-      afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
-    });
-
-    overflowBefore = getOverflowMin(working, input.dailyEndSlot);
-  }
-
-  const peakIndex = working.findIndex((item) => item.experienceId === primaryPeakId);
-  if (peakIndex >= 3) {
-    const moved = movePeakEarlier(working);
-    if (moved.movedId) {
-      const retimed = realizeTimeline(
-        moved.items,
-        plannedMap,
-        template,
-        input.dailyStartSlot,
-        input.dailyEndSlot,
-        { ignorePeakPreference: true },
-      );
-
-      const beforeFlow = evaluateFlowQuality(dayPlan, working, input, primaryPeakId);
-      const afterFlow = evaluateFlowQuality(dayPlan, retimed.items, input, primaryPeakId);
-
-      if (
-        isRepairCandidateAcceptable({
-          beforeItems: working,
-          afterItems: retimed.items,
-          beforeFlow,
-          afterFlow,
-          primaryPeakId,
-          invalidPlacement: retimed.hasInvalidPlacement,
-          narrativeType,
-        })
-      ) {
-        working = retimed.items;
-        hadInvalidPlacement = hadInvalidPlacement || retimed.hasInvalidPlacement;
-        currentDroppedItems = retimed.droppedItems;
-
-        repairs.push({
-          step: step++,
-          action: "move_peak_earlier",
-          targetExperienceId: moved.movedId,
-          reason: "Protect primary peak from late burial",
-          beforeOverflowMin: overflowBefore,
-          afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
-        });
-
-        overflowBefore = getOverflowMin(working, input.dailyEndSlot);
-      }
-    }
-  }
-
-  if (hasConsecutiveHighFatigue(working, plannedMap)) {
-    const moved = moveRecoveryEarlier(working);
-    if (moved.movedId) {
-      const retimed = realizeTimeline(
-        moved.items,
-        plannedMap,
-        template,
-        input.dailyStartSlot,
-        input.dailyEndSlot,
-        { ignorePeakPreference: true },
-      );
-
-      const beforeFlow = evaluateFlowQuality(dayPlan, working, input, primaryPeakId);
-      const afterFlow = evaluateFlowQuality(dayPlan, retimed.items, input, primaryPeakId);
-
-      if (
-        isRepairCandidateAcceptable({
-          beforeItems: working,
-          afterItems: retimed.items,
-          beforeFlow,
-          afterFlow,
-          primaryPeakId,
-          invalidPlacement: retimed.hasInvalidPlacement,
-          narrativeType,
-        })
-      ) {
-        working = retimed.items;
-        hadInvalidPlacement = hadInvalidPlacement || retimed.hasInvalidPlacement;
-        currentDroppedItems = retimed.droppedItems;
-
-        repairs.push({
-          step: step++,
-          action: "insert_recovery",
-          targetExperienceId: moved.movedId,
-          reason: "Move recovery item earlier after fatigue burst",
-          beforeOverflowMin: overflowBefore,
-          afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
-        });
-
-        overflowBefore = getOverflowMin(working, input.dailyEndSlot);
-      }
-    }
-  }
-
-  if (overflowBefore > 0) {
-    const removed = removeOptionalItems(dayPlan, working);
-    if (removed.removedIds.length > 0) {
-      const retimed = realizeTimeline(
-        removed.items,
-        plannedMap,
-        template,
-        input.dailyStartSlot,
-        input.dailyEndSlot,
-        { ignorePeakPreference: true },
-      );
-
-      const beforeFlow = evaluateFlowQuality(dayPlan, working, input, primaryPeakId);
-      const afterFlow = evaluateFlowQuality(dayPlan, retimed.items, input, primaryPeakId);
-
-      if (
-        isRepairCandidateAcceptable({
-          beforeItems: working,
-          afterItems: retimed.items,
-          beforeFlow,
-          afterFlow,
-          primaryPeakId,
-          invalidPlacement: retimed.hasInvalidPlacement,
-          narrativeType,
-        })
-      ) {
-        working = retimed.items;
-        hadInvalidPlacement = hadInvalidPlacement || retimed.hasInvalidPlacement;
-        currentDroppedItems = retimed.droppedItems;
-
-        repairs.push({
-          step: step++,
-          action: "remove_optional",
-          reason: "Remove optional items only after replacement and retime repairs fail",
-          beforeOverflowMin: overflowBefore,
-          afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
-        });
-
-        overflowBefore = getOverflowMin(working, input.dailyEndSlot);
-      }
-    }
-  }
-
-  if (overflowBefore > 0) {
-    const dropped = dropLowestValueCore(dayPlan, working);
-    if (dropped.removedId) {
-      const retimed = realizeTimeline(
-        dropped.items,
-        plannedMap,
-        template,
-        input.dailyStartSlot,
-        input.dailyEndSlot,
-        { ignorePeakPreference: true },
-      );
-
-      const beforeFlow = evaluateFlowQuality(dayPlan, working, input, primaryPeakId);
-      const afterFlow = evaluateFlowQuality(dayPlan, retimed.items, input, primaryPeakId);
-
-      if (
-        isRepairCandidateAcceptable({
-          beforeItems: working,
-          afterItems: retimed.items,
-          beforeFlow,
-          afterFlow,
-          primaryPeakId,
-          invalidPlacement: retimed.hasInvalidPlacement,
-          narrativeType,
-        })
-      ) {
-        working = retimed.items;
-        hadInvalidPlacement = hadInvalidPlacement || retimed.hasInvalidPlacement;
-        currentDroppedItems = retimed.droppedItems;
-
-        repairs.push({
-          step: step++,
-          action: "remove_core",
-          targetExperienceId: dropped.removedId,
-          reason: "Still overflow after optional removal, drop the least valuable core",
-          beforeOverflowMin: overflowBefore,
-          afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
-        });
-
-        overflowBefore = getOverflowMin(working, input.dailyEndSlot);
-      }
-    }
-  }
-
-  const flowAfter = evaluateFlowQuality(dayPlan, working, input, primaryPeakId);
-
-  return {
-    items: working,
-    repairs,
-    flowBefore,
-    flowAfter,
-    hadInvalidPlacement,
-    finalDroppedItems: currentDroppedItems,
-    initialDroppedItems,
   };
 }
 
@@ -1393,53 +1136,97 @@ export function scheduleDayPlan(
   totalDays: number,
 ): { schedule: DaySchedule; diagnostic: DaySchedulingDiagnostic } {
   const flattened = flattenDayPlan(dayPlan);
-  const availableMin = (input.dailyEndSlot - input.dailyStartSlot) * 30;
+  const availableMin = computeAvailableMinutes(input);
   const estimatedTotalMin = estimatePlannedMinutes(flattened);
   const overflowMin = Math.max(0, estimatedTotalMin - availableMin);
-
-  const narrativeType = assignDayNarrativeType(dayIndex, totalDays);
-  const primaryPeak = selectPrimaryPeak(flattened);
-  const template = buildNarrativeSlotTemplate(narrativeType, flattened.length);
-  const plannedMap = new Map(flattened.map((item) => [item.experience.id, item]));
-
-  const slotted = assignToRhythmSlots(
-    flattened,
-    narrativeType,
-    primaryPeak?.experience.id,
-  );
-
-  const timedResult = realizeTimeline(
-    slotted,
-    plannedMap,
-    template,
-    input.dailyStartSlot,
-    input.dailyEndSlot,
-  );
-
-  const repaired = repairScheduleFlow(
-    dayPlan,
-    slotted,
-    timedResult,
-    plannedMap,
-    template,
-    input,
-    narrativeType,
-    primaryPeak?.experience.id,
-  );
-
-  const report = evaluateFeasibility(dayPlan, repaired.items, input.dailyEndSlot);
   const preFeasibilityStatus = toFeasibilityStatus(overflowMin);
 
-  const criticalFinalDrop = repaired.finalDroppedItems.some(
-    (item) => item.role === "opener" || item.role === "peak" || item.role === "recovery",
-  );
+  const sequence = buildExperienceSequence({
+    dayPlan,
+    items: flattened,
+    input,
+    dayIndex,
+    totalDays,
+  });
+
+  const sequenceEvalBeforeRepair = evaluateSequenceFlow({
+    ordered: sequence.ordered,
+    nodes: sequence.nodes,
+    skeletonType: sequence.skeletonType,
+    input,
+    primaryPeak: sequence.primaryPeak,
+    primaryRecovery: sequence.primaryRecovery,
+  });
+
+  const fitted = fitSequenceToTimeline({
+    ordered: sequence.ordered,
+    nodes: sequence.nodes,
+    input,
+  });
+
+  const plannedMap = new Map(flattened.map((item) => [item.experience.id, item]));
+
+  const repaired = repairTimeline({
+    fitted,
+    ordered: sequence.ordered,
+    input,
+    primaryPeak: sequence.primaryPeak,
+    primaryRecovery: sequence.primaryRecovery,
+    plannedMap,
+  });
+
+  const repairedOrdered = repaired.items
+    .map((scheduled) => plannedMap.get(scheduled.experienceId))
+    .filter((item): item is PlannedExperience => Boolean(item));
+
+  const repairedNodes: ExperienceSequenceNode[] = repaired.items.map((item, index) => ({
+    experienceId: item.experienceId,
+    placeName: item.placeName,
+    priority: item.priority,
+    planningTier: item.planningTier,
+    functionalRole: item.functionalRole,
+    themeCluster: item.themeCluster,
+    flowRole: item.flowRole ?? (index === 0 ? "opener" : index === repaired.items.length - 1 ? "recovery" : "support"),
+    sequenceIndex: index,
+    isPrimaryPeak: item.isPrimaryPeak,
+    roleAffinity: computeFlowRoleAffinity(
+      plannedMap.get(item.experienceId) ?? flattened[0],
+    ),
+  }));
+
+  const sequenceEvalAfterRepair = evaluateSequenceFlow({
+    ordered: repairedOrdered,
+    nodes: repairedNodes,
+    skeletonType: sequence.skeletonType,
+    input,
+    primaryPeak: sequence.primaryPeak,
+    primaryRecovery: sequence.primaryRecovery,
+  });
+
+  const report = evaluateFeasibility(dayPlan, repaired.items, input.dailyEndSlot);
+
+  const criticalFailure =
+    !repaired.timelineDiagnostics.preservedPeak ||
+    !repaired.timelineDiagnostics.preservedRecovery ||
+    repaired.timelineDiagnostics.invalidPlacement;
 
   const finalStatus =
-    repaired.hadInvalidPlacement && criticalFinalDrop
+    criticalFailure
       ? "partial_fail"
       : repaired.repairs.length > 0
         ? (report.isFeasible ? "repaired" : "partial_fail")
         : (report.isFeasible ? "scheduled" : "partial_fail");
+
+  const sequenceDiagnostics = buildSequenceDiagnostics({
+    skeletonType: sequence.skeletonType,
+    primaryPeak: sequence.primaryPeak,
+    primaryRecovery: sequence.primaryRecovery,
+    sequenceEval: sequenceEvalAfterRepair,
+    notes: [
+      ...sequence.notes,
+      ...sequenceEvalAfterRepair.notes,
+    ],
+  });
 
   return {
     schedule: {
@@ -1449,37 +1236,31 @@ export function scheduleDayPlan(
     },
     diagnostic: {
       dayIndex: dayPlan.day,
-      narrativeType,
-      primaryPeakId: primaryPeak?.experience.id,
+      narrativeType: toNarrativeType(sequence.skeletonType),
+      skeletonType: sequence.skeletonType,
+      primaryPeakId: sequence.primaryPeak?.experience.id,
+      primaryRecoveryId: sequence.primaryRecovery?.experience.id,
       preFeasibilityStatus,
       estimatedTotalMin,
       availableMin,
       overflowMin,
-      flowScoreBeforeRepair: repaired.flowBefore.breakdown.total,
-      flowScoreAfterRepair: repaired.flowAfter.breakdown.total,
+      flowScoreBeforeRepair: sequenceEvalBeforeRepair.flowScore,
+      flowScoreAfterRepair: sequenceEvalAfterRepair.flowScore,
       repairs: repaired.repairs,
       finalStatus,
+      sequenceDiagnostics,
+      timelineDiagnostics: repaired.timelineDiagnostics,
       notes: [
         `plannedItems=${flattened.length}`,
-        `narrative=${narrativeType}`,
-        `peak=${primaryPeak?.experience.id ?? "none"}`,
+        `skeleton=${sequence.skeletonType}`,
+        `peak=${sequence.primaryPeak?.experience.id ?? "none"}`,
+        `recovery=${sequence.primaryRecovery?.experience.id ?? "none"}`,
         `scheduledItems=${repaired.items.length}`,
-        `firstStart=${repaired.items[0]?.startSlot ?? "none"}`,
-        `invalidPlacement=${repaired.hadInvalidPlacement}`,
-        `initialDropped=${repaired.initialDroppedItems.length}`,
-        `finalDropped=${repaired.finalDroppedItems.length}`,
-        `droppedRoles=${repaired.finalDroppedItems.map((item) => item.role).join(",") || "none"}`,
         `issues=${report.issues.join(",") || "none"}`,
-        ...repaired.initialDroppedItems.map(
-          (item, idx) =>
-            `initialDrop${idx + 1}:${item.role}:${item.experienceId}:${item.reason}:${item.rhythmSlotType ?? "unknown"}`,
-        ),
-        ...repaired.finalDroppedItems.map(
-          (item, idx) =>
-            `finalDrop${idx + 1}:${item.role}:${item.experienceId}:${item.reason}:${item.rhythmSlotType ?? "unknown"}`,
-        ),
-        ...repaired.flowBefore.notes.map((note) => `before:${note}`),
-        ...repaired.flowAfter.notes.map((note) => `after:${note}`),
+        ...sequence.notes,
+        ...sequenceEvalBeforeRepair.notes.map((note) => `before:${note}`),
+        ...sequenceEvalAfterRepair.notes.map((note) => `after:${note}`),
+        ...repaired.timelineDiagnostics.notes.map((note) => `timeline:${note}`),
       ],
     },
   };
