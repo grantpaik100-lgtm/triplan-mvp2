@@ -43,6 +43,7 @@ import { DAILY_EXPERIENCE_COUNT_BY_DENSITY } from "./constants";
 import type {
   Area,
   DayPlan,
+  DaySkeletonType,
   ExperienceMetadata,
   FunctionalRole,
   PlannedExperience,
@@ -59,6 +60,217 @@ import type {
 import { scoreExperiences } from "./scoring";
 
 type DayNarrativeRole = "immersion" | "peak" | "recovery";
+
+type PlanningCompactSelectionResult = {
+  items: PlannedExperience[];
+  skeletonType: DaySkeletonType;
+  hardCap: number;
+  targetItemCount: number;
+  peakCandidate?: PlannedExperience;
+  recoveryCandidate?: PlannedExperience;
+  spareCapacity: number;
+};
+
+function getSkeletonHardCap(skeletonType: DaySkeletonType): number {
+  switch (skeletonType) {
+    case "short":
+    case "relaxed":
+      return 3;
+    case "balanced":
+    case "peak_centric":
+      return 4;
+    case "extended":
+      return 5;
+    default:
+      return 4;
+  }
+}
+
+function selectPlanningSkeleton(params: {
+  input: PlanningInput;
+  narrative: DayNarrativeRole;
+  primaryAreaPool: ScoredExperience[];
+  dayAvailableMinutes: number;
+}): DaySkeletonType {
+  const { input, narrative, primaryAreaPool, dayAvailableMinutes } = params;
+  const densityBase = DAILY_EXPERIENCE_COUNT_BY_DENSITY[input.dailyDensity];
+
+  if (narrative === "recovery") {
+    return input.dailyDensity <= 2 ? "short" : "relaxed";
+  }
+
+  if (input.dailyDensity <= 2) {
+    return "short";
+  }
+
+  const feasibleCount = primaryAreaPool.filter((item) => {
+    const exp = item.experience;
+    return (
+      (exp.allowedTimes?.length ?? 0) > 0 &&
+      exp.recommendedDuration <= 180 &&
+      exp.timeFlexibility !== "low"
+    );
+  }).length;
+
+  const canExtend =
+    densityBase >= 5 &&
+    dayAvailableMinutes >= 9 * 60 &&
+    feasibleCount >= 5;
+
+  if (canExtend) return "extended";
+  if (narrative === "peak") return "peak_centric";
+  return "balanced";
+}
+
+function toSelectionRole(
+  item: PlannedExperience,
+  peakId?: string,
+  recoveryId?: string,
+): "peak_candidate" | "recovery_candidate" | "core_support" | "optional_spare" {
+  if (item.experience.id === peakId) return "peak_candidate";
+  if (item.experience.id === recoveryId) return "recovery_candidate";
+  if (item.priority === "optional") return "optional_spare";
+  return "core_support";
+}
+
+function scorePeakForPlanning(item: PlannedExperience): number {
+  const exp = item.experience;
+  const tags = item.selectionReason?.tags ?? [];
+
+  return (
+    item.planningScore * 1.2 +
+    (item.priority === "anchor" ? 1.2 : 0) +
+    (tags.includes("must_experience") ? 1.5 : 0) +
+    (tags.includes("time_sensitive") ? 0.8 : 0) +
+    (exp.preferredTime === "sunset" || exp.preferredTime === "night" ? 0.8 : 0) +
+    (exp.isNightFriendly ? 0.5 : 0) -
+    (exp.fatigue >= 5 ? 0.6 : 0)
+  );
+}
+
+function scoreRecoveryForPlanning(
+  item: PlannedExperience,
+  peak?: PlannedExperience,
+): number {
+  const exp = item.experience;
+  const sameArea = peak ? exp.area === peak.experience.area : false;
+  const sameCluster = peak ? item.themeCluster === peak.themeCluster : false;
+
+  return (
+    item.planningScore * 0.8 +
+    (isRecoveryOrMealCandidate(exp) ? 1.5 : 0) +
+    (exp.fatigue <= 2 ? 0.9 : exp.fatigue <= 3 ? 0.4 : 0) +
+    (exp.timeFlexibility === "high" ? 0.7 : exp.timeFlexibility === "medium" ? 0.3 : 0) +
+    (exp.isMeal ? 0.4 : 0) +
+    (sameArea ? 0.7 : 0) +
+    (sameCluster ? 0.4 : 0)
+  );
+}
+
+function compactDaySelection(params: {
+  merged: PlannedExperience[];
+  optionalPool: PlannedExperience[];
+  skeletonType: DaySkeletonType;
+  maxPerDay: number;
+  narrative: DayNarrativeRole;
+}): PlanningCompactSelectionResult {
+  const { merged, optionalPool, skeletonType, maxPerDay, narrative } = params;
+
+  const hardCap = Math.min(getSkeletonHardCap(skeletonType), maxPerDay);
+  const targetItemCount = Math.min(
+    hardCap,
+    skeletonType === "extended"
+      ? 5
+      : skeletonType === "short" || skeletonType === "relaxed"
+        ? 3
+        : 4,
+  );
+
+  const peakCandidate = [...merged]
+    .filter((item) => isPeakCandidate(item.experience))
+    .sort((a, b) => scorePeakForPlanning(b) - scorePeakForPlanning(a))[0];
+
+  const recoveryCandidate = [...merged, ...optionalPool]
+    .filter((item) => item.experience.id !== peakCandidate?.experience.id)
+    .filter((item) => isRecoveryOrMealCandidate(item.experience))
+    .sort(
+      (a, b) =>
+        scoreRecoveryForPlanning(b, peakCandidate) -
+        scoreRecoveryForPlanning(a, peakCandidate),
+    )[0];
+
+  const selected: PlannedExperience[] = [];
+  const usedIds = new Set<string>();
+
+  const pushItem = (item?: PlannedExperience) => {
+    if (!item) return;
+    if (usedIds.has(item.experience.id)) return;
+    if (selected.length >= targetItemCount) return;
+    usedIds.add(item.experience.id);
+    selected.push(item);
+  };
+
+  pushItem(peakCandidate);
+  pushItem(recoveryCandidate);
+
+  if (narrative !== "recovery") {
+    const openerCandidate = [...merged, ...optionalPool]
+      .filter((item) => !usedIds.has(item.experience.id))
+      .find((item) => isOpenerCandidate(item.experience));
+
+    pushItem(openerCandidate);
+  }
+
+  const supportPool = [...merged]
+    .filter((item) => !usedIds.has(item.experience.id))
+    .sort((a, b) => {
+      const aNearPeak =
+        peakCandidate &&
+        (a.experience.area === peakCandidate.experience.area ||
+          a.themeCluster === peakCandidate.themeCluster)
+          ? 1
+          : 0;
+
+      const bNearPeak =
+        peakCandidate &&
+        (b.experience.area === peakCandidate.experience.area ||
+          b.themeCluster === peakCandidate.themeCluster)
+          ? 1
+          : 0;
+
+      const aPriorityRank = a.priority === "anchor" ? 2 : a.priority === "core" ? 1 : 0;
+      const bPriorityRank = b.priority === "anchor" ? 2 : b.priority === "core" ? 1 : 0;
+
+      return (
+        bNearPeak * 3 +
+        bPriorityRank +
+        b.planningScore -
+        (aNearPeak * 3 + aPriorityRank + a.planningScore)
+      );
+    });
+
+  for (const item of supportPool) {
+    pushItem(item);
+  }
+
+  if (selected.length < targetItemCount) {
+    for (const item of optionalPool) {
+      pushItem(item);
+    }
+  }
+
+  const trimmed = selected.slice(0, targetItemCount);
+
+  return {
+    items: trimmed,
+    skeletonType,
+    hardCap,
+    targetItemCount,
+    peakCandidate,
+    recoveryCandidate,
+    spareCapacity: Math.max(0, hardCap - trimmed.length),
+  };
+}
 
 function groupByArea(scored: ScoredExperience[]): Record<Area, ScoredExperience[]> {
   return scored.reduce(
@@ -754,7 +966,7 @@ export function planDaysWithDiagnostics(
   const grouped = groupByArea(scored);
   const chosenAreas = pickTopAreas(grouped, input.days);
 
-  const maxPerDay = DAILY_EXPERIENCE_COUNT_BY_DENSITY[input.dailyDensity];
+  const densityMaxPerDay = DAILY_EXPERIENCE_COUNT_BY_DENSITY[input.dailyDensity];
   const dayPlans: DayPlan[] = [];
   const dayDiagnostics: PlanningDiagnostics["dayPlans"] = [];
 
@@ -795,12 +1007,12 @@ export function planDaysWithDiagnostics(
       continue;
     }
 
-    const anchorCandidates = pickAnchors(primaryAreaPool, input, dayNarrative);
+        const anchorCandidates = pickAnchors(primaryAreaPool, input, dayNarrative);
 
     const maxCoreCount =
       input.diversityMode === "theme_focused"
-        ? Math.max(maxPerDay - anchorCandidates.length - 1, 1)
-        : Math.max(maxPerDay - anchorCandidates.length - 2, 1);
+        ? Math.max(densityMaxPerDay - anchorCandidates.length - 1, 1)
+        : Math.max(densityMaxPerDay - anchorCandidates.length - 2, 1);
 
     const coreCandidates = pickCoreAroundAnchors(
       primaryAreaPool,
@@ -810,7 +1022,7 @@ export function planDaysWithDiagnostics(
     );
 
     const maxOptionalCount = Math.max(
-      maxPerDay - anchorCandidates.length - coreCandidates.length,
+      densityMaxPerDay - anchorCandidates.length - coreCandidates.length,
       0,
     );
 
@@ -838,30 +1050,46 @@ export function planDaysWithDiagnostics(
       ),
     );
 
-    const mergedBase = [...anchors, ...core, ...optional];
+    const mergedBase = [...anchors, ...core];
     const merged = ensureDayComposition(
       mergedBase,
       primaryAreaPool,
       spilloverPool,
       dayNarrative,
-      maxPerDay,
+      densityMaxPerDay,
     );
 
-    for (const item of merged) {
+    const dayAvailableMinutes = (input.dailyEndSlot - input.dailyStartSlot) * 30;
+    const skeletonType = selectPlanningSkeleton({
+      input,
+      narrative: dayNarrative,
+      primaryAreaPool,
+      dayAvailableMinutes,
+    });
+
+    const compact = compactDaySelection({
+      merged,
+      optionalPool: optional,
+      skeletonType,
+      maxPerDay: densityMaxPerDay,
+      narrative: dayNarrative,
+    });
+
+    for (const item of compact.items) {
       globallyUsedIds.add(item.experience.id);
     }
 
-    const roughOrder = buildRoughOrder(merged);
+    const roughOrder = buildRoughOrder(compact.items);
 
-    const finalAnchor = merged.filter((x) => x.priority === "anchor");
-    const finalCore = merged.filter((x) => x.priority === "core");
-    const finalOptional = merged.filter((x) => x.priority === "optional");
+    const finalAnchor = compact.items.filter((x) => x.priority === "anchor");
+    const finalCore = compact.items.filter((x) => x.priority === "core");
+    const finalOptional = compact.items.filter((x) => x.priority === "optional");
 
     totalAnchors += finalAnchor.length;
     totalCore += finalCore.length;
     totalOptional += finalOptional.length;
 
-    const clusterDistribution = merged.reduce(
+    const clusterDistribution = compact.items.reduce(
       (acc, item) => {
         const cluster = item.themeCluster ?? "mixed";
         acc[cluster] = (acc[cluster] ?? 0) + 1;
@@ -881,28 +1109,62 @@ export function planDaysWithDiagnostics(
       anchorIds: finalAnchor.map((x) => x.experience.id),
       coreIds: finalCore.map((x) => x.experience.id),
       optionalIds: finalOptional.map((x) => x.experience.id),
-      totalScore: merged.reduce((sum, item) => sum + item.planningScore, 0),
+      totalScore: compact.items.reduce((sum, item) => sum + item.planningScore, 0),
       clusterDistribution,
+      skeletonType: compact.skeletonType,
+      targetItemCount: compact.targetItemCount,
+      hardCap: compact.hardCap,
+      peakCandidateId: compact.peakCandidate?.experience.id,
+      recoveryCandidateId: compact.recoveryCandidate?.experience.id,
+      selectedOrder: roughOrder,
+      spareCapacity: compact.spareCapacity,
       notes: [
         `primaryArea=${primaryArea}`,
         `narrative=${dayNarrative}`,
         `primaryPool=${primaryAreaPool.length}`,
         `spilloverPool=${spilloverPool.length}`,
-        `mergedCount=${merged.length}`,
-        `areas=${getAreasFromMerged(merged).join(",")}`,
-        `hasOpener=${hasOpener(merged)}`,
-        `hasPeak=${hasPeak(merged)}`,
-        `hasRecoveryOrMeal=${hasRecoveryOrMeal(merged)}`,
+        `mergedCount=${compact.items.length}`,
+        `areas=${getAreasFromMerged(compact.items).join(",")}`,
+        `hasOpener=${hasOpener(compact.items)}`,
+        `hasPeak=${hasPeak(compact.items)}`,
+        `hasRecoveryOrMeal=${hasRecoveryOrMeal(compact.items)}`,
+        `skeleton=${compact.skeletonType}`,
+        `targetItemCount=${compact.targetItemCount}`,
+        `hardCap=${compact.hardCap}`,
+        `peakCandidate=${compact.peakCandidate?.experience.id ?? "none"}`,
+        `recoveryCandidate=${compact.recoveryCandidate?.experience.id ?? "none"}`,
+        `spareCapacity=${compact.spareCapacity}`,
       ],
     });
 
     dayPlans.push({
       day,
-      areas: getAreasFromMerged(merged),
+      areas: getAreasFromMerged(compact.items),
       anchor: finalAnchor,
       core: finalCore,
       optional: finalOptional,
       roughOrder,
+      selection: {
+        skeletonType: compact.skeletonType,
+        hardCap: compact.hardCap,
+        targetItemCount: compact.targetItemCount,
+        peakCandidateId: compact.peakCandidate?.experience.id,
+        recoveryCandidateId: compact.recoveryCandidate?.experience.id,
+        selectedOrder: roughOrder,
+        spareCapacity: compact.spareCapacity,
+        items: compact.items.map((item) => ({
+          experienceId: item.experience.id,
+          role: toSelectionRole(
+            item,
+            compact.peakCandidate?.experience.id,
+            compact.recoveryCandidate?.experience.id,
+          ),
+          priority: item.priority,
+          planningTier: item.planningTier,
+          functionalRole: item.functionalRole,
+          planningScore: item.planningScore,
+        })),
+      },
     });
   }
 
