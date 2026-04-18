@@ -36,7 +36,7 @@
  * Notes:
  * - Scheduling V3는 experience sequence를 먼저 만들고,
  *   그 다음 order-preserving 방식으로 timeline fitting을 수행한다.
- * - recovery는 hard-preserve 대상이다.
+ * - recovery는 hard-fail이 아니라 soft-protected 대상으로 취급한다.
  * - peak는 day middle에 위치하도록 sequence와 fitting 단계에서 모두 보호한다.
  */
 
@@ -556,6 +556,7 @@ function buildExperienceSequence(params: {
   const recovery =
     items.find((item) => item.experience.id === planningRecoveryId) ??
     undefined;
+
   const usedIds = new Set<string>();
   const orderedByRole: Array<{ role: FlowRole; item: PlannedExperience }> = [];
 
@@ -1216,7 +1217,7 @@ function tryInsertLateFallbackSupport(params: {
   primaryRecovery?: PlannedExperience;
   lateFallbackIds?: string[];
 }): { items: ScheduledItem[]; insertedId?: string } {
-    const {
+  const {
     working,
     input,
     plannedMap,
@@ -1224,7 +1225,8 @@ function tryInsertLateFallbackSupport(params: {
     primaryRecovery,
     lateFallbackIds,
   } = params;
-    const fallback = pickLateFallbackCandidate({
+
+  const fallback = pickLateFallbackCandidate({
     working,
     plannedMap,
     primaryPeak,
@@ -1253,6 +1255,7 @@ function tryInsertLateFallbackSupport(params: {
     insertedId: insertedOk ? fallback.experience.id : undefined,
   };
 }
+
 function tryReinsertCriticalItem(params: {
   working: ScheduledItem[];
   target: PlannedExperience;
@@ -1303,8 +1306,16 @@ function repairTimeline(params: {
   primaryPeak?: PlannedExperience;
   primaryRecovery?: PlannedExperience;
   plannedMap: Map<string, PlannedExperience>;
+  lateFallbackIds?: string[];
 }): RepairResult {
-  const { fitted, input, primaryPeak, primaryRecovery, plannedMap } = params;
+  const {
+    fitted,
+    input,
+    primaryPeak,
+    primaryRecovery,
+    plannedMap,
+    lateFallbackIds,
+  } = params;
 
   let working = [...fitted.items];
   const repairs: RepairActionLog[] = [];
@@ -1413,7 +1424,7 @@ function repairTimeline(params: {
     });
   }
 
-   const substitutedExperienceIds: string[] = [];
+  const substitutedExperienceIds: string[] = [];
 
   if (primaryRecovery && !hasPreservedRecovery(working, primaryRecovery.experience.id)) {
     const beforeOverflowMin = getOverflowMin(working, input.dailyEndSlot);
@@ -1445,13 +1456,13 @@ function repairTimeline(params: {
         reason: "Reinsert missing recovery after trimming non-critical support",
       });
     } else {
-            const fallbackInserted = tryInsertLateFallbackSupport({
+      const fallbackInserted = tryInsertLateFallbackSupport({
         working: trimmed,
         input,
         plannedMap,
         primaryPeak,
         primaryRecovery,
-        lateFallbackIds: dayPlan.selection?.lateFallbackIds,
+        lateFallbackIds,
       });
 
       working = fallbackInserted.items;
@@ -1470,7 +1481,7 @@ function repairTimeline(params: {
           afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
           reason: "Fallback late support inserted after recovery soft miss",
         });
-                } else {
+      } else {
         const lateFallbackMissNote =
           `lateFallbackMiss=${primaryRecovery.experience.id}:no_viable_support`;
         const softMissNote =
@@ -1487,7 +1498,9 @@ function repairTimeline(params: {
     }
   }
 
-    const preservedPeak = hasPreservedPeak(
+  overflow = getOverflowMin(working, input.dailyEndSlot);
+
+  const preservedPeak = hasPreservedPeak(
     working,
     primaryPeak?.experience.id,
   );
@@ -1502,7 +1515,7 @@ function repairTimeline(params: {
     substitutedExperienceIds.length > 0 ||
     !primaryRecovery;
 
-    const timelineDiagnostics: TimelineDiagnostics = {
+  const timelineDiagnostics: TimelineDiagnostics = {
     overflowMin: overflow,
     invalidPlacement: fitted.invalidPlacement || !preservedPeak,
     compressedExperienceIds: Array.from(new Set(compressedExperienceIds)),
@@ -1512,6 +1525,7 @@ function repairTimeline(params: {
     preservedRecovery: recoverySoftRecovered,
     notes: Array.from(new Set(notes)),
   };
+
   return {
     items: working,
     repairs,
@@ -1649,6 +1663,7 @@ export function scheduleDayPlan(
     primaryPeak: sequence.primaryPeak,
     primaryRecovery: sequence.primaryRecovery,
     plannedMap,
+    lateFallbackIds: dayPlan.selection?.lateFallbackIds,
   });
 
   const repairedOrdered: PlannedExperience[] = repaired.items
