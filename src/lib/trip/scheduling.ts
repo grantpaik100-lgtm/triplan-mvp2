@@ -526,36 +526,38 @@ function buildExperienceSequence(params: {
     usedIds.add(recovery.experience.id);
   }
 
-  for (const role of skeletonRoles) {
-    if (role === "peak" && peak) {
+ for (const role of skeletonRoles) {
+  if (role === "peak") {
+    if (peak) {
       orderedByRole.push({ role, item: peak });
-      continue;
     }
-
-    if (role === "recovery" && recovery) {
-      orderedByRole.push({ role, item: recovery });
-      continue;
-    }
-
-    const prev = orderedByRole[orderedByRole.length - 1]?.item;
-    const next =
-      role === "opener" || role === "activation" || role === "support"
-        ? peak
-        : undefined;
-
-    const picked = selectBestByRole({
-      items,
-      usedIds,
-      role,
-      prev,
-      next,
-    });
-
-    if (picked) {
-      usedIds.add(picked.experience.id);
-      orderedByRole.push({ role, item: picked });
-    }
+    continue;
   }
+
+  if (role === "recovery" && recovery) {
+    orderedByRole.push({ role, item: recovery });
+    continue;
+  }
+
+  const prev = orderedByRole[orderedByRole.length - 1]?.item;
+  const next =
+    role === "opener" || role === "activation" || role === "support"
+      ? peak
+      : undefined;
+
+  const picked = selectBestByRole({
+    items,
+    usedIds,
+    role,
+    prev,
+    next,
+  });
+
+  if (picked) {
+    usedIds.add(picked.experience.id);
+    orderedByRole.push({ role, item: picked });
+  }
+}
 
   const seen = new Set<string>();
   let ordered = orderedByRole
