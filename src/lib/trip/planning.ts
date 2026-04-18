@@ -928,56 +928,78 @@ function compactDaySelection(params: {
 
   const reserveLateFallbackPool = [...primaryAreaPool, ...spilloverPool]
   .filter((item) => !selectedBaseIds.has(item.experience.id))
-  .filter((item) => canServeAsLateFallback(item.experience))
   .map((item) =>
     toPlannedExperience(
       item,
       "optional",
       "optional",
-      item.experience.isMeal ? "meal" : isRestLike(item.experience) ? "rest" : "optional",
+      item.experience.isMeal
+        ? "meal"
+        : isRestLike(item.experience)
+          ? "rest"
+          : "optional",
       ["feasibility_safe", "diversity_fill"],
     ),
   );
 
   const lateFallbackIds = [...optionalPool, ...reserveLateFallbackPool]
-    .filter((item) => item.experience.id !== peakCandidate?.experience.id)
-    .filter((item) => item.experience.id !== recoveryCandidate?.experience.id)
-    .filter((item) => canServeAsLateRecovery(item.experience))
-    .sort((a, b) => {
-      const aSameArea =
-        (recoveryCandidate && a.experience.area === recoveryCandidate.experience.area ? 2 : 0) +
-        (peakCandidate && a.experience.area === peakCandidate.experience.area ? 1 : 0);
+  .filter((item) => item.experience.id !== peakCandidate?.experience.id)
+  .filter((item) => item.experience.id !== recoveryCandidate?.experience.id)
+  .filter((item) => canServeAsLateFallback(item.experience))
+  .sort((a, b) => {
+    const aSameArea =
+      (recoveryCandidate && a.experience.area === recoveryCandidate.experience.area ? 2 : 0) +
+      (peakCandidate && a.experience.area === peakCandidate.experience.area ? 1 : 0);
 
-      const bSameArea =
-        (recoveryCandidate && b.experience.area === recoveryCandidate.experience.area ? 2 : 0) +
-        (peakCandidate && b.experience.area === peakCandidate.experience.area ? 1 : 0);
+    const bSameArea =
+      (recoveryCandidate && b.experience.area === recoveryCandidate.experience.area ? 2 : 0) +
+      (peakCandidate && b.experience.area === peakCandidate.experience.area ? 1 : 0);
 
-      const aSameCluster =
-        (recoveryCandidate && a.themeCluster === recoveryCandidate.themeCluster ? 2 : 0) +
-        (peakCandidate && a.themeCluster === peakCandidate.themeCluster ? 1 : 0);
+    const aSameCluster =
+      (recoveryCandidate && a.themeCluster === recoveryCandidate.themeCluster ? 2 : 0) +
+      (peakCandidate && a.themeCluster === peakCandidate.themeCluster ? 1 : 0);
 
-      const bSameCluster =
-        (recoveryCandidate && b.themeCluster === recoveryCandidate.themeCluster ? 2 : 0) +
-        (peakCandidate && b.themeCluster === peakCandidate.themeCluster ? 1 : 0);
+    const bSameCluster =
+      (recoveryCandidate && b.themeCluster === recoveryCandidate.themeCluster ? 2 : 0) +
+      (peakCandidate && b.themeCluster === peakCandidate.themeCluster ? 1 : 0);
 
-      const aMealOrRest =
-        (a.experience.isMeal ? 1.2 : 0) +
-        (isRestLike(a.experience) ? 1.0 : 0) +
-        (a.experience.timeFlexibility === "high" ? 0.6 : 0);
+    const aMealOrRest =
+      (a.experience.isMeal ? 1.2 : 0) +
+      (isRestLike(a.experience) ? 1.0 : 0) +
+      (a.experience.timeFlexibility === "high" ? 0.6 : a.experience.timeFlexibility === "medium" ? 0.3 : 0);
 
-      const bMealOrRest =
-        (b.experience.isMeal ? 1.2 : 0) +
-        (isRestLike(b.experience) ? 1.0 : 0) +
-        (b.experience.timeFlexibility === "high" ? 0.6 : 0);
+    const bMealOrRest =
+      (b.experience.isMeal ? 1.2 : 0) +
+      (isRestLike(b.experience) ? 1.0 : 0) +
+      (b.experience.timeFlexibility === "high" ? 0.6 : b.experience.timeFlexibility === "medium" ? 0.3 : 0);
 
-      const aScore = aSameArea + aSameCluster + aMealOrRest + a.planningScore;
-      const bScore = bSameArea + bSameCluster + bMealOrRest + b.planningScore;
+    const aNarrativeBonus =
+      (narrative === "peak" && a.experience.isMeal ? 0.8 : 0) +
+      (narrative === "recovery" && isRestLike(a.experience) ? 0.8 : 0) +
+      (skeletonType === "short" && peakCandidate && a.experience.area === peakCandidate.experience.area ? 1.2 : 0);
 
-      return bScore - aScore;
-    })
-    .map((item) => item.experience.id)
-    .filter((id, index, arr) => arr.indexOf(id) === index)
-    .slice(0, 4);
+    const bNarrativeBonus =
+      (narrative === "peak" && b.experience.isMeal ? 0.8 : 0) +
+      (narrative === "recovery" && isRestLike(b.experience) ? 0.8 : 0) +
+      (skeletonType === "short" && peakCandidate && b.experience.area === peakCandidate.experience.area ? 1.2 : 0);
+
+    const aScore = aSameArea + aSameCluster + aMealOrRest + aNarrativeBonus + a.planningScore;
+    const bScore = bSameArea + bSameCluster + bMealOrRest + bNarrativeBonus + b.planningScore;
+
+    return bScore - aScore;
+  })
+  .map((item) => item.experience.id)
+  .filter((id, index, arr) => arr.indexOf(id) === index)
+  .slice(
+    0,
+    skeletonType === "short"
+      ? 5
+      : narrative === "peak"
+        ? 5
+        : narrative === "recovery"
+          ? 3
+          : 4,
+  );
   let targetItemCount =
     skeletonType === "relaxed" || skeletonType === "short" ? 3 : 4;
 
