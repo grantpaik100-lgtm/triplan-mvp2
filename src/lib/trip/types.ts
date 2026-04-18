@@ -164,6 +164,32 @@ export type CandidateDiagnostics = {
   dropped: CandidateDiagnosticItem[];
 };
 
+export type PlanningSelectionRole =
+  | "peak_candidate"
+  | "recovery_candidate"
+  | "core_support"
+  | "optional_spare";
+
+export type PlanningSelectionItem = {
+  experienceId: string;
+  role: PlanningSelectionRole;
+  priority: PriorityClass;
+  planningTier: PlanItemTier;
+  functionalRole: FunctionalRole;
+  planningScore: number;
+};
+
+export type PlanningSelectionSummary = {
+  skeletonType: DaySkeletonType;
+  hardCap: number;
+  targetItemCount: number;
+  peakCandidateId?: string;
+  recoveryCandidateId?: string;
+  selectedOrder: string[];
+  spareCapacity: number;
+  items: PlanningSelectionItem[];
+};
+
 export type DayPlanningDiagnostic = {
   dayIndex: number;
   targetClusterStrategy: string;
@@ -172,6 +198,13 @@ export type DayPlanningDiagnostic = {
   optionalIds: string[];
   totalScore: number;
   clusterDistribution: Partial<Record<ThemeCluster, number>>;
+  skeletonType?: DaySkeletonType;
+  targetItemCount?: number;
+  hardCap?: number;
+  peakCandidateId?: string;
+  recoveryCandidateId?: string;
+  selectedOrder?: string[];
+  spareCapacity?: number;
   notes: string[];
 };
 
@@ -464,6 +497,7 @@ export type DayPlan = {
   core: PlannedExperience[];
   optional: PlannedExperience[];
   roughOrder: string[];
+  selection?: PlanningSelectionSummary;
 };
 
 export type ScheduledItem = {
