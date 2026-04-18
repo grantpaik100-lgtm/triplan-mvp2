@@ -5,6 +5,7 @@
  *
  * Target Role:
  * - engine canonical contract file로 유지되어야 한다.
+ * - Scheduling V3의 sequence-first 계약(FlowRole, DaySkeletonType, sequence/timeline diagnostics)을 포함해야 한다.
  *
  * Chain:
  * - engine
@@ -128,8 +129,11 @@ export type RepairActionType =
   | "move_peak_earlier"
   | "pull_day_forward"
   | "demote_peak_time_preference"
-  | "drop_low_value_core";
-
+  | "drop_low_value_core"
+  | "compress_duration"
+  | "swap_sequence"
+  | "substitute_optional"
+  | "substitute_recovery";
 
 export type FeasibilityStatus = "safe" | "tight" | "overflow";
 
@@ -189,14 +193,65 @@ export type RepairActionLog = {
   reason: string;
 };
 
+/**
+ * Legacy narrative type.
+ * planning / legacy debug 호환용으로 유지.
+ */
 export type DayNarrativeType = "immersion" | "peak" | "recovery";
 
+/**
+ * Scheduling V3 canonical skeleton.
+ */
+export type DaySkeletonType =
+  | "balanced"
+  | "short"
+  | "extended"
+  | "peak_centric"
+  | "relaxed";
+
+/**
+ * Legacy rhythm slot type.
+ * UI / debug compatibility 용도로 유지.
+ */
 export type RhythmSlotType =
   | "warm_up"
   | "activation"
   | "emotional_peak"
   | "recovery"
   | "cool_down";
+
+/**
+ * Scheduling V3 canonical flow role.
+ */
+export type FlowRole =
+  | "opener"
+  | "activation"
+  | "support"
+  | "peak"
+  | "recovery"
+  | "soft_end";
+
+export type FlowRoleAffinity = {
+  opener: number;
+  activation: number;
+  support: number;
+  peak: number;
+  recovery: number;
+  softEnd: number;
+};
+
+export type ExperienceSequenceNode = {
+  experienceId: string;
+  placeName: string;
+  priority: PriorityClass;
+  planningTier?: PlanItemTier;
+  functionalRole?: FunctionalRole;
+  themeCluster?: ThemeCluster;
+  flowRole: FlowRole;
+  sequenceIndex: number;
+  isPrimaryPeak?: boolean;
+  roleAffinity: FlowRoleAffinity;
+};
 
 export type FlowScoreBreakdown = {
   peakReward: number;
@@ -208,10 +263,36 @@ export type FlowScoreBreakdown = {
   total: number;
 };
 
+export type SequenceDiagnostics = {
+  skeletonType: DaySkeletonType;
+  selectedPeakId?: string;
+  selectedRecoveryId?: string;
+  flowScore: number;
+  smoothnessScore: number;
+  fatigueScore: number;
+  peakPositionScore: number;
+  recoveryScore: number;
+  continuityScore: number;
+  notes: string[];
+};
+
+export type TimelineDiagnostics = {
+  overflowMin: number;
+  invalidPlacement: boolean;
+  compressedExperienceIds: string[];
+  substitutedExperienceIds: string[];
+  droppedOptionalIds: string[];
+  preservedPeak: boolean;
+  preservedRecovery: boolean;
+  notes: string[];
+};
+
 export type DaySchedulingDiagnostic = {
   dayIndex: number;
   narrativeType: DayNarrativeType;
+  skeletonType: DaySkeletonType;
   primaryPeakId?: string;
+  primaryRecoveryId?: string;
   preFeasibilityStatus: FeasibilityStatus;
   estimatedTotalMin: number;
   availableMin: number;
@@ -220,8 +301,11 @@ export type DaySchedulingDiagnostic = {
   flowScoreAfterRepair: number;
   repairs: RepairActionLog[];
   finalStatus: "scheduled" | "repaired" | "partial_fail";
+  sequenceDiagnostics: SequenceDiagnostics;
+  timelineDiagnostics: TimelineDiagnostics;
   notes: string[];
 };
+
 export type SchedulingDiagnostics = {
   totalOverflowDays: number;
   totalRepairCount: number;
@@ -300,7 +384,6 @@ export type ExperienceMetadata = {
   themeCluster?: ThemeCluster;
   functionalRoleHints?: FunctionalRole[];
 
-
   priorityHints: {
     canBeAnchor: boolean;
     anchorReasons: string[];
@@ -332,7 +415,9 @@ export type UserVector = {
   activityIntensity: number;
   cost: number;
 };
+
 export type DiversityMode = "diverse" | "balanced" | "theme_focused";
+
 export type PlanningInput = {
   days: number;
   companionType: CompanionType;
@@ -391,6 +476,7 @@ export type ScheduledItem = {
   planningTier?: PlanItemTier;
   functionalRole?: FunctionalRole;
   themeCluster?: ThemeCluster;
+  flowRole?: FlowRole;
   rhythmSlotType?: RhythmSlotType;
   isPrimaryPeak?: boolean;
 };
@@ -407,8 +493,8 @@ export type FeasibilityReport = {
   issues: ScheduleIssue[];
   totalFatigue: number;
   totalMinutes: number;
-  activeMinutes: number;  // 실제 experience 시간 합
-  gapMinutes: number;     // 공백 합
+  activeMinutes: number;
+  gapMinutes: number;
 };
 
 export type DaySchedule = {
