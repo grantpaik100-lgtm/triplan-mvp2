@@ -72,6 +72,7 @@ type PlanningCompactSelectionResult = {
   peakCandidate?: PlannedExperience;
   recoveryCandidate?: PlannedExperience;
   lateFallbackIds: string[];
+  lateFallbackReserve: PlannedExperience[];
   spareCapacity: number;
 };
 
@@ -1033,7 +1034,10 @@ function compactDaySelection(params: {
 
   const trimmed = selected.slice(0, targetItemCount);
 
-    return {
+  const lateFallbackReserve = [...optionalPool, ...reserveLateFallbackPool]
+  .filter((item) => lateFallbackIds.includes(item.experience.id));
+
+  return {
     items: trimmed,
     skeletonType,
     hardCap,
@@ -1041,6 +1045,7 @@ function compactDaySelection(params: {
     peakCandidate,
     recoveryCandidate,
     lateFallbackIds,
+    lateFallbackReserve,
     spareCapacity: Math.max(0, hardCap - trimmed.length),
   };
 }
@@ -1232,14 +1237,15 @@ export function planDaysWithDiagnostics(
       ],
     });
 
-    dayPlans.push({
+        dayPlans.push({
       day,
       areas: getAreasFromMerged(compact.items),
       anchor: finalAnchor,
       core: finalCore,
       optional: finalOptional,
       roughOrder,
-            selection: {
+      lateFallbackReserve: compact.lateFallbackReserve,
+      selection: {
         skeletonType: compact.skeletonType,
         hardCap: compact.hardCap,
         targetItemCount: compact.targetItemCount,
