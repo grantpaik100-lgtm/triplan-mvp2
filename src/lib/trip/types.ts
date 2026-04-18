@@ -185,6 +185,7 @@ export type PlanningSelectionSummary = {
   targetItemCount: number;
   peakCandidateId?: string;
   recoveryCandidateId?: string;
+  lateFallbackIds?: string[];
   selectedOrder: string[];
   spareCapacity: number;
   items: PlanningSelectionItem[];
