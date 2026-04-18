@@ -1452,24 +1452,24 @@ function repairTimeline(params: {
     }
   }
 
-  const preservedPeak = hasPreservedPeak(working, primaryPeak?.experience.id);
-  const preservedRecovery = primaryRecovery
-    ? hasPreservedRecovery(working, primaryRecovery.experience.id)
-    : true;
+    const preservedPeak = hasPreservedPeak(
+    working,
+    primaryPeak?.experience.id,
+  );
 
-   const preservedPeak = hasPreservedPeak(working, primaryPeak?.experience.id);
   const preservedRecovery = hasPreservedRecovery(
     working,
     primaryRecovery?.experience.id,
   );
+
   const recoverySoftRecovered =
-    preservedRecovery || substitutedExperienceIds.length > 0 || !primaryRecovery;
+    preservedRecovery ||
+    substitutedExperienceIds.length > 0 ||
+    !primaryRecovery;
 
   const timelineDiagnostics: TimelineDiagnostics = {
     overflowMin: overflow,
-    invalidPlacement:
-      fitted.invalidPlacement ||
-      !preservedPeak,
+    invalidPlacement: fitted.invalidPlacement || !preservedPeak,
     compressedExperienceIds: Array.from(new Set(compressedExperienceIds)),
     substitutedExperienceIds: Array.from(new Set(substitutedExperienceIds)),
     droppedOptionalIds: Array.from(new Set(droppedOptionalIds)),
@@ -1477,7 +1477,6 @@ function repairTimeline(params: {
     preservedRecovery: recoverySoftRecovered,
     notes,
   };
-
   return {
     items: working,
     repairs,
@@ -1662,7 +1661,7 @@ export function scheduleDayPlan(
 
   const report = evaluateFeasibility(dayPlan, repaired.items, input.dailyEndSlot);
 
-    const criticalFailure =
+      const criticalFailure =
     !repaired.timelineDiagnostics.preservedPeak ||
     repaired.timelineDiagnostics.invalidPlacement;
 
