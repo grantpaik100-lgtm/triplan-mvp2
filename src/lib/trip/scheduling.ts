@@ -1444,7 +1444,10 @@ function repairTimeline(params: {
           afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
           reason: "Fallback late support inserted after recovery soft miss",
         });
-      } else {
+           } else {
+        notes.push(
+          `lateFallbackMiss=${primaryRecovery.experience.id}:no_viable_support`,
+        );
         notes.push(
           `softMiss=${primaryRecovery.experience.id}:protected_role=${primaryRecovery.functionalRole === "rest" ? "soft_end" : "recovery"}`,
         );
@@ -1467,7 +1470,7 @@ function repairTimeline(params: {
     substitutedExperienceIds.length > 0 ||
     !primaryRecovery;
 
-  const timelineDiagnostics: TimelineDiagnostics = {
+    const timelineDiagnostics: TimelineDiagnostics = {
     overflowMin: overflow,
     invalidPlacement: fitted.invalidPlacement || !preservedPeak,
     compressedExperienceIds: Array.from(new Set(compressedExperienceIds)),
@@ -1475,7 +1478,7 @@ function repairTimeline(params: {
     droppedOptionalIds: Array.from(new Set(droppedOptionalIds)),
     preservedPeak,
     preservedRecovery: recoverySoftRecovered,
-    notes,
+    notes: Array.from(new Set(notes)),
   };
   return {
     items: working,
@@ -1661,9 +1664,12 @@ export function scheduleDayPlan(
 
   const report = evaluateFeasibility(dayPlan, repaired.items, input.dailyEndSlot);
 
-      const criticalFailure =
+  const scheduledItemCount = repaired.items.length;
+
+  const criticalFailure =
     !repaired.timelineDiagnostics.preservedPeak ||
-    repaired.timelineDiagnostics.invalidPlacement;
+    repaired.timelineDiagnostics.invalidPlacement ||
+    scheduledItemCount < 2;
 
   const finalStatus =
     criticalFailure
