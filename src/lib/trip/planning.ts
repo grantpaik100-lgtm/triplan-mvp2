@@ -947,9 +947,9 @@ function compactDaySelection(params: {
   .filter((item) => item.experience.id !== recoveryCandidate?.experience.id)
   .filter((item) => canServeAsLateFallback(item.experience))
   .sort((a, b) => {
-    const aSameArea =
-      (recoveryCandidate && a.experience.area === recoveryCandidate.experience.area ? 2 : 0) +
-      (peakCandidate && a.experience.area === peakCandidate.experience.area ? 1 : 0);
+const aSameArea =
+  (recoveryCandidate && a.experience.area === recoveryCandidate.experience.area ? 3 : 0) + // 🔥 2 → 3
+  (peakCandidate && a.experience.area === peakCandidate.experience.area ? 1.5 : 0);       // 🔥 1 → 1.5
 
     const bSameArea =
       (recoveryCandidate && b.experience.area === recoveryCandidate.experience.area ? 2 : 0) +
@@ -991,15 +991,15 @@ function compactDaySelection(params: {
   .map((item) => item.experience.id)
   .filter((id, index, arr) => arr.indexOf(id) === index)
   .slice(
-    0,
-    skeletonType === "short"
-      ? 5
-      : narrative === "peak"
-        ? 5
-        : narrative === "recovery"
-          ? 3
-          : 4,
-  );
+  0,
+  skeletonType === "short"
+    ? 6   // 🔥 short에서 하나 더 확보
+    : narrative === "peak"
+      ? 6 // 🔥 peak day도 하나 더
+      : narrative === "recovery"
+        ? 3
+        : 4,
+);
   let targetItemCount =
     skeletonType === "relaxed" || skeletonType === "short" ? 3 : 4;
 
