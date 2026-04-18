@@ -1145,10 +1145,27 @@ function pickLateFallbackCandidate(params: {
   plannedMap: Map<string, PlannedExperience>;
   primaryPeak?: PlannedExperience;
   primaryRecovery?: PlannedExperience;
+  lateFallbackIds?: string[];
 }): PlannedExperience | undefined {
-  const { working, plannedMap, primaryPeak, primaryRecovery } = params;
+  const {
+    working,
+    plannedMap,
+    primaryPeak,
+    primaryRecovery,
+    lateFallbackIds,
+  } = params;
 
   const usedIds = new Set(working.map((item) => item.experienceId));
+
+  const preferredPool = (lateFallbackIds ?? [])
+    .map((id) => plannedMap.get(id))
+    .filter((item): item is PlannedExperience => !!item)
+    .filter((item) => !usedIds.has(item.experience.id))
+    .filter((item) => isLateFallbackCandidate(item, primaryPeak, primaryRecovery));
+
+  if (preferredPool.length > 0) {
+    return preferredPool[0];
+  }
 
   const pool = Array.from(plannedMap.values())
     .filter((item) => !usedIds.has(item.experience.id))
@@ -1197,14 +1214,22 @@ function tryInsertLateFallbackSupport(params: {
   plannedMap: Map<string, PlannedExperience>;
   primaryPeak?: PlannedExperience;
   primaryRecovery?: PlannedExperience;
+  lateFallbackIds?: string[];
 }): { items: ScheduledItem[]; insertedId?: string } {
-  const { working, input, plannedMap, primaryPeak, primaryRecovery } = params;
-
-  const fallback = pickLateFallbackCandidate({
+    const {
+    working,
+    input,
+    plannedMap,
+    primaryPeak,
+    primaryRecovery,
+    lateFallbackIds,
+  } = params;
+    const fallback = pickLateFallbackCandidate({
     working,
     plannedMap,
     primaryPeak,
     primaryRecovery,
+    lateFallbackIds,
   });
 
   if (!fallback) {
@@ -1420,12 +1445,13 @@ function repairTimeline(params: {
         reason: "Reinsert missing recovery after trimming non-critical support",
       });
     } else {
-      const fallbackInserted = tryInsertLateFallbackSupport({
+            const fallbackInserted = tryInsertLateFallbackSupport({
         working: trimmed,
         input,
         plannedMap,
         primaryPeak,
         primaryRecovery,
+        lateFallbackIds: dayPlan.selection?.lateFallbackIds,
       });
 
       working = fallbackInserted.items;
@@ -1444,13 +1470,19 @@ function repairTimeline(params: {
           afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
           reason: "Fallback late support inserted after recovery soft miss",
         });
-           } else {
-        notes.push(
-          `lateFallbackMiss=${primaryRecovery.experience.id}:no_viable_support`,
-        );
-        notes.push(
-          `softMiss=${primaryRecovery.experience.id}:protected_role=${primaryRecovery.functionalRole === "rest" ? "soft_end" : "recovery"}`,
-        );
+                } else {
+        const lateFallbackMissNote =
+          `lateFallbackMiss=${primaryRecovery.experience.id}:no_viable_support`;
+        const softMissNote =
+          `softMiss=${primaryRecovery.experience.id}:protected_role=${primaryRecovery.functionalRole === "rest" ? "soft_end" : "recovery"}`;
+
+        if (!notes.includes(lateFallbackMissNote)) {
+          notes.push(lateFallbackMissNote);
+        }
+
+        if (!notes.includes(softMissNote)) {
+          notes.push(softMissNote);
+        }
       }
     }
   }
