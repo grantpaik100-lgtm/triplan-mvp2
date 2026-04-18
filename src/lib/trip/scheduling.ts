@@ -101,9 +101,11 @@ const MAX_FATIGUE_SAFE = 15;
 const DEFAULT_TRANSITION_MIN = 30;
 
 function flattenDayPlan(dayPlan: DayPlan): PlannedExperience[] {
-  const orderMap = new Map(dayPlan.roughOrder.map((id, idx) => [id, idx]));
+  const allItems = [...dayPlan.anchor, ...dayPlan.core, ...dayPlan.optional];
+  const plannedSelectionOrder = dayPlan.selection?.selectedOrder ?? dayPlan.roughOrder;
+  const orderMap = new Map(plannedSelectionOrder.map((id, idx) => [id, idx]));
 
-  return [...dayPlan.anchor, ...dayPlan.core, ...dayPlan.optional].sort((a, b) => {
+  return [...allItems].sort((a, b) => {
     return (orderMap.get(a.experience.id) ?? 999) - (orderMap.get(b.experience.id) ?? 999);
   });
 }
@@ -535,16 +537,28 @@ function buildExperienceSequence(params: {
 }): SequenceBuildResult {
   const { items, input, dayIndex, totalDays } = params;
 
-  const skeletonType = selectDaySkeleton({
-    items,
-    input,
-    dayIndex,
-    totalDays,
-  });
+    const planningSkeleton = params.dayPlan.selection?.skeletonType;
+  const planningPeakId = params.dayPlan.selection?.peakCandidateId;
+  const planningRecoveryId = params.dayPlan.selection?.recoveryCandidateId;
+
+  const skeletonType =
+    planningSkeleton ??
+    selectDaySkeleton({
+      items,
+      input,
+      dayIndex,
+      totalDays,
+    });
 
   const skeletonRoles = buildSkeletonRoles(skeletonType);
-  const peak = selectPeak(items, input);
-  const recovery = selectRecovery(items, peak);
+
+  const peak =
+    items.find((item) => item.experience.id === planningPeakId) ??
+    selectPeak(items, input);
+
+  const recovery =
+    items.find((item) => item.experience.id === planningRecoveryId) ??
+    selectRecovery(items, peak);
   const usedIds = new Set<string>();
   const orderedByRole: Array<{ role: FlowRole; item: PlannedExperience }> = [];
 
@@ -644,6 +658,9 @@ function buildExperienceSequence(params: {
       `sequenceCount=${ordered.length}`,
       `peak=${peak?.experience.id ?? "none"}`,
       `recovery=${recovery?.experience.id ?? "none"}`,
+      `planningSkeleton=${planningSkeleton ?? "none"}`,
+      `planningPeak=${planningPeakId ?? "none"}`,
+      `planningRecovery=${planningRecoveryId ?? "none"}`,
     ],
   };
 }
@@ -1494,6 +1511,8 @@ export function scheduleDayPlan(
       notes: [
         `plannedItems=${flattened.length}`,
         `skeleton=${sequence.skeletonType}`,
+        `planningTargetItemCount=${dayPlan.selection?.targetItemCount ?? "none"}`,
+        `planningHardCap=${dayPlan.selection?.hardCap ?? "none"}`,
         `peak=${sequence.primaryPeak?.experience.id ?? "none"}`,
         `recovery=${sequence.primaryRecovery?.experience.id ?? "none"}`,
         `scheduledItems=${repaired.items.length}`,
