@@ -1189,27 +1189,35 @@ export function scheduleDayPlan(
     .map((scheduled) => plannedMap.get(scheduled.experienceId))
     .filter((item): item is PlannedExperience => item !== undefined);
 
-  const repairedNodes: ExperienceSequenceNode[] = repaired.items
-    .map((item, index) => {
-      const planned = plannedMap.get(item.experienceId);
-      if (!planned) return undefined;
+    const repairedNodes: ExperienceSequenceNode[] = [];
 
-      return {
-        experienceId: item.experienceId,
-        placeName: item.placeName,
-        priority: item.priority,
-        planningTier: item.planningTier,
-        functionalRole: item.functionalRole,
-        themeCluster: item.themeCluster,
-        flowRole:
-          item.flowRole ??
-          (index === 0 ? "opener" : index === repaired.items.length - 1 ? "recovery" : "support"),
-        sequenceIndex: index,
-        isPrimaryPeak: item.isPrimaryPeak,
-        roleAffinity: computeFlowRoleAffinity(planned),
-      };
-    })
-    .filter((node): node is ExperienceSequenceNode => node !== undefined);
+  for (let index = 0; index < repaired.items.length; index += 1) {
+    const item = repaired.items[index];
+    const planned = plannedMap.get(item.experienceId);
+
+    if (!planned) {
+      continue;
+    }
+
+    repairedNodes.push({
+      experienceId: item.experienceId,
+      placeName: item.placeName,
+      priority: item.priority,
+      planningTier: item.planningTier,
+      functionalRole: item.functionalRole,
+      themeCluster: item.themeCluster,
+      flowRole:
+        item.flowRole ??
+        (index === 0
+          ? "opener"
+          : index === repaired.items.length - 1
+            ? "recovery"
+            : "support"),
+      sequenceIndex: index,
+      isPrimaryPeak: item.isPrimaryPeak,
+      roleAffinity: computeFlowRoleAffinity(planned),
+    });
+  }
 
   const sequenceEvalAfterRepair = evaluateSequenceFlow({
     ordered: repairedOrdered,
