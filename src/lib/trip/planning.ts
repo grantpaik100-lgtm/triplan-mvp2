@@ -76,17 +76,17 @@ type PlanningCompactSelectionResult = {
   spareCapacity: number;
 };
 
-function canServeAsLateFallback(exp: Experience) {
+function canServeAsLateFallback(exp: ExperienceMetadata): boolean {
   return (
-    exp.recommendedDuration <= 120 &&     // 90 → 120으로 완화
-    exp.fatigue <= 4 &&                   // 3 → 4로 완화
+    exp.recommendedDuration <= 120 &&
+    exp.fatigue <= 4 &&
     (exp.timeFlexibility === "high" ||
-     exp.timeFlexibility === "medium") && // medium 허용
+      exp.timeFlexibility === "medium") &&
     (
       exp.isMeal ||
       isRestLike(exp) ||
-      exp.features?.quiet >= 0.4 ||       // 약하게 허용
-      exp.features?.local >= 0.4
+      exp.features.quiet >= 0.4 ||
+      exp.features.local >= 0.4
     )
   );
 }
