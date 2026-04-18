@@ -98,6 +98,7 @@ type RepairResult = {
 };
 
 const MAX_FATIGUE_SAFE = 15;
+const DEFAULT_TRANSITION_MIN = 30;
 
 function flattenDayPlan(dayPlan: DayPlan): PlannedExperience[] {
   const orderMap = new Map(dayPlan.roughOrder.map((id, idx) => [id, idx]));
@@ -163,7 +164,7 @@ function clamp01(value: number): number {
   return value;
 }
 
-function safeAllowedTimes(exp: ExperienceMetadata) {
+function safeAllowedTimes(exp: ExperienceMetadata): ExperienceMetadata["allowedTimes"] {
   return Array.isArray(exp.allowedTimes) ? exp.allowedTimes : [];
 }
 
@@ -183,6 +184,35 @@ function hasStrongAnchor(items: PlannedExperience[]): boolean {
   });
 }
 
+function estimateFeasibleSequenceCapacity(
+  items: PlannedExperience[],
+  input: PlanningInput,
+): number {
+  const availableMin = computeAvailableMinutes(input);
+
+  const avgDuration =
+    items.length > 0
+      ? items.reduce((sum, item) => sum + item.experience.recommendedDuration, 0) / items.length
+      : 90;
+
+  const constrainedCount = items.filter((item) => {
+    const allowed = safeAllowedTimes(item.experience);
+    return (
+      allowed.length > 0 &&
+      !allowed.includes("afternoon") &&
+      !allowed.includes("dinner")
+    );
+  }).length;
+
+  const flexibilityBonus =
+    items.filter((item) => item.experience.timeFlexibility === "high").length * 10;
+
+  const roughCapacity = Math.floor((availableMin + flexibilityBonus) / Math.max(75, avgDuration));
+  const constrainedPenalty = Math.floor(constrainedCount / 2);
+
+  return Math.max(2, roughCapacity - constrainedPenalty);
+}
+
 function selectDaySkeleton(params: {
   items: PlannedExperience[];
   input: PlanningInput;
@@ -196,12 +226,17 @@ function selectDaySkeleton(params: {
   const quietBias =
     items.reduce((sum, item) => sum + item.experience.features.quiet, 0) /
     Math.max(1, items.length);
+  const feasibleCapacity = estimateFeasibleSequenceCapacity(items, input);
 
-  if (availableMin <= 300 || candidateCount <= 3) {
+  if (availableMin <= 300 || candidateCount <= 3 || feasibleCapacity <= 3) {
     return "short";
   }
 
-  if (input.dailyDensity >= 4 && candidateCount >= 5) {
+  if (
+    input.dailyDensity >= 4 &&
+    candidateCount >= 5 &&
+    feasibleCapacity >= 5
+  ) {
     return "extended";
   }
 
@@ -736,6 +771,10 @@ function getRoleForItem(
   );
 }
 
+function isCriticalFlowRole(role: FlowRole): boolean {
+  return role === "peak" || role === "recovery" || role === "soft_end";
+}
+
 function chooseDurationMinutes(
   item: PlannedExperience,
   overflowPressureMin: number,
@@ -778,6 +817,47 @@ function findFeasibleStartSlot(params: {
   })[0];
 }
 
+function findFallbackStartSlot(params: {
+  item: PlannedExperience;
+  earliestSlot: number;
+  latestStartSlot: number;
+}): number | null {
+  const { item, earliestSlot, latestStartSlot } = params;
+  if (earliestSlot > latestStartSlot) return null;
+
+  for (let slot = earliestSlot; slot <= latestStartSlot; slot += 1) {
+    if (isAllowedTimeSlot(item.experience.allowedTimes, slot)) {
+      return slot;
+    }
+  }
+
+  if (item.experience.timeFlexibility === "high") {
+    return Math.min(earliestSlot, latestStartSlot);
+  }
+
+  return null;
+}
+
+function estimateRemainingCriticalMinutes(
+  ordered: PlannedExperience[],
+  nodes: ExperienceSequenceNode[],
+  currentIndex: number,
+): number {
+  let total = 0;
+
+  for (let i = currentIndex + 1; i < ordered.length; i += 1) {
+    const planned = ordered[i];
+    const role = getRoleForItem(planned, nodes);
+
+    if (isCriticalFlowRole(role)) {
+      total += planned.experience.minDuration;
+      total += DEFAULT_TRANSITION_MIN;
+    }
+  }
+
+  return total;
+}
+
 function fitSequenceToTimeline(params: {
   ordered: PlannedExperience[];
   nodes: ExperienceSequenceNode[];
@@ -796,6 +876,8 @@ function fitSequenceToTimeline(params: {
     const planned = ordered[i];
     const prev = i > 0 ? ordered[i - 1] : undefined;
     const flowRole = getRoleForItem(planned, nodes);
+    const isCriticalRole = isCriticalFlowRole(flowRole);
+
     const travelMin = prev
       ? getAreaDistanceMinutes(prev.experience.area, planned.experience.area)
       : 0;
@@ -805,15 +887,29 @@ function fitSequenceToTimeline(params: {
       items.length > 0 ? (currentSlot - input.dailyEndSlot) * 30 : 0,
     );
 
-    const chosenDuration = chooseDurationMinutes(planned, overflowPressureMin);
-    const durationSlots = minutesToSlots(chosenDuration);
+    const earliestSlot = currentSlot + minutesToSlots(travelMin);
+    const remainingCriticalMinutes = estimateRemainingCriticalMinutes(ordered, nodes, i);
+    const remainingAvailableMinutes = Math.max(
+      0,
+      (input.dailyEndSlot - earliestSlot) * 30,
+    );
 
-    if (chosenDuration < planned.experience.recommendedDuration) {
+    let chosenDuration = chooseDurationMinutes(planned, overflowPressureMin);
+
+    if (
+      remainingAvailableMinutes - chosenDuration < remainingCriticalMinutes &&
+      !isCriticalRole
+    ) {
+      chosenDuration = planned.experience.minDuration;
+      compressedExperienceIds.push(planned.experience.id);
+      notes.push(`reserveCriticalBuffer=${planned.experience.id}`);
+    } else if (chosenDuration < planned.experience.recommendedDuration) {
       compressedExperienceIds.push(planned.experience.id);
     }
 
-    const earliestSlot = currentSlot + minutesToSlots(travelMin);
+    const durationSlots = minutesToSlots(chosenDuration);
     const latestStartSlot = Math.max(input.dailyStartSlot, input.dailyEndSlot - durationSlots);
+
     const startSlot = findFeasibleStartSlot({
       item: planned,
       earliestSlot,
@@ -823,12 +919,42 @@ function fitSequenceToTimeline(params: {
     if (startSlot === null) {
       if (
         planned.priority === "optional" &&
-        flowRole !== "recovery" &&
-        flowRole !== "soft_end"
+        !isCriticalRole
       ) {
         droppedOptionalIds.push(planned.experience.id);
         notes.push(`dropOptional=${planned.experience.id}:time_window_mismatch`);
         continue;
+      }
+
+      const fallbackStart = findFallbackStartSlot({
+        item: planned,
+        earliestSlot,
+        latestStartSlot,
+      });
+
+      if (fallbackStart !== null) {
+        const fallbackEnd = fallbackStart + durationSlots;
+
+        if (fallbackEnd <= input.dailyEndSlot) {
+          items.push({
+            experienceId: planned.experience.id,
+            placeName: planned.experience.placeName,
+            startSlot: fallbackStart,
+            endSlot: fallbackEnd,
+            durationMinutes: durationSlots * 30,
+            priority: planned.priority,
+            planningTier: planned.planningTier,
+            functionalRole: planned.functionalRole,
+            themeCluster: planned.themeCluster,
+            flowRole,
+            rhythmSlotType: flowRoleToRhythmSlotType(flowRole),
+            isPrimaryPeak: flowRole === "peak",
+          });
+
+          currentSlot = fallbackEnd;
+          notes.push(`fallbackPlacement=${planned.experience.id}:critical_role=${flowRole}`);
+          continue;
+        }
       }
 
       invalidPlacement = true;
@@ -841,8 +967,7 @@ function fitSequenceToTimeline(params: {
     if (
       endSlot > input.dailyEndSlot &&
       planned.priority === "optional" &&
-      flowRole !== "recovery" &&
-      flowRole !== "soft_end"
+      !isCriticalRole
     ) {
       droppedOptionalIds.push(planned.experience.id);
       notes.push(`dropOptional=${planned.experience.id}:overflow`);
@@ -939,6 +1064,50 @@ function hasPreservedRecovery(items: ScheduledItem[], recoveryId?: string): bool
   return items.some((item) => item.experienceId === recoveryId);
 }
 
+function tryReinsertCriticalItem(params: {
+  working: ScheduledItem[];
+  target: PlannedExperience;
+  forcedRole: FlowRole;
+  input: PlanningInput;
+  plannedMap: Map<string, PlannedExperience>;
+}): ScheduledItem[] {
+  const { working, target, forcedRole, input, plannedMap } = params;
+
+  if (working.some((item) => item.experienceId === target.experience.id)) {
+    return working;
+  }
+
+  const base = [...working];
+  const targetDurationSlots = minutesToSlots(target.experience.minDuration);
+
+  const candidateStart = findFallbackStartSlot({
+    item: target,
+    earliestSlot: input.dailyStartSlot,
+    latestStartSlot: Math.max(input.dailyStartSlot, input.dailyEndSlot - targetDurationSlots),
+  });
+
+  if (candidateStart === null) {
+    return base;
+  }
+
+  base.push({
+    experienceId: target.experience.id,
+    placeName: target.experience.placeName,
+    startSlot: candidateStart,
+    endSlot: candidateStart + targetDurationSlots,
+    durationMinutes: targetDurationSlots * 30,
+    priority: target.priority,
+    planningTier: target.planningTier,
+    functionalRole: target.functionalRole,
+    themeCluster: target.themeCluster,
+    flowRole: forcedRole,
+    rhythmSlotType: flowRoleToRhythmSlotType(forcedRole),
+    isPrimaryPeak: forcedRole === "peak",
+  });
+
+  return recomputeSequentialTimeline(base, plannedMap, input);
+}
+
 function repairTimeline(params: {
   fitted: TimelineFitResult;
   input: PlanningInput;
@@ -1030,6 +1199,52 @@ function repairTimeline(params: {
         reason: "Remove optional support before touching peak/recovery",
       });
     }
+  }
+
+  if (primaryPeak && !hasPreservedPeak(working, primaryPeak.experience.id)) {
+    const beforeOverflowMin = getOverflowMin(working, input.dailyEndSlot);
+    const trimmed = [...working]
+      .filter((item) => !(item.priority === "optional" && item.flowRole !== "recovery" && item.flowRole !== "soft_end"));
+
+    working = tryReinsertCriticalItem({
+      working: trimmed,
+      target: primaryPeak,
+      forcedRole: "peak",
+      input,
+      plannedMap,
+    });
+
+    repairs.push({
+      step: step++,
+      action: "move_peak_earlier",
+      targetExperienceId: primaryPeak.experience.id,
+      beforeOverflowMin,
+      afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
+      reason: "Reinsert missing peak after trimming non-critical support",
+    });
+  }
+
+  if (primaryRecovery && !hasPreservedRecovery(working, primaryRecovery.experience.id)) {
+    const beforeOverflowMin = getOverflowMin(working, input.dailyEndSlot);
+    const trimmed = [...working]
+      .filter((item) => !(item.priority === "optional" && item.flowRole !== "peak"));
+
+    working = tryReinsertCriticalItem({
+      working: trimmed,
+      target: primaryRecovery,
+      forcedRole: "recovery",
+      input,
+      plannedMap,
+    });
+
+    repairs.push({
+      step: step++,
+      action: "insert_recovery",
+      targetExperienceId: primaryRecovery.experience.id,
+      beforeOverflowMin,
+      afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
+      reason: "Reinsert missing recovery after trimming non-critical support",
+    });
   }
 
   const timelineDiagnostics: TimelineDiagnostics = {
@@ -1189,7 +1404,7 @@ export function scheduleDayPlan(
     .map((scheduled) => plannedMap.get(scheduled.experienceId))
     .filter((item): item is PlannedExperience => item !== undefined);
 
-    const repairedNodes: ExperienceSequenceNode[] = [];
+  const repairedNodes: ExperienceSequenceNode[] = [];
 
   for (let index = 0; index < repaired.items.length; index += 1) {
     const item = repaired.items[index];
