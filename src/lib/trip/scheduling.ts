@@ -857,6 +857,65 @@ function findFallbackStartSlot(params: {
   return null;
 }
 
+function findLatestFallbackStartSlot(params: {
+  item: PlannedExperience;
+  earliestSlot: number;
+  latestStartSlot: number;
+}): number | null {
+  const { item, earliestSlot, latestStartSlot } = params;
+  if (earliestSlot > latestStartSlot) return null;
+
+  for (let slot = latestStartSlot; slot >= earliestSlot; slot -= 1) {
+    if (isAllowedTimeSlot(item.experience.allowedTimes, slot)) {
+      return slot;
+    }
+  }
+
+  if (item.experience.timeFlexibility === "high") {
+    return latestStartSlot;
+  }
+
+  return null;
+}
+
+function getTailAnchoredEarliestSlot(params: {
+  working: ScheduledItem[];
+  target: PlannedExperience;
+  forcedRole: FlowRole;
+  plannedMap: Map<string, PlannedExperience>;
+  input: PlanningInput;
+  primaryPeakId?: string;
+}): number {
+  const { working, target, forcedRole, plannedMap, input, primaryPeakId } = params;
+
+  if (working.length === 0) {
+    return input.dailyStartSlot;
+  }
+
+  if (forcedRole !== "recovery" && forcedRole !== "soft_end") {
+    return input.dailyStartSlot;
+  }
+
+  const peakIndex = primaryPeakId
+    ? working.findIndex((item) => item.experienceId === primaryPeakId)
+    : -1;
+
+  const anchorIndex = peakIndex >= 0 ? peakIndex : working.length - 1;
+  const anchorItem = working[anchorIndex];
+  const anchorPlanned = plannedMap.get(anchorItem.experienceId);
+
+  if (!anchorPlanned) {
+    return anchorItem.endSlot;
+  }
+
+  const travelMin = getAreaDistanceMinutes(
+    anchorPlanned.experience.area,
+    target.experience.area,
+  );
+
+  return Math.max(anchorItem.endSlot + minutesToSlots(travelMin), input.dailyStartSlot);
+}
+
 function estimateRemainingCriticalMinutes(
   ordered: PlannedExperience[],
   nodes: ExperienceSequenceNode[],
@@ -1063,11 +1122,25 @@ function recomputeSequentialTimeline(
     const durationSlots = minutesToSlots(base.durationMinutes);
     const latestStart = Math.max(input.dailyStartSlot, input.dailyEndSlot - durationSlots);
 
-    const start = findFeasibleStartSlot({
-      item: planned,
-      earliestSlot: earliest,
-      latestStartSlot: latestStart,
-    });
+    const preferTail = base.flowRole === "recovery" || base.flowRole === "soft_end";
+
+    const start =
+      findFeasibleStartSlot({
+        item: planned,
+        earliestSlot: earliest,
+        latestStartSlot: latestStart,
+      }) ??
+      (preferTail
+        ? findLatestFallbackStartSlot({
+            item: planned,
+            earliestSlot: earliest,
+            latestStartSlot: latestStart,
+          })
+        : findFallbackStartSlot({
+            item: planned,
+            earliestSlot: earliest,
+            latestStartSlot: latestStart,
+          }));
 
     if (start === null) continue;
 
@@ -1101,8 +1174,8 @@ function isLateFallbackCandidate(
   referencePeak?: PlannedExperience,
   referenceRecovery?: PlannedExperience,
 ): boolean {
-  if (item.experience.recommendedDuration > 90) return false;
-  if (item.experience.fatigue > 3) return false;
+  if (item.experience.recommendedDuration > 120) return false;
+  if (item.experience.fatigue > 4) return false;
 
   const allowed = safeAllowedTimes(item.experience);
   const lateFriendly =
@@ -1116,9 +1189,15 @@ function isLateFallbackCandidate(
 
   const isMeal = item.experience.isMeal;
   const isRest = isRecoveryCandidate(item);
-  const highFlex = item.experience.timeFlexibility === "high";
+  const mediumFlex =
+    item.experience.timeFlexibility === "high" ||
+    item.experience.timeFlexibility === "medium";
+  const quietish = item.experience.features.quiet >= 0.45;
+  const shortEnough = item.experience.recommendedDuration <= 75;
 
-  if (!isMeal && !isRest && !highFlex) return false;
+  if (!isMeal && !isRest && !mediumFlex && !quietish && !shortEnough) {
+    return false;
+  }
 
   if (referenceRecovery) {
     if (
@@ -1138,7 +1217,7 @@ function isLateFallbackCandidate(
     }
   }
 
-  return isMeal || isRest || highFlex;
+  return isMeal || isRest || mediumFlex || quietish || shortEnough;
 }
 
 function pickLateFallbackCandidate(params: {
@@ -1244,6 +1323,7 @@ function tryInsertLateFallbackSupport(params: {
     forcedRole: "soft_end",
     input,
     plannedMap,
+    primaryPeakId: primaryPeak?.experience.id,
   });
 
   const insertedOk = inserted.some(
@@ -1262,8 +1342,9 @@ function tryReinsertCriticalItem(params: {
   forcedRole: FlowRole;
   input: PlanningInput;
   plannedMap: Map<string, PlannedExperience>;
+  primaryPeakId?: string;
 }): ScheduledItem[] {
-  const { working, target, forcedRole, input, plannedMap } = params;
+  const { working, target, forcedRole, input, plannedMap, primaryPeakId } = params;
 
   if (working.some((item) => item.experienceId === target.experience.id)) {
     return working;
@@ -1271,18 +1352,43 @@ function tryReinsertCriticalItem(params: {
 
   const base = [...working];
   const targetDurationSlots = minutesToSlots(target.experience.minDuration);
+  const latestStartSlot = Math.max(
+    input.dailyStartSlot,
+    input.dailyEndSlot - targetDurationSlots,
+  );
 
-  const candidateStart = findFallbackStartSlot({
-    item: target,
-    earliestSlot: input.dailyStartSlot,
-    latestStartSlot: Math.max(input.dailyStartSlot, input.dailyEndSlot - targetDurationSlots),
+  const earliestSlot = getTailAnchoredEarliestSlot({
+    working: base,
+    target,
+    forcedRole,
+    plannedMap,
+    input,
+    primaryPeakId,
   });
+
+  const candidateStart =
+    forcedRole === "recovery" || forcedRole === "soft_end"
+      ? findLatestFallbackStartSlot({
+          item: target,
+          earliestSlot,
+          latestStartSlot,
+        })
+      : findFallbackStartSlot({
+          item: target,
+          earliestSlot,
+          latestStartSlot,
+        });
 
   if (candidateStart === null) {
     return base;
   }
 
-  base.push({
+  const insertionIndex =
+    forcedRole === "recovery" || forcedRole === "soft_end"
+      ? base.length
+      : 0;
+
+  base.splice(insertionIndex, 0, {
     experienceId: target.experience.id,
     placeName: target.experience.placeName,
     startSlot: candidateStart,
@@ -1298,6 +1404,97 @@ function tryReinsertCriticalItem(params: {
   });
 
   return recomputeSequentialTimeline(base, plannedMap, input);
+}
+
+function tryRestoreMinimumStructure(params: {
+  working: ScheduledItem[];
+  input: PlanningInput;
+  plannedMap: Map<string, PlannedExperience>;
+  primaryPeak?: PlannedExperience;
+  primaryRecovery?: PlannedExperience;
+  lateFallbackIds?: string[];
+}): { items: ScheduledItem[]; insertedId?: string } {
+  const {
+    working,
+    input,
+    plannedMap,
+    primaryPeak,
+    primaryRecovery,
+    lateFallbackIds,
+  } = params;
+
+  if (working.length >= 2) {
+    return { items: working };
+  }
+
+  const fallback = pickLateFallbackCandidate({
+    working,
+    plannedMap,
+    primaryPeak,
+    primaryRecovery,
+    lateFallbackIds,
+  });
+
+  if (fallback) {
+    const restored = tryReinsertCriticalItem({
+      working,
+      target: fallback,
+      forcedRole: primaryPeak ? "soft_end" : "support",
+      input,
+      plannedMap,
+      primaryPeakId: primaryPeak?.experience.id,
+    });
+
+    if (restored.length >= 2) {
+      return {
+        items: restored,
+        insertedId: fallback.experience.id,
+      };
+    }
+  }
+
+  const usedIds = new Set(working.map((item) => item.experienceId));
+  const support = Array.from(plannedMap.values())
+    .filter((item) => !usedIds.has(item.experience.id))
+    .filter((item) => item.experience.id !== primaryRecovery?.experience.id)
+    .filter((item) => item.experience.id !== primaryPeak?.experience.id)
+    .sort((a, b) => {
+      const aScore =
+        (isOpenerCandidate(a) ? 1.2 : 0) +
+        (isRecoveryCandidate(a) ? 1.1 : 0) +
+        (a.experience.isMeal ? 0.9 : 0) +
+        (a.experience.timeFlexibility === "high" ? 0.6 : 0) +
+        (a.experience.fatigue <= 3 ? 0.5 : 0) +
+        a.planningScore;
+
+      const bScore =
+        (isOpenerCandidate(b) ? 1.2 : 0) +
+        (isRecoveryCandidate(b) ? 1.1 : 0) +
+        (b.experience.isMeal ? 0.9 : 0) +
+        (b.experience.timeFlexibility === "high" ? 0.6 : 0) +
+        (b.experience.fatigue <= 3 ? 0.5 : 0) +
+        b.planningScore;
+
+      return bScore - aScore;
+    })[0];
+
+  if (!support) {
+    return { items: working };
+  }
+
+  const restored = tryReinsertCriticalItem({
+    working,
+    target: support,
+    forcedRole: primaryPeak ? "soft_end" : "support",
+    input,
+    plannedMap,
+    primaryPeakId: primaryPeak?.experience.id,
+  });
+
+  return {
+    items: restored,
+    insertedId: restored.length >= 2 ? support.experience.id : undefined,
+  };
 }
 
 function repairTimeline(params: {
@@ -1340,6 +1537,20 @@ function repairTimeline(params: {
       working.splice(Math.floor(working.length / 2), 0, peakItem);
 
       working = recomputeSequentialTimeline(working, plannedMap, input);
+
+      if (
+        primaryRecovery &&
+        !hasPreservedRecovery(working, primaryRecovery.experience.id)
+      ) {
+        working = tryReinsertCriticalItem({
+          working,
+          target: primaryRecovery,
+          forcedRole: "recovery",
+          input,
+          plannedMap,
+          primaryPeakId: primaryPeak?.experience.id,
+        });
+      }
 
       repairs.push({
         step: step++,
@@ -1412,6 +1623,7 @@ function repairTimeline(params: {
       forcedRole: "peak",
       input,
       plannedMap,
+      primaryPeakId: primaryPeak.experience.id,
     });
 
     repairs.push({
@@ -1437,6 +1649,7 @@ function repairTimeline(params: {
       forcedRole: "recovery",
       input,
       plannedMap,
+      primaryPeakId: primaryPeak?.experience.id,
     });
 
     const recoveryRestored = hasPreservedRecovery(
@@ -1495,6 +1708,31 @@ function repairTimeline(params: {
           notes.push(softMissNote);
         }
       }
+    }
+  }
+
+  const minimumStructure = tryRestoreMinimumStructure({
+    working,
+    input,
+    plannedMap,
+    primaryPeak,
+    primaryRecovery,
+    lateFallbackIds,
+  });
+
+  if (minimumStructure.items.length > working.length) {
+    working = minimumStructure.items;
+
+    if (minimumStructure.insertedId) {
+      notes.push(`minimumStructureRestore=${minimumStructure.insertedId}`);
+      repairs.push({
+        step: step++,
+        action: "insert_recovery",
+        targetExperienceId: minimumStructure.insertedId,
+        beforeOverflowMin: getOverflowMin(fitted.items, input.dailyEndSlot),
+        afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
+        reason: "Restore minimum 2-item structure after tail collapse",
+      });
     }
   }
 
