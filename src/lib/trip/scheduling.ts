@@ -233,11 +233,7 @@ function selectDaySkeleton(params: {
     return "short";
   }
 
-  if (
-    input.dailyDensity >= 4 &&
-    candidateCount >= 5 &&
-    feasibleCapacity >= 5
-  ) {
+  if (input.dailyDensity >= 4 && candidateCount >= 5 && feasibleCapacity >= 5) {
     return "extended";
   }
 
@@ -881,64 +877,6 @@ function findLatestAllowedStartSlot(params: {
   return null;
 }
 
-function findRoleAwareStartSlot(params: {
-  item: PlannedExperience;
-  flowRole: FlowRole;
-  earliestSlot: number;
-  latestStartSlot: number;
-  input: PlanningInput;
-}): number | null {
-  const { item, flowRole, earliestSlot, latestStartSlot, input } = params;
-
-  if (earliestSlot > latestStartSlot) return null;
-
-  // tail role은 가장 늦게 배치
-  if (flowRole === "recovery" || flowRole === "soft_end") {
-    return (
-      findLatestAllowedStartSlot({
-        item,
-        earliestSlot,
-        latestStartSlot,
-      }) ??
-      findLatestFallbackStartSlot({
-        item,
-        earliestSlot,
-        latestStartSlot,
-      })
-    );
-  }
-
-  // peak는 하루 중간에 가깝게
-  if (flowRole === "peak") {
-    return (
-      findFeasibleStartSlot({
-        item,
-        earliestSlot,
-        latestStartSlot,
-      }) ??
-      findFallbackStartSlot({
-        item,
-        earliestSlot,
-        latestStartSlot,
-      })
-    );
-  }
-
-  // opener / activation / support는 앞쪽부터
-  return (
-    findFeasibleStartSlot({
-      item,
-      earliestSlot,
-      latestStartSlot,
-    }) ??
-    findFallbackStartSlot({
-      item,
-      earliestSlot,
-      latestStartSlot,
-    })
-  );
-}
-
 function findFallbackStartSlot(params: {
   item: PlannedExperience;
   earliestSlot: number;
@@ -979,6 +917,61 @@ function findLatestFallbackStartSlot(params: {
   }
 
   return null;
+}
+
+function findRoleAwareStartSlot(params: {
+  item: PlannedExperience;
+  flowRole: FlowRole;
+  earliestSlot: number;
+  latestStartSlot: number;
+  input: PlanningInput;
+}): number | null {
+  const { item, flowRole, earliestSlot, latestStartSlot } = params;
+
+  if (earliestSlot > latestStartSlot) return null;
+
+  if (flowRole === "recovery" || flowRole === "soft_end") {
+    return (
+      findLatestAllowedStartSlot({
+        item,
+        earliestSlot,
+        latestStartSlot,
+      }) ??
+      findLatestFallbackStartSlot({
+        item,
+        earliestSlot,
+        latestStartSlot,
+      })
+    );
+  }
+
+  if (flowRole === "peak") {
+    return (
+      findFeasibleStartSlot({
+        item,
+        earliestSlot,
+        latestStartSlot,
+      }) ??
+      findFallbackStartSlot({
+        item,
+        earliestSlot,
+        latestStartSlot,
+      })
+    );
+  }
+
+  return (
+    findFeasibleStartSlot({
+      item,
+      earliestSlot,
+      latestStartSlot,
+    }) ??
+    findFallbackStartSlot({
+      item,
+      earliestSlot,
+      latestStartSlot,
+    })
+  );
 }
 
 function getTailAnchoredEarliestSlot(params: {
@@ -1193,25 +1186,13 @@ function recomputeSequentialTimeline(
     const durationSlots = minutesToSlots(base.durationMinutes);
     const latestStart = Math.max(input.dailyStartSlot, input.dailyEndSlot - durationSlots);
 
-    const preferTail = base.flowRole === "recovery" || base.flowRole === "soft_end";
-
-    const start =
-      findFeasibleStartSlot({
-        item: planned,
-        earliestSlot: earliest,
-        latestStartSlot: latestStart,
-      }) ??
-      (preferTail
-        ? findLatestFallbackStartSlot({
-            item: planned,
-            earliestSlot: earliest,
-            latestStartSlot: latestStart,
-          })
-        : findFallbackStartSlot({
-            item: planned,
-            earliestSlot: earliest,
-            latestStartSlot: latestStart,
-          }));
+    const start = findRoleAwareStartSlot({
+      item: planned,
+      flowRole: base.flowRole,
+      earliestSlot: earliest,
+      latestStartSlot: latestStart,
+      input,
+    });
 
     if (start === null) continue;
 
@@ -1592,23 +1573,13 @@ function tryReinsertCriticalItem(params: {
     primaryPeakId,
   });
 
-  const candidateStart =
-    findFeasibleStartSlot({
-      item: target,
-      earliestSlot,
-      latestStartSlot,
-    }) ??
-    (forcedRole === "recovery" || forcedRole === "soft_end"
-      ? findLatestFallbackStartSlot({
-          item: target,
-          earliestSlot,
-          latestStartSlot,
-        })
-      : findFallbackStartSlot({
-          item: target,
-          earliestSlot,
-          latestStartSlot,
-        }));
+  const candidateStart = findRoleAwareStartSlot({
+    item: target,
+    flowRole: forcedRole,
+    earliestSlot,
+    latestStartSlot,
+    input,
+  });
 
   if (candidateStart === null) {
     return base;
@@ -1868,90 +1839,88 @@ function repairTimeline(params: {
             afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
             reason: "Fallback late support inserted after recovery soft miss",
           });
-                // balanced immersion first-day 류에서 peak 뒤 최소 tail 1개 강제 확보
-        if (
-          primaryPeak &&
-          working.length === 2 &&
-          input.dailyDensity >= 3
-        ) {
-          const emergencyTail = Array.from(plannedMap.values())
-            .filter((item) => !working.some((w) => w.experienceId === item.experience.id))
-            .filter((item) => item.experience.id !== primaryPeak.experience.id)
-            .filter((item) => {
-              const allowed = safeAllowedTimes(item.experience);
-              return (
-                item.experience.recommendedDuration <= 90 &&
-                item.experience.fatigue <= 4 &&
-                (item.experience.isMeal ||
-                  isRecoveryCandidate(item) ||
-                  item.experience.timeFlexibility !== "low") &&
-                (allowed.length === 0 ||
-                  allowed.includes("afternoon") ||
-                  allowed.includes("sunset") ||
-                  allowed.includes("dinner") ||
-                  allowed.includes("night"))
-              );
-            })
-            .sort((a, b) => {
-              const aScore =
-                (a.experience.area === primaryPeak.experience.area ? 2 : 0) +
-                (a.themeCluster === primaryPeak.themeCluster ? 1.2 : 0) +
-                (a.experience.isMeal ? 1 : 0) +
-                (isRecoveryCandidate(a) ? 1 : 0) +
-                a.planningScore;
+        } else {
+          if (
+            primaryPeak &&
+            working.length === 2 &&
+            input.dailyDensity >= 3
+          ) {
+            const emergencyTail = Array.from(plannedMap.values())
+              .filter((item) => !working.some((w) => w.experienceId === item.experience.id))
+              .filter((item) => item.experience.id !== primaryPeak.experience.id)
+              .filter((item) => {
+                const allowed = safeAllowedTimes(item.experience);
+                return (
+                  item.experience.recommendedDuration <= 90 &&
+                  item.experience.fatigue <= 4 &&
+                  (item.experience.isMeal ||
+                    isRecoveryCandidate(item) ||
+                    item.experience.timeFlexibility !== "low") &&
+                  (allowed.length === 0 ||
+                    allowed.includes("afternoon") ||
+                    allowed.includes("sunset") ||
+                    allowed.includes("dinner") ||
+                    allowed.includes("night"))
+                );
+              })
+              .sort((a, b) => {
+                const aScore =
+                  (a.experience.area === primaryPeak.experience.area ? 2 : 0) +
+                  (a.themeCluster === primaryPeak.themeCluster ? 1.2 : 0) +
+                  (a.experience.isMeal ? 1 : 0) +
+                  (isRecoveryCandidate(a) ? 1 : 0) +
+                  a.planningScore;
 
-              const bScore =
-                (b.experience.area === primaryPeak.experience.area ? 2 : 0) +
-                (b.themeCluster === primaryPeak.themeCluster ? 1.2 : 0) +
-                (b.experience.isMeal ? 1 : 0) +
-                (isRecoveryCandidate(b) ? 1 : 0) +
-                b.planningScore;
+                const bScore =
+                  (b.experience.area === primaryPeak.experience.area ? 2 : 0) +
+                  (b.themeCluster === primaryPeak.themeCluster ? 1.2 : 0) +
+                  (b.experience.isMeal ? 1 : 0) +
+                  (isRecoveryCandidate(b) ? 1 : 0) +
+                  b.planningScore;
 
-              return bScore - aScore;
-            })[0];
+                return bScore - aScore;
+              })[0];
 
-          if (emergencyTail) {
-            const withEmergencyTail = tryReinsertCriticalItem({
-              working,
-              target: emergencyTail,
-              forcedRole: "soft_end",
-              input,
-              plannedMap,
-              primaryPeakId: primaryPeak.experience.id,
-            });
-
-            if (withEmergencyTail.some((x) => x.experienceId === emergencyTail.experience.id)) {
-              working = withEmergencyTail;
-              substitutedExperienceIds.push(emergencyTail.experience.id);
-              notes.push(`emergencyTailInsert=${emergencyTail.experience.id}:after_missing_recovery`);
-
-              repairs.push({
-                step: step++,
-                action: "insert_recovery",
-                targetExperienceId: emergencyTail.experience.id,
-                beforeOverflowMin,
-                afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
-                reason: "Emergency tail insert after peak-preserving 2-item collapse",
+            if (emergencyTail) {
+              const withEmergencyTail = tryReinsertCriticalItem({
+                working,
+                target: emergencyTail,
+                forcedRole: "soft_end",
+                input,
+                plannedMap,
+                primaryPeakId: primaryPeak.experience.id,
               });
+
+              if (withEmergencyTail.some((x) => x.experienceId === emergencyTail.experience.id)) {
+                working = withEmergencyTail;
+                substitutedExperienceIds.push(emergencyTail.experience.id);
+                notes.push(`emergencyTailInsert=${emergencyTail.experience.id}:after_missing_recovery`);
+
+                repairs.push({
+                  step: step++,
+                  action: "insert_recovery",
+                  targetExperienceId: emergencyTail.experience.id,
+                  beforeOverflowMin,
+                  afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
+                  reason: "Emergency tail insert after peak-preserving 2-item collapse",
+                });
+              }
             }
           }
-        }
 
-        if (working.some((x) => x.flowRole === "soft_end" || x.flowRole === "recovery")) {
-          // emergency insert로 tail이 살아났으면 fallback miss 기록하지 않음
-      
-                } else if (!working.some((x) => x.flowRole === "soft_end" || x.flowRole === "recovery")) {
-          const lateFallbackMissNote =
-            `lateFallbackMiss=${primaryRecovery.experience.id}:no_viable_support`;
-          const softMissNote =
-            `softMiss=${primaryRecovery.experience.id}:protected_role=${primaryRecovery.functionalRole === "rest" ? "soft_end" : "recovery"}`;
+          if (!working.some((x) => x.flowRole === "soft_end" || x.flowRole === "recovery")) {
+            const lateFallbackMissNote =
+              `lateFallbackMiss=${primaryRecovery.experience.id}:no_viable_support`;
+            const softMissNote =
+              `softMiss=${primaryRecovery.experience.id}:protected_role=${primaryRecovery.functionalRole === "rest" ? "soft_end" : "recovery"}`;
 
-          if (!notes.includes(lateFallbackMissNote)) {
-            notes.push(lateFallbackMissNote);
-          }
+            if (!notes.includes(lateFallbackMissNote)) {
+              notes.push(lateFallbackMissNote);
+            }
 
-          if (!notes.includes(softMissNote)) {
-            notes.push(softMissNote);
+            if (!notes.includes(softMissNote)) {
+              notes.push(softMissNote);
+            }
           }
         }
       }
