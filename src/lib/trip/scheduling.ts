@@ -671,7 +671,7 @@ function evaluateSequenceFlow(params: {
   primaryPeak?: PlannedExperience;
   primaryRecovery?: PlannedExperience;
 }): SequenceEvaluation {
-  const { ordered, nodes, input, primaryPeak, primaryRecovery } = params;
+  const { ordered, nodes, primaryPeak, primaryRecovery } = params;
 
   let smoothnessScore = 0;
   let fatigueScore = 0;
@@ -758,13 +758,6 @@ function evaluateSequenceFlow(params: {
     peakPositionScore * 25 +
     recoveryScore * 20 +
     normalizedContinuity * 10;
-
-  if (input.companionType === "family") {
-    const highFatigueCount = ordered.filter((item) => item.experience.fatigue >= 4).length;
-    if (highFatigueCount >= 2) {
-      notes.push("family_high_fatigue_risk");
-    }
-  }
 
   return {
     flowScore,
@@ -878,6 +871,83 @@ function findLatestFallbackStartSlot(params: {
   return null;
 }
 
+function getFlexibleTimeToleranceSlots(
+  item: PlannedExperience,
+  flowRole?: FlowRole,
+): number {
+  if (flowRole === "recovery" || flowRole === "soft_end") {
+    if (item.experience.timeFlexibility === "high") return 2;
+    if (item.experience.timeFlexibility === "medium") return 1;
+    return 0;
+  }
+
+  if (flowRole === "support" && item.experience.timeFlexibility === "high") {
+    return 1;
+  }
+
+  return 0;
+}
+
+function findNearestAllowedStartSlotWithTolerance(params: {
+  item: PlannedExperience;
+  earliestSlot: number;
+  latestStartSlot: number;
+  toleranceSlots: number;
+  preferLate?: boolean;
+}): number | null {
+  const { item, earliestSlot, latestStartSlot, toleranceSlots, preferLate } = params;
+  if (earliestSlot > latestStartSlot || toleranceSlots <= 0) return null;
+
+  const preferred = getPreferredStartSlot(item.experience.preferredTime);
+  const candidates: Array<{ slot: number; gap: number }> = [];
+
+  for (let slot = earliestSlot; slot <= latestStartSlot; slot += 1) {
+    for (let delta = 1; delta <= toleranceSlots; delta += 1) {
+      if (
+        isAllowedTimeSlot(item.experience.allowedTimes, slot - delta) ||
+        isAllowedTimeSlot(item.experience.allowedTimes, slot + delta)
+      ) {
+        candidates.push({ slot, gap: delta });
+        break;
+      }
+    }
+  }
+
+  if (candidates.length === 0) return null;
+
+  return [...candidates].sort((a, b) => {
+    if (a.gap !== b.gap) return a.gap - b.gap;
+    const aPreferredGap = Math.abs(a.slot - preferred);
+    const bPreferredGap = Math.abs(b.slot - preferred);
+    if (aPreferredGap !== bPreferredGap) return aPreferredGap - bPreferredGap;
+    return preferLate ? b.slot - a.slot : a.slot - b.slot;
+  })[0]?.slot ?? null;
+}
+
+function isTimeWindowSatisfiedWithTolerance(
+  item: PlannedExperience,
+  startSlot: number,
+  flowRole?: FlowRole,
+): boolean {
+  if (isAllowedTimeSlot(item.experience.allowedTimes, startSlot)) {
+    return true;
+  }
+
+  const tolerance = getFlexibleTimeToleranceSlots(item, flowRole);
+  if (tolerance <= 0) return false;
+
+  for (let delta = 1; delta <= tolerance; delta += 1) {
+    if (
+      isAllowedTimeSlot(item.experience.allowedTimes, startSlot - delta) ||
+      isAllowedTimeSlot(item.experience.allowedTimes, startSlot + delta)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function getTailAnchoredEarliestSlot(params: {
   working: ScheduledItem[];
   target: PlannedExperience;
@@ -989,11 +1059,19 @@ function fitSequenceToTimeline(params: {
     const durationSlots = minutesToSlots(chosenDuration);
     const latestStartSlot = Math.max(input.dailyStartSlot, input.dailyEndSlot - durationSlots);
 
-    const startSlot = findFeasibleStartSlot({
-      item: planned,
-      earliestSlot,
-      latestStartSlot,
-    });
+    const startSlot =
+      findFeasibleStartSlot({
+        item: planned,
+        earliestSlot,
+        latestStartSlot,
+      }) ??
+      findNearestAllowedStartSlotWithTolerance({
+        item: planned,
+        earliestSlot,
+        latestStartSlot,
+        toleranceSlots: getFlexibleTimeToleranceSlots(planned, flowRole),
+        preferLate: flowRole === "recovery" || flowRole === "soft_end",
+      });
 
     if (startSlot === null) {
       if (
@@ -1129,6 +1207,13 @@ function recomputeSequentialTimeline(
         item: planned,
         earliestSlot: earliest,
         latestStartSlot: latestStart,
+      }) ??
+      findNearestAllowedStartSlotWithTolerance({
+        item: planned,
+        earliestSlot: earliest,
+        latestStartSlot: latestStart,
+        toleranceSlots: getFlexibleTimeToleranceSlots(planned, base.flowRole),
+        preferLate,
       }) ??
       (preferTail
         ? findLatestFallbackStartSlot({
@@ -1367,7 +1452,19 @@ function tryReinsertCriticalItem(params: {
   });
 
   const candidateStart =
-    forcedRole === "recovery" || forcedRole === "soft_end"
+    findFeasibleStartSlot({
+      item: target,
+      earliestSlot,
+      latestStartSlot,
+    }) ??
+    findNearestAllowedStartSlotWithTolerance({
+      item: target,
+      earliestSlot,
+      latestStartSlot,
+      toleranceSlots: getFlexibleTimeToleranceSlots(target, forcedRole),
+      preferLate: forcedRole === "recovery" || forcedRole === "soft_end",
+    }) ??
+    (forcedRole === "recovery" || forcedRole === "soft_end"
       ? findLatestFallbackStartSlot({
           item: target,
           earliestSlot,
@@ -1377,7 +1474,7 @@ function tryReinsertCriticalItem(params: {
           item: target,
           earliestSlot,
           latestStartSlot,
-        });
+        }));
 
   if (candidateStart === null) {
     return base;
@@ -1792,7 +1889,13 @@ export function evaluateFeasibility(
       issues.push("duration_violation");
     }
 
-    if (!isAllowedTimeSlot(planned.experience.allowedTimes, item.startSlot)) {
+    if (
+      !isTimeWindowSatisfiedWithTolerance(
+        planned,
+        item.startSlot,
+        item.flowRole,
+      )
+    ) {
       issues.push("time_window_violation");
     }
 
