@@ -1213,7 +1213,7 @@ function recomputeSequentialTimeline(
         earliestSlot: earliest,
         latestStartSlot: latestStart,
         toleranceSlots: getFlexibleTimeToleranceSlots(planned, base.flowRole),
-        preferLate,
+        preferLate: preferTail,
       }) ??
       (preferTail
         ? findLatestFallbackStartSlot({
