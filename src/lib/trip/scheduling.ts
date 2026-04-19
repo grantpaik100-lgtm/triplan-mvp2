@@ -803,6 +803,41 @@ function chooseDurationMinutes(
   return recommended;
 }
 
+function getTimeWindowToleranceSlots(
+  exp: ExperienceMetadata,
+  flowRole?: FlowRole,
+): number {
+  if (flowRole === "recovery" || flowRole === "soft_end") {
+    if (exp.timeFlexibility === "high") return 2;
+    return 1;
+  }
+
+  if (exp.timeFlexibility === "high") return 1;
+  return 0;
+}
+
+function isAllowedWithTolerance(
+  exp: ExperienceMetadata,
+  startSlot: number,
+  flowRole?: FlowRole,
+): boolean {
+  if (isAllowedTimeSlot(exp.allowedTimes, startSlot)) return true;
+
+  const tolerance = getTimeWindowToleranceSlots(exp, flowRole);
+  if (tolerance <= 0) return false;
+
+  for (let delta = 1; delta <= tolerance; delta += 1) {
+    if (
+      isAllowedTimeSlot(exp.allowedTimes, startSlot - delta) ||
+      isAllowedTimeSlot(exp.allowedTimes, startSlot + delta)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function findFeasibleStartSlot(params: {
   item: PlannedExperience;
   earliestSlot: number;
@@ -1145,8 +1180,8 @@ function isLateFallbackCandidate(
   referencePeak?: PlannedExperience,
   referenceRecovery?: PlannedExperience,
 ): boolean {
-  if (item.experience.recommendedDuration > 90) return false;
-  if (item.experience.fatigue > 3) return false;
+  if (item.experience.recommendedDuration > 120) return false;
+  if (item.experience.fatigue > 4) return false;
 
   const allowed = safeAllowedTimes(item.experience);
   const lateFriendly =
@@ -1160,9 +1195,15 @@ function isLateFallbackCandidate(
 
   const isMeal = item.experience.isMeal;
   const isRest = isRecoveryCandidate(item);
-  const highFlex = item.experience.timeFlexibility === "high";
+  const mediumFlex =
+    item.experience.timeFlexibility === "high" ||
+    item.experience.timeFlexibility === "medium";
+  const quietish = item.experience.features.quiet >= 0.45;
+  const shortEnough = item.experience.recommendedDuration <= 75;
 
-  if (!isMeal && !isRest && !highFlex) return false;
+  if (!isMeal && !isRest && !mediumFlex && !quietish && !shortEnough) {
+    return false;
+  }
 
   if (referenceRecovery) {
     if (
@@ -1182,7 +1223,52 @@ function isLateFallbackCandidate(
     }
   }
 
-  return isMeal || isRest || highFlex;
+  return isMeal || isRest || mediumFlex || quietish || shortEnough;
+}
+
+function computeTailFallbackScore(params: {
+  candidate: PlannedExperience;
+  primaryPeak?: PlannedExperience;
+  primaryRecovery?: PlannedExperience;
+}): number {
+  const { candidate, primaryPeak, primaryRecovery } = params;
+
+  const sameRecoveryArea =
+    primaryRecovery && candidate.experience.area === primaryRecovery.experience.area ? 1.6 : 0;
+  const samePeakArea =
+    primaryPeak && candidate.experience.area === primaryPeak.experience.area ? 1.1 : 0;
+  const sameRecoveryCluster =
+    primaryRecovery && candidate.themeCluster === primaryRecovery.themeCluster ? 1.4 : 0;
+  const samePeakCluster =
+    primaryPeak && candidate.themeCluster === primaryPeak.themeCluster ? 0.8 : 0;
+
+  const mealOrRest =
+    (candidate.experience.isMeal ? 1.2 : 0) +
+    (isRecoveryCandidate(candidate) ? 1.0 : 0);
+
+  const flexibility =
+    candidate.experience.timeFlexibility === "high"
+      ? 0.8
+      : candidate.experience.timeFlexibility === "medium"
+        ? 0.35
+        : 0;
+
+  const shortBonus = candidate.experience.recommendedDuration <= 75 ? 0.45 : 0;
+  const quietBonus = candidate.experience.features.quiet >= 0.45 ? 0.4 : 0;
+  const fatigueBonus = candidate.experience.fatigue <= 3 ? 0.35 : 0;
+
+  return (
+    candidate.planningScore +
+    sameRecoveryArea +
+    samePeakArea +
+    sameRecoveryCluster +
+    samePeakCluster +
+    mealOrRest +
+    flexibility +
+    shortBonus +
+    quietBonus +
+    fatigueBonus
+  );
 }
 
 function pickLateFallbackCandidate(params: {
@@ -1206,7 +1292,12 @@ function pickLateFallbackCandidate(params: {
     .map((id) => plannedMap.get(id))
     .filter((item): item is PlannedExperience => !!item)
     .filter((item) => !usedIds.has(item.experience.id))
-    .filter((item) => isLateFallbackCandidate(item, primaryPeak, primaryRecovery));
+    .filter((item) => isLateFallbackCandidate(item, primaryPeak, primaryRecovery))
+    .sort(
+      (a, b) =>
+        computeTailFallbackScore({ candidate: b, primaryPeak, primaryRecovery }) -
+        computeTailFallbackScore({ candidate: a, primaryPeak, primaryRecovery }),
+    );
 
   if (preferredPool.length > 0) {
     return preferredPool[0];
@@ -1217,38 +1308,11 @@ function pickLateFallbackCandidate(params: {
     .filter((item) =>
       isLateFallbackCandidate(item, primaryPeak, primaryRecovery),
     )
-    .sort((a, b) => {
-      const aSameArea =
-        (primaryRecovery && a.experience.area === primaryRecovery.experience.area ? 2 : 0) +
-        (primaryPeak && a.experience.area === primaryPeak.experience.area ? 1 : 0);
-
-      const bSameArea =
-        (primaryRecovery && b.experience.area === primaryRecovery.experience.area ? 2 : 0) +
-        (primaryPeak && b.experience.area === primaryPeak.experience.area ? 1 : 0);
-
-      const aSameCluster =
-        (primaryRecovery && a.themeCluster === primaryRecovery.themeCluster ? 2 : 0) +
-        (primaryPeak && a.themeCluster === primaryPeak.themeCluster ? 1 : 0);
-
-      const bSameCluster =
-        (primaryRecovery && b.themeCluster === primaryRecovery.themeCluster ? 2 : 0) +
-        (primaryPeak && b.themeCluster === primaryPeak.themeCluster ? 1 : 0);
-
-      const aMealOrRest =
-        (a.experience.isMeal ? 1.2 : 0) +
-        (isRecoveryCandidate(a) ? 1.0 : 0) +
-        (a.experience.timeFlexibility === "high" ? 0.6 : 0);
-
-      const bMealOrRest =
-        (b.experience.isMeal ? 1.2 : 0) +
-        (isRecoveryCandidate(b) ? 1.0 : 0) +
-        (b.experience.timeFlexibility === "high" ? 0.6 : 0);
-
-      const aScore = aSameArea + aSameCluster + aMealOrRest + a.planningScore;
-      const bScore = bSameArea + bSameCluster + bMealOrRest + b.planningScore;
-
-      return bScore - aScore;
-    });
+    .sort(
+      (a, b) =>
+        computeTailFallbackScore({ candidate: b, primaryPeak, primaryRecovery }) -
+        computeTailFallbackScore({ candidate: a, primaryPeak, primaryRecovery }),
+    );
 
   return pool[0];
 }
@@ -1278,6 +1342,7 @@ function scoreTailCandidate(params: {
         : 0;
   const shortBonus = candidate.experience.recommendedDuration <= 75 ? 0.5 : 0;
   const fatigueBonus = candidate.experience.fatigue <= 3 ? 0.5 : 0;
+  const quietBonus = candidate.experience.features.quiet >= 0.45 ? 0.5 : 0;
 
   return (
     sameRecoveryArea +
@@ -1289,6 +1354,7 @@ function scoreTailCandidate(params: {
     flexBonus +
     shortBonus +
     fatigueBonus +
+    quietBonus +
     candidate.planningScore
   );
 }
@@ -1811,7 +1877,7 @@ export function evaluateFeasibility(
       issues.push("duration_violation");
     }
 
-    if (!isAllowedTimeSlot(planned.experience.allowedTimes, item.startSlot)) {
+    if (!isAllowedWithTolerance(planned.experience, item.startSlot, item.flowRole)) {
       issues.push("time_window_violation");
     }
 
