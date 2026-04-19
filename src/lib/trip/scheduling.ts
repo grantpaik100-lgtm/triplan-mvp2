@@ -1187,12 +1187,12 @@ function recomputeSequentialTimeline(
     const latestStart = Math.max(input.dailyStartSlot, input.dailyEndSlot - durationSlots);
 
     const start = findRoleAwareStartSlot({
-      item: planned,
-      flowRole: base.flowRole,
-      earliestSlot: earliest,
-      latestStartSlot: latestStart,
-      input,
-    });
+  item: planned,
+  flowRole: base.flowRole ?? "support",
+  earliestSlot: earliest,
+  latestStartSlot: latestStart,
+  input,
+});
 
     if (start === null) continue;
 
