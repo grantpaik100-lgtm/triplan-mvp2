@@ -909,6 +909,166 @@ function getTailAnchoredEarliestSlot(params: {
   return Math.max(anchorItem.endSlot + minutesToSlots(travelMin), input.dailyStartSlot);
 }
 
+function estimateRemainingCriticalMinutes(
+  ordered: PlannedExperience[],
+  nodes: ExperienceSequenceNode[],
+  currentIndex: number,
+): number {
+  let total = 0;
+
+  for (let i = currentIndex + 1; i < ordered.length; i += 1) {
+    const planned = ordered[i];
+    const role = getRoleForItem(planned, nodes);
+
+    if (isCriticalFlowRole(role)) {
+      total += planned.experience.minDuration;
+      total += DEFAULT_TRANSITION_MIN;
+    }
+  }
+
+  return total;
+}
+
+function fitSequenceToTimeline(params: {
+  ordered: PlannedExperience[];
+  nodes: ExperienceSequenceNode[];
+  input: PlanningInput;
+}): TimelineFitResult {
+  const { ordered, nodes, input } = params;
+
+  const items: ScheduledItem[] = [];
+  const droppedOptionalIds: string[] = [];
+  const compressedExperienceIds: string[] = [];
+  const notes: string[] = [];
+  let invalidPlacement = false;
+  let currentSlot = input.dailyStartSlot;
+
+  for (let i = 0; i < ordered.length; i += 1) {
+    const planned = ordered[i];
+    const prev = i > 0 ? ordered[i - 1] : undefined;
+    const flowRole = getRoleForItem(planned, nodes);
+    const isCriticalRole = isCriticalFlowRole(flowRole);
+    const isProtectedRole = isProtectedFlowRole(flowRole);
+
+    const travelMin = prev
+      ? getAreaDistanceMinutes(prev.experience.area, planned.experience.area)
+      : 0;
+
+    const overflowPressureMin = Math.max(
+      0,
+      items.length > 0 ? (currentSlot - input.dailyEndSlot) * 30 : 0,
+    );
+
+    const earliestSlot = currentSlot + minutesToSlots(travelMin);
+    const remainingCriticalMinutes = estimateRemainingCriticalMinutes(ordered, nodes, i);
+    const remainingAvailableMinutes = Math.max(
+      0,
+      (input.dailyEndSlot - earliestSlot) * 30,
+    );
+
+    let chosenDuration = chooseDurationMinutes(planned, overflowPressureMin);
+
+    if (
+      remainingAvailableMinutes - chosenDuration < remainingCriticalMinutes &&
+      !isProtectedRole
+    ) {
+      chosenDuration = planned.experience.minDuration;
+      compressedExperienceIds.push(planned.experience.id);
+      notes.push(`reserveCriticalBuffer=${planned.experience.id}`);
+    } else if (chosenDuration < planned.experience.recommendedDuration) {
+      compressedExperienceIds.push(planned.experience.id);
+    }
+
+    const durationSlots = minutesToSlots(chosenDuration);
+    const latestStartSlot = Math.max(input.dailyStartSlot, input.dailyEndSlot - durationSlots);
+
+    const startSlot =
+      findFeasibleStartSlot({
+        item: planned,
+        earliestSlot,
+        latestStartSlot,
+      }) ??
+      (flowRole === "recovery" || flowRole === "soft_end"
+        ? findLatestFallbackStartSlot({
+            item: planned,
+            earliestSlot,
+            latestStartSlot,
+          })
+        : findFallbackStartSlot({
+            item: planned,
+            earliestSlot,
+            latestStartSlot,
+          }));
+
+    if (startSlot === null) {
+      if (planned.priority === "optional" && !isProtectedRole) {
+        droppedOptionalIds.push(planned.experience.id);
+        notes.push(`dropOptional=${planned.experience.id}:time_window_mismatch`);
+        continue;
+      }
+
+      if (isCriticalRole) {
+        invalidPlacement = true;
+        notes.push(`invalidPlacement=${planned.experience.id}:critical_role=${flowRole}`);
+      } else if (isProtectedRole) {
+        notes.push(`softMiss=${planned.experience.id}:protected_role=${flowRole}`);
+      } else {
+        notes.push(`invalidPlacement=${planned.experience.id}:role=${flowRole}`);
+      }
+      continue;
+    }
+
+    const endSlot = startSlot + durationSlots;
+
+    if (
+      endSlot > input.dailyEndSlot &&
+      planned.priority === "optional" &&
+      !isProtectedRole
+    ) {
+      droppedOptionalIds.push(planned.experience.id);
+      notes.push(`dropOptional=${planned.experience.id}:overflow`);
+      continue;
+    }
+
+    if (endSlot > input.dailyEndSlot) {
+      if (isCriticalRole) {
+        invalidPlacement = true;
+        notes.push(`criticalOverflow=${planned.experience.id}`);
+      } else if (isProtectedRole) {
+        notes.push(`softOverflow=${planned.experience.id}:protected_role=${flowRole}`);
+      } else {
+        notes.push(`overflowDrop=${planned.experience.id}`);
+      }
+      continue;
+    }
+
+    items.push({
+      experienceId: planned.experience.id,
+      placeName: planned.experience.placeName,
+      startSlot,
+      endSlot,
+      durationMinutes: durationSlots * 30,
+      priority: planned.priority,
+      planningTier: planned.planningTier,
+      functionalRole: planned.functionalRole,
+      themeCluster: planned.themeCluster,
+      flowRole,
+      rhythmSlotType: flowRoleToRhythmSlotType(flowRole),
+      isPrimaryPeak: flowRole === "peak",
+    });
+
+    currentSlot = endSlot;
+  }
+
+  return {
+    items,
+    invalidPlacement,
+    droppedOptionalIds,
+    compressedExperienceIds,
+    notes,
+  };
+}
+
 function recomputeSequentialTimeline(
   fittedItems: ScheduledItem[],
   plannedMap: Map<string, PlannedExperience>,
