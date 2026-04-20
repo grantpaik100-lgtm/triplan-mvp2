@@ -1540,8 +1540,8 @@ function rebuildTailAfterPeak(params: {
         scoreTailCandidate({ candidate: a, primaryPeak, primaryRecovery }),
     );
 
-  const maxTailAdds = working.length <= 2 ? 1 : 2;
-
+  const maxTailAdds = 1;
+  
   for (const candidate of ranked) {
     if (insertedIds.length >= maxTailAdds) {
       break;
