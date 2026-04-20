@@ -1032,6 +1032,55 @@ function estimateRemainingCriticalMinutes(
   return total;
 }
 
+// === ADD BELOW estimateRemainingCriticalMinutes ===
+
+function buildTailReservationMap(params: {
+  ordered: PlannedExperience[];
+  nodes: ExperienceSequenceNode[];
+  input: PlanningInput;
+}): Map<number, { earliest: number; latest: number }> {
+  const { ordered, nodes, input } = params;
+
+  const map = new Map<number, { earliest: number; latest: number }>();
+
+  for (let i = 0; i < ordered.length; i++) {
+    const item = ordered[i];
+    const role = getRoleForItem(item, nodes);
+
+    if (role !== "recovery" && role !== "soft_end") continue;
+
+    const durationSlots = minutesToSlots(item.experience.minDuration);
+
+    // 핵심: 고정 slot이 아니라 late band
+    const latest = input.dailyEndSlot - durationSlots;
+    const earliest = Math.max(input.dailyStartSlot, latest - 6); // 6 slots ≈ 3시간 band
+
+    map.set(i, { earliest, latest });
+  }
+
+  return map;
+}
+
+function estimateRemainingTailReservedMinutes(params: {
+  ordered: PlannedExperience[];
+  nodes: ExperienceSequenceNode[];
+  currentIndex: number;
+}): number {
+  const { ordered, nodes, currentIndex } = params;
+
+  let total = 0;
+
+  for (let i = currentIndex + 1; i < ordered.length; i++) {
+    const role = getRoleForItem(ordered[i], nodes);
+
+    if (role === "recovery" || role === "soft_end") {
+      total += ordered[i].experience.minDuration + DEFAULT_TRANSITION_MIN;
+    }
+  }
+
+  return total;
+}
+
 function buildTailReservationMap(params: {
   ordered: PlannedExperience[];
   nodes: ExperienceSequenceNode[];
@@ -1139,158 +1188,69 @@ function fitSequenceToTimeline(params: {
   const droppedOptionalIds: string[] = [];
   const compressedExperienceIds: string[] = [];
   const notes: string[] = [];
+
   let invalidPlacement = false;
   let currentSlot = input.dailyStartSlot;
 
-  const tailReservationMap = buildTailReservationMap({
-    ordered,
-    nodes,
-    input,
-  });
+  const tailMap = buildTailReservationMap({ ordered, nodes, input });
 
-  for (let i = 0; i < ordered.length; i += 1) {
+  for (let i = 0; i < ordered.length; i++) {
     const planned = ordered[i];
+    const role = getRoleForItem(planned, nodes);
     const prev = i > 0 ? ordered[i - 1] : undefined;
-    const flowRole = getRoleForItem(planned, nodes);
-    const isCriticalRole = isCriticalFlowRole(flowRole);
-    const isProtectedRole = isProtectedFlowRole(flowRole);
 
     const travelMin = prev
       ? getAreaDistanceMinutes(prev.experience.area, planned.experience.area)
       : 0;
 
-    const overflowPressureMin = Math.max(
-      0,
-      items.length > 0 ? (currentSlot - input.dailyEndSlot) * 30 : 0,
-    );
-
     const earliestSlot = currentSlot + minutesToSlots(travelMin);
-    const remainingCriticalMinutes = estimateRemainingCriticalMinutes(ordered, nodes, i);
-    const remainingTailReservedMinutes = estimateRemainingTailReservedMinutes({
-      ordered,
-      nodes,
-      currentIndex: i,
-    });
 
-    const remainingAvailableMinutes = Math.max(
-      0,
-      (input.dailyEndSlot - earliestSlot) * 30,
-    );
-
-    let chosenDuration = chooseDurationMinutes(planned, overflowPressureMin);
-
-    if (
-      remainingAvailableMinutes - chosenDuration < remainingCriticalMinutes &&
-      !isProtectedRole
-    ) {
-      chosenDuration = planned.experience.minDuration;
-      compressedExperienceIds.push(planned.experience.id);
-      notes.push(`reserveCriticalBuffer=${planned.experience.id}`);
-    } else if (
-      remainingAvailableMinutes - chosenDuration < remainingTailReservedMinutes &&
-      !isProtectedRole &&
-      flowRole !== "peak"
-    ) {
-      chosenDuration = planned.experience.minDuration;
-      compressedExperienceIds.push(planned.experience.id);
-      notes.push(`reserveTailBuffer=${planned.experience.id}`);
-    } else if (chosenDuration < planned.experience.recommendedDuration) {
-      compressedExperienceIds.push(planned.experience.id);
-    }
-
+    let chosenDuration = planned.experience.recommendedDuration;
     const durationSlots = minutesToSlots(chosenDuration);
 
-    let latestStartSlot = Math.max(
-      input.dailyStartSlot,
-      input.dailyEndSlot - durationSlots,
-    );
+    let latestStartSlot = input.dailyEndSlot - durationSlots;
 
-    const reservedTailStart = tailReservationMap.get(i);
+    const tailWindow = tailMap.get(i);
 
-    if (reservedTailStart !== undefined) {
-      latestStartSlot = Math.min(latestStartSlot, reservedTailStart);
-      notes.push(`tailReserved=${planned.experience.id}@${reservedTailStart}`);
-    } else if (flowRole !== "recovery" && flowRole !== "soft_end") {
-      const futureReservedStarts = Array.from(tailReservationMap.entries())
-        .filter(([index]) => index > i)
-        .map(([, start]) => start);
+    // === 핵심 수정 ===
+    if (role === "recovery" || role === "soft_end") {
+      if (tailWindow) {
+        latestStartSlot = tailWindow.latest;
+      }
+    } else if (role !== "peak") {
+      // peak 제외 → support/opener만 tail constraint 적용
+      const futureTail = Array.from(tailMap.entries())
+        .filter(([idx]) => idx > i)
+        .map(([, w]) => w.earliest);
 
-      if (futureReservedStarts.length > 0) {
-        const earliestReservedTailStart = Math.min(...futureReservedStarts);
-        latestStartSlot = Math.min(
-          latestStartSlot,
-          earliestReservedTailStart - durationSlots,
-        );
+      if (futureTail.length > 0) {
+        const minTailStart = Math.min(...futureTail);
+        latestStartSlot = Math.min(latestStartSlot, minTailStart - durationSlots);
       }
     }
 
     if (earliestSlot > latestStartSlot) {
-      if (planned.priority === "optional" && !isProtectedRole) {
+      if (planned.priority === "optional") {
         droppedOptionalIds.push(planned.experience.id);
-        notes.push(`dropOptional=${planned.experience.id}:tail_reservation_conflict`);
         continue;
       }
 
-      if (isCriticalRole) {
+      if (role === "peak") {
         invalidPlacement = true;
-        notes.push(`invalidPlacement=${planned.experience.id}:critical_tail_conflict`);
-      } else if (isProtectedRole) {
-        notes.push(`softMiss=${planned.experience.id}:protected_tail_conflict`);
-      } else {
-        notes.push(`invalidPlacement=${planned.experience.id}:tail_conflict`);
+        notes.push(`invalidPlacement=${planned.experience.id}:peak_conflict`);
       }
+
       continue;
     }
 
-    const startSlot = findRoleAwareStartSlot({
-      item: planned,
-      flowRole,
-      earliestSlot,
-      latestStartSlot,
-      input,
-    });
-
-    if (startSlot === null) {
-      if (planned.priority === "optional" && !isProtectedRole) {
-        droppedOptionalIds.push(planned.experience.id);
-        notes.push(`dropOptional=${planned.experience.id}:time_window_mismatch`);
-        continue;
-      }
-
-      if (isCriticalRole) {
-        invalidPlacement = true;
-        notes.push(`invalidPlacement=${planned.experience.id}:critical_role=${flowRole}`);
-      } else if (isProtectedRole) {
-        notes.push(`softMiss=${planned.experience.id}:protected_role=${flowRole}`);
-      } else {
-        notes.push(`invalidPlacement=${planned.experience.id}:role=${flowRole}`);
-      }
-      continue;
-    }
+    const startSlot =
+      role === "recovery" || role === "soft_end"
+        ? latestStartSlot // tail은 최대한 뒤
+        : earliestSlot;
 
     const endSlot = startSlot + durationSlots;
 
-    if (
-      endSlot > input.dailyEndSlot &&
-      planned.priority === "optional" &&
-      !isProtectedRole
-    ) {
-      droppedOptionalIds.push(planned.experience.id);
-      notes.push(`dropOptional=${planned.experience.id}:overflow`);
-      continue;
-    }
-
-    if (endSlot > input.dailyEndSlot) {
-      if (isCriticalRole) {
-        invalidPlacement = true;
-        notes.push(`criticalOverflow=${planned.experience.id}`);
-      } else if (isProtectedRole) {
-        notes.push(`softOverflow=${planned.experience.id}:protected_role=${flowRole}`);
-      } else {
-        notes.push(`overflowDrop=${planned.experience.id}`);
-      }
-      continue;
-    }
+    if (endSlot > input.dailyEndSlot) continue;
 
     items.push({
       experienceId: planned.experience.id,
@@ -1302,9 +1262,9 @@ function fitSequenceToTimeline(params: {
       planningTier: planned.planningTier,
       functionalRole: planned.functionalRole,
       themeCluster: planned.themeCluster,
-      flowRole,
-      rhythmSlotType: flowRoleToRhythmSlotType(flowRole),
-      isPrimaryPeak: flowRole === "peak",
+      flowRole: role,
+      rhythmSlotType: flowRoleToRhythmSlotType(role),
+      isPrimaryPeak: role === "peak",
     });
 
     currentSlot = endSlot;
@@ -1318,7 +1278,6 @@ function fitSequenceToTimeline(params: {
     notes,
   };
 }
-
 function recomputeSequentialTimeline(
   fittedItems: ScheduledItem[],
   plannedMap: Map<string, PlannedExperience>,
@@ -1803,123 +1762,94 @@ function repairTimeline(params: {
       : -1;
 
     if (peakIndex > 0 && peakIndex === working.length - 1 && working.length >= 3) {
-      const [peakItem] = working.splice(peakIndex, 1);
-      working.splice(Math.floor(working.length / 2), 0, peakItem);
+  const [peakItem] = working.splice(peakIndex, 1);
 
-      working = recomputeSequentialTimeline(working, plannedMap, input);
+  const targetPeakIndex = Math.max(1, Math.floor(working.length / 2) - 1);
+  working.splice(targetPeakIndex, 0, peakItem);
 
-      if (primaryRecovery && !hasPreservedRecovery(working, primaryRecovery.experience.id)) {
-        const rebuiltTail = rebuildTailAfterPeak({
-          working,
-          input,
-          plannedMap,
-          primaryPeak,
-          primaryRecovery,
-          lateFallbackIds,
-        });
+  working = recomputeSequentialTimeline(working, plannedMap, input);
 
-        if (rebuiltTail.insertedIds.length > 0) {
-          working = rebuiltTail.items;
-          for (const insertedId of rebuiltTail.insertedIds) {
-            notes.push(`tailRebuildInsert=${insertedId}:after_move_peak_earlier`);
-          }
-        }
-      }
+  if (primaryRecovery && !hasPreservedRecovery(working, primaryRecovery.experience.id)) {
+    const rebuiltTail = rebuildTailAfterPeak({
+      working,
+      input,
+      plannedMap,
+      primaryPeak,
+      primaryRecovery,
+      lateFallbackIds,
+    });
 
-      repairs.push({
-        step: step++,
-        action: "move_peak_earlier",
-        targetExperienceId: peakItem.experienceId,
-        beforeOverflowMin: initialOverflow,
-        afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
-        reason: "Protect middle peak positioning",
-      });
-
-      const movedPeakEarlier =
-        repairs[repairs.length - 1]?.action === "move_peak_earlier";
-
-      if (
-        skeletonType === "balanced" &&
-        movedPeakEarlier &&
-        working.length === 2 &&
-        primaryPeak
-      ) {
-        const rescueTail = Array.from(plannedMap.values())
-          .filter((item) => !working.some((w) => w.experienceId === item.experience.id))
-          .filter((item) => item.experience.id !== primaryPeak.experience.id)
-          .filter((item) => item.experience.recommendedDuration <= 90)
-          .filter((item) => item.experience.fatigue <= 4)
-          .filter((item) => {
-            const allowed = safeAllowedTimes(item.experience);
-            return (
-              item.experience.isMeal ||
-              isRecoveryCandidate(item) ||
-              item.experience.timeFlexibility !== "low"
-            ) && (
-              allowed.length === 0 ||
-              allowed.includes("afternoon") ||
-              allowed.includes("sunset") ||
-              allowed.includes("dinner") ||
-              allowed.includes("night")
-            );
-          })
-          .sort((a, b) => {
-            const aScore =
-              (a.experience.area === primaryPeak.experience.area ? 2.2 : 0) +
-              (a.themeCluster === primaryPeak.themeCluster ? 1.4 : 0) +
-              (a.experience.isMeal ? 1.1 : 0) +
-              (isRecoveryCandidate(a) ? 1.2 : 0) +
-              (a.experience.timeFlexibility === "high"
-                ? 0.8
-                : a.experience.timeFlexibility === "medium"
-                  ? 0.4
-                  : 0) +
-              a.planningScore;
-
-            const bScore =
-              (b.experience.area === primaryPeak.experience.area ? 2.2 : 0) +
-              (b.themeCluster === primaryPeak.themeCluster ? 1.4 : 0) +
-              (b.experience.isMeal ? 1.1 : 0) +
-              (isRecoveryCandidate(b) ? 1.2 : 0) +
-              (b.experience.timeFlexibility === "high"
-                ? 0.8
-                : b.experience.timeFlexibility === "medium"
-                  ? 0.4
-                  : 0) +
-              b.planningScore;
-
-            return bScore - aScore;
-          })[0];
-
-        if (rescueTail) {
-          const beforeOverflowMin = getOverflowMin(working, input.dailyEndSlot);
-
-          const withRescueTail = tryReinsertCriticalItem({
-            working,
-            target: rescueTail,
-            forcedRole: "soft_end",
-            input,
-            plannedMap,
-            primaryPeakId: primaryPeak.experience.id,
-          });
-
-          if (withRescueTail.some((x) => x.experienceId === rescueTail.experience.id)) {
-            working = withRescueTail;
-            notes.push(`balancedTailRescue=${rescueTail.experience.id}:after_move_peak_earlier`);
-
-            repairs.push({
-              step: step++,
-              action: "insert_recovery",
-              targetExperienceId: rescueTail.experience.id,
-              beforeOverflowMin,
-              afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
-              reason: "Balanced safeguard rescued short soft_end after 2-item collapse",
-            });
-          }
-        }
+    if (rebuiltTail.insertedIds.length > 0) {
+      working = rebuiltTail.items;
+      for (const insertedId of rebuiltTail.insertedIds) {
+        notes.push(`tailRebuildInsert=${insertedId}:after_move_peak_earlier`);
       }
     }
+  }
 
+  repairs.push({
+    step: step++,
+    action: "move_peak_earlier",
+    targetExperienceId: peakItem.experienceId,
+    beforeOverflowMin: initialOverflow,
+    afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
+    reason: "Protect middle peak positioning",
+  });
+
+  if (
+    skeletonType === "balanced" &&
+    working.length === 2 &&
+    primaryPeak
+  ) {
+    const candidate = Array.from(plannedMap.values())
+      .filter((p) => !working.some((w) => w.experienceId === p.experience.id))
+      .filter((p) => p.experience.id !== primaryPeak.experience.id)
+      .filter((p) => p.experience.recommendedDuration <= 90)
+      .filter((p) => p.experience.fatigue <= 4)
+      .filter((p) => {
+        const allowed = safeAllowedTimes(p.experience);
+        return (
+          p.experience.isMeal ||
+          isRecoveryCandidate(p) ||
+          p.experience.timeFlexibility !== "low"
+        ) && (
+          allowed.length === 0 ||
+          allowed.includes("afternoon") ||
+          allowed.includes("sunset") ||
+          allowed.includes("dinner") ||
+          allowed.includes("night")
+        );
+      })
+      .sort((a, b) => b.planningScore - a.planningScore)[0];
+
+    if (candidate) {
+      const beforeRescueOverflow = getOverflowMin(working, input.dailyEndSlot);
+
+      const rescued = tryReinsertCriticalItem({
+        working,
+        target: candidate,
+        forcedRole: "soft_end",
+        input,
+        plannedMap,
+        primaryPeakId: primaryPeak.experience.id,
+      });
+
+      if (rescued.some((x) => x.experienceId === candidate.experience.id)) {
+        working = rescued;
+        notes.push(`balancedTailRescue=${candidate.experience.id}:after_move_peak_earlier`);
+
+        repairs.push({
+          step: step++,
+          action: "insert_recovery",
+          targetExperienceId: candidate.experience.id,
+          beforeOverflowMin: beforeRescueOverflow,
+          afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
+          reason: "Balanced safeguard rescued short soft_end after 2-item collapse",
+        });
+      }
+    }
+  }
+}
     if (recoveryIndex >= 0 && peakIndex >= 0 && recoveryIndex <= peakIndex && working.length >= 3) {
       const [recoveryItem] = working.splice(recoveryIndex, 1);
       working.push(recoveryItem);
