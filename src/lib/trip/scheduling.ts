@@ -1041,96 +1041,27 @@ function buildTailReservationMap(params: {
   ordered: PlannedExperience[];
   nodes: ExperienceSequenceNode[];
   input: PlanningInput;
-}): Map<number, number> {
+}): Map<number, { earliest: number; latest: number }> {
   const { ordered, nodes, input } = params;
 
-  const reservationMap = new Map<number, number>();
-  const peakIndex = ordered.findIndex((item) => getRoleForItem(item, nodes) === "peak");
+  const map = new Map<number, { earliest: number; latest: number }>();
 
-  if (peakIndex < 0) {
-    return reservationMap;
-  }
+  for (let i = 0; i < ordered.length; i += 1) {
+    const item = ordered[i];
+    const role = getRoleForItem(item, nodes);
 
-  let nextReservedStart: number | null = null;
-  let nextReservedPlanned: PlannedExperience | undefined;
-
-  for (let i = ordered.length - 1; i > peakIndex; i -= 1) {
-    const planned = ordered[i];
-    const flowRole = getRoleForItem(planned, nodes);
-
-    if (flowRole !== "recovery" && flowRole !== "soft_end") {
+    if (role !== "recovery" && role !== "soft_end") {
       continue;
     }
 
-    const durationSlots = minutesToSlots(planned.experience.minDuration);
+    const durationSlots = minutesToSlots(item.experience.minDuration);
+    const latest = Math.max(input.dailyStartSlot, input.dailyEndSlot - durationSlots);
+    const earliest = Math.max(input.dailyStartSlot, latest - 6);
 
-    let latestStartSlot = Math.max(
-      input.dailyStartSlot,
-      input.dailyEndSlot - durationSlots,
-    );
-
-    if (nextReservedStart !== null && nextReservedPlanned) {
-      const travelSlots = minutesToSlots(
-        getAreaDistanceMinutes(
-          planned.experience.area,
-          nextReservedPlanned.experience.area,
-        ),
-      );
-
-      latestStartSlot = Math.min(
-        latestStartSlot,
-        nextReservedStart - travelSlots - durationSlots,
-      );
-    }
-
-    if (latestStartSlot < input.dailyStartSlot) {
-      continue;
-    }
-
-    const reservedStart =
-      findLatestAllowedStartSlot({
-        item: planned,
-        earliestSlot: input.dailyStartSlot,
-        latestStartSlot,
-      }) ??
-      findLatestFallbackStartSlot({
-        item: planned,
-        earliestSlot: input.dailyStartSlot,
-        latestStartSlot,
-      });
-
-    if (reservedStart === null) {
-      continue;
-    }
-
-    reservationMap.set(i, reservedStart);
-    nextReservedStart = reservedStart;
-    nextReservedPlanned = planned;
+    map.set(i, { earliest, latest });
   }
 
-  return reservationMap;
-}
-
-function estimateRemainingTailReservedMinutes(params: {
-  ordered: PlannedExperience[];
-  nodes: ExperienceSequenceNode[];
-  currentIndex: number;
-}): number {
-  const { ordered, nodes, currentIndex } = params;
-
-  let total = 0;
-
-  for (let i = currentIndex + 1; i < ordered.length; i += 1) {
-    const planned = ordered[i];
-    const role = getRoleForItem(planned, nodes);
-
-    if (role === "recovery" || role === "soft_end") {
-      total += planned.experience.minDuration;
-      total += DEFAULT_TRANSITION_MIN;
-    }
-  }
-
-  return total;
+  return map;
 }
 
 function fitSequenceToTimeline(params: {
@@ -1161,8 +1092,33 @@ function fitSequenceToTimeline(params: {
 
     const earliestSlot = currentSlot + minutesToSlots(travelMin);
 
-    let chosenDuration = planned.experience.recommendedDuration;
-    const durationSlots = minutesToSlots(chosenDuration);
+    const overflowPressureMin = Math.max(
+  0,
+  items.length > 0 ? (currentSlot - input.dailyEndSlot) * 30 : 0,
+);
+
+let chosenDuration = chooseDurationMinutes(planned, overflowPressureMin);
+
+const remainingCriticalMinutes = estimateRemainingCriticalMinutes(ordered, nodes, i);
+const remainingAvailableMinutes = Math.max(
+  0,
+  (input.dailyEndSlot - earliestSlot) * 30,
+);
+
+if (
+  remainingAvailableMinutes - chosenDuration < remainingCriticalMinutes &&
+  role !== "peak" &&
+  role !== "recovery" &&
+  role !== "soft_end"
+) {
+  chosenDuration = planned.experience.minDuration;
+  compressedExperienceIds.push(planned.experience.id);
+  notes.push(`reserveCriticalBuffer=${planned.experience.id}`);
+} else if (chosenDuration < planned.experience.recommendedDuration) {
+  compressedExperienceIds.push(planned.experience.id);
+}
+
+const durationSlots = minutesToSlots(chosenDuration);
 
     let latestStartSlot = input.dailyEndSlot - durationSlots;
 
@@ -1170,7 +1126,7 @@ function fitSequenceToTimeline(params: {
 
     // === 핵심 수정 ===
     if (role === "recovery" || role === "soft_end") {
-      if (tailWindow) {
+      if (tailWindow !== undefinded ) {
         latestStartSlot = tailWindow.latest;
       }
     } else if (role !== "peak") {
