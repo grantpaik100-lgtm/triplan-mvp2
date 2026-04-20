@@ -1475,7 +1475,10 @@ function rebuildTailAfterPeak(params: {
     return { items: working, insertedIds: [] };
   }
 
-  const peakIndex = working.findIndex((item) => item.experienceId === primaryPeak.experience.id);
+  const peakIndex = working.findIndex(
+    (item) => item.experienceId === primaryPeak.experience.id,
+  );
+
   if (peakIndex < 0) {
     return { items: working, insertedIds: [] };
   }
@@ -1523,8 +1526,13 @@ function rebuildTailAfterPeak(params: {
   const maxTailAdds = working.length <= 2 ? 1 : 2;
 
   for (const candidate of ranked) {
-    if (insertedIds.length >= maxTailAdds) break;
-    if (rebuilt.some((item) => item.experienceId === candidate.experience.id)) continue;
+    if (insertedIds.length >= maxTailAdds) {
+      break;
+    }
+
+    if (rebuilt.some((item) => item.experienceId === candidate.experience.id)) {
+      continue;
+    }
 
     const forcedRole: FlowRole =
       insertedIds.length === 0 && isRecoveryCandidate(candidate)
@@ -1533,24 +1541,84 @@ function rebuildTailAfterPeak(params: {
           : "soft_end"
         : "soft_end";
 
-    const next = tryReinsertCriticalItem({
-      working: rebuilt,
-      target: candidate,
-      forcedRole,
-      input,
-      plannedMap,
-      primaryPeakId: primaryPeak.experience.id,
-    });
+    const targetDurationSlots = minutesToSlots(candidate.experience.minDuration);
+    const latestStartSlot = Math.max(
+      input.dailyStartSlot,
+      input.dailyEndSlot - targetDurationSlots,
+    );
 
-    if (next.some((item) => item.experienceId === candidate.experience.id)) {
-      rebuilt = next;
+    const candidateIndices: number[] = [];
+    const rebuiltPeakIndex = rebuilt.findIndex(
+      (item) => item.experienceId === primaryPeak.experience.id,
+    );
+
+    const minInsertionIndex = rebuiltPeakIndex >= 0 ? rebuiltPeakIndex + 1 : 0;
+
+    for (let insertionIndex = rebuilt.length; insertionIndex >= minInsertionIndex; insertionIndex -= 1) {
+      candidateIndices.push(insertionIndex);
+    }
+
+    let inserted = false;
+
+    for (const insertionIndex of candidateIndices) {
+      const trial = [...rebuilt];
+
+      trial.splice(insertionIndex, 0, {
+        experienceId: candidate.experience.id,
+        placeName: candidate.experience.placeName,
+        startSlot: input.dailyStartSlot,
+        endSlot: input.dailyStartSlot + targetDurationSlots,
+        durationMinutes: targetDurationSlots * 30,
+        priority: candidate.priority,
+        planningTier: candidate.planningTier,
+        functionalRole: candidate.functionalRole,
+        themeCluster: candidate.themeCluster,
+        flowRole: forcedRole,
+        rhythmSlotType: flowRoleToRhythmSlotType(forcedRole),
+        isPrimaryPeak: false,
+      });
+
+      const recomputed = recomputeSequentialTimeline(trial, plannedMap, input);
+
+      const recomputedPeakIndex = recomputed.findIndex(
+        (item) => item.experienceId === primaryPeak.experience.id,
+      );
+      const recomputedTargetIndex = recomputed.findIndex(
+        (item) => item.experienceId === candidate.experience.id,
+      );
+      const recomputedTarget = recomputed.find(
+        (item) => item.experienceId === candidate.experience.id,
+      );
+
+      if (recomputedTargetIndex < 0 || !recomputedTarget) {
+        continue;
+      }
+
+      if (recomputedTarget.startSlot > latestStartSlot) {
+        continue;
+      }
+
+      // 핵심: peak 앞이나 peak 자리로 삽입되는 경우 금지
+      if (
+        recomputedPeakIndex >= 0 &&
+        recomputedTargetIndex <= recomputedPeakIndex
+      ) {
+        continue;
+      }
+
+      rebuilt = recomputed;
       insertedIds.push(candidate.experience.id);
+      inserted = true;
+      break;
+    }
+
+    if (inserted) {
+      continue;
     }
   }
 
   return { items: rebuilt, insertedIds };
 }
-
 function tryInsertLateFallbackSupport(params: {
   working: ScheduledItem[];
   input: PlanningInput;
