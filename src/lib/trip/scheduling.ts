@@ -1222,6 +1222,7 @@ function recomputeSequentialTimeline(
   fittedItems: ScheduledItem[],
   plannedMap: Map<string, PlannedExperience>,
   input: PlanningInput,
+  primaryPeakId?: string,
 ): ScheduledItem[] {
   if (fittedItems.length === 0) return [];
 
@@ -1257,6 +1258,20 @@ function recomputeSequentialTimeline(
       startSlot: start,
       endSlot: start + durationSlots,
     });
+  }
+
+  // final peak stabilization:
+  // recompute 이후에도 peak가 opener 자리(index 0)로 밀리지 않도록 한 번 더 고정
+  if (primaryPeakId && recomputed.length >= 3) {
+    const peakIdx = recomputed.findIndex(
+      (item) => item.experienceId === primaryPeakId,
+    );
+
+    if (peakIdx === 0 || peakIdx === recomputed.length - 1) {
+      const [peakItem] = recomputed.splice(peakIdx, 1);
+      const targetIndex = Math.max(1, Math.floor(recomputed.length / 2) - 1);
+      recomputed.splice(targetIndex, 0, peakItem);
+    }
   }
 
   return recomputed;
