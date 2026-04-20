@@ -1613,55 +1613,85 @@ function tryReinsertCriticalItem(params: {
     return working;
   }
 
-  const base = [...working];
   const targetDurationSlots = minutesToSlots(target.experience.minDuration);
   const latestStartSlot = Math.max(
     input.dailyStartSlot,
     input.dailyEndSlot - targetDurationSlots,
   );
 
-  const earliestSlot = getTailAnchoredEarliestSlot({
-    working: base,
-    target,
-    forcedRole,
-    plannedMap,
-    input,
-    primaryPeakId,
-  });
+  const peakIndex = primaryPeakId
+    ? working.findIndex((item) => item.experienceId === primaryPeakId)
+    : -1;
 
-  const candidateStart = findRoleAwareStartSlot({
-    item: target,
-    flowRole: forcedRole,
-    earliestSlot,
-    latestStartSlot,
-    input,
-  });
+  const searchIndices: number[] = [];
 
-  if (candidateStart === null) {
-    return base;
+  if (forcedRole === "recovery" || forcedRole === "soft_end") {
+    const startIndex = peakIndex >= 0 ? peakIndex + 1 : 0;
+
+    for (let i = working.length; i >= startIndex; i -= 1) {
+      searchIndices.push(i);
+    }
+  } else {
+    for (let i = 0; i <= working.length; i += 1) {
+      searchIndices.push(i);
+    }
   }
 
-  const insertionIndex =
-    forcedRole === "recovery" || forcedRole === "soft_end"
-      ? base.length
-      : 0;
+  for (const insertionIndex of searchIndices) {
+    const trial = [...working];
 
-  base.splice(insertionIndex, 0, {
-    experienceId: target.experience.id,
-    placeName: target.experience.placeName,
-    startSlot: candidateStart,
-    endSlot: candidateStart + targetDurationSlots,
-    durationMinutes: targetDurationSlots * 30,
-    priority: target.priority,
-    planningTier: target.planningTier,
-    functionalRole: target.functionalRole,
-    themeCluster: target.themeCluster,
-    flowRole: forcedRole,
-    rhythmSlotType: flowRoleToRhythmSlotType(forcedRole),
-    isPrimaryPeak: forcedRole === "peak",
-  });
+    trial.splice(insertionIndex, 0, {
+      experienceId: target.experience.id,
+      placeName: target.experience.placeName,
+      startSlot: input.dailyStartSlot,
+      endSlot: input.dailyStartSlot + targetDurationSlots,
+      durationMinutes: targetDurationSlots * 30,
+      priority: target.priority,
+      planningTier: target.planningTier,
+      functionalRole: target.functionalRole,
+      themeCluster: target.themeCluster,
+      flowRole: forcedRole,
+      rhythmSlotType: flowRoleToRhythmSlotType(forcedRole),
+      isPrimaryPeak: forcedRole === "peak",
+    });
 
-  return recomputeSequentialTimeline(base, plannedMap, input);
+    const recomputed = recomputeSequentialTimeline(trial, plannedMap, input);
+    const inserted = recomputed.find(
+      (item) => item.experienceId === target.experience.id,
+    );
+
+    if (!inserted) {
+      continue;
+    }
+
+    if (inserted.startSlot > latestStartSlot) {
+      continue;
+    }
+
+    if (
+      (forcedRole === "recovery" || forcedRole === "soft_end") &&
+      primaryPeakId
+    ) {
+      const recomputedPeakIndex = recomputed.findIndex(
+        (item) => item.experienceId === primaryPeakId,
+      );
+      const recomputedTargetIndex = recomputed.findIndex(
+        (item) => item.experienceId === target.experience.id,
+      );
+
+      if (
+        recomputedPeakIndex >= 0 &&
+        recomputedTargetIndex >= 0 &&
+        recomputedTargetIndex <= recomputedPeakIndex
+      ) {
+        continue;
+      }
+    }
+
+    return recomputed;
+  }
+
+  return working;
 }
 
 function repairTimeline(params: {
