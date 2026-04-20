@@ -2067,7 +2067,25 @@ function repairTimeline(params: {
     preservedRecovery: recoverySoftRecovered,
     notes: Array.from(new Set(notes)),
   };
+  // === FINAL PEAK NORMALIZATION ===
 
+if (primaryPeak && working.length >= 3) {
+  const peakIdx = working.findIndex(
+    (item) => item.experienceId === primaryPeak.experience.id
+  );
+
+ if (peakIdx >= 0) {
+    const [peakItem] = working.splice(peakIdx, 1);
+
+    const targetIndex = Math.max(1, Math.floor(working.length / 2) - 1);
+
+    working.splice(targetIndex, 0, peakItem);
+
+    working = recomputeSequentialTimeline(working, plannedMap, input);
+
+    notes.push(`finalPeakNormalize=${peakItem.experienceId}`);
+  }
+}
   return {
     items: working,
     repairs,
