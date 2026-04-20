@@ -1260,8 +1260,6 @@ function recomputeSequentialTimeline(
     });
   }
 
-  // final peak stabilization:
-  // recompute 이후에도 peak가 opener 자리(index 0)로 밀리지 않도록 한 번 더 고정
   if (primaryPeakId && recomputed.length >= 3) {
     const peakIdx = recomputed.findIndex(
       (item) => item.experienceId === primaryPeakId,
@@ -1276,7 +1274,6 @@ function recomputeSequentialTimeline(
 
   return recomputed;
 }
-
 function getOverflowMin(items: ScheduledItem[], dayEndSlot: number): number {
   if (items.length === 0) return 0;
   return Math.max(0, (items[items.length - 1].endSlot - dayEndSlot) * 30);
@@ -1499,7 +1496,12 @@ function rebuildTailAfterPeak(params: {
   }
 
   const prefix = working.slice(0, peakIndex + 1);
-  let rebuilt = recomputeSequentialTimeline(prefix, plannedMap, input);
+  let rebuilt = recomputeSequentialTimeline(
+  prefix,
+  plannedMap,
+  input,
+  primaryPeak?.experience.id,
+  );
   const insertedIds: string[] = [];
   const usedIds = new Set(rebuilt.map((item) => item.experienceId));
 
@@ -1593,8 +1595,12 @@ function rebuildTailAfterPeak(params: {
         isPrimaryPeak: false,
       });
 
-      const recomputed = recomputeSequentialTimeline(trial, plannedMap, input);
-
+      const recomputed = recomputeSequentialTimeline(
+        trial,
+        plannedMap,
+        input,
+        primaryPeak?.experience.id,
+      );
       const recomputedPeakIndex = recomputed.findIndex(
         (item) => item.experienceId === primaryPeak.experience.id,
       );
@@ -1738,7 +1744,12 @@ function tryReinsertCriticalItem(params: {
       isPrimaryPeak: forcedRole === "peak",
     });
 
-    const recomputed = recomputeSequentialTimeline(trial, plannedMap, input);
+    const recomputed = recomputeSequentialTimeline(
+      trial,
+      plannedMap,
+      input,
+      primaryPeakId,
+    );
     const inserted = recomputed.find(
       (item) => item.experienceId === target.experience.id,
     );
@@ -1820,8 +1831,12 @@ function repairTimeline(params: {
       const targetPeakIndex = Math.max(1, Math.floor(working.length / 2) - 1);
       working.splice(targetPeakIndex, 0, peakItem);
 
-  working = recomputeSequentialTimeline(working, plannedMap, input);
-
+    working = recomputeSequentialTimeline(
+      working,
+      plannedMap,
+      input,
+      primaryPeak?.experience.id,
+    );
   if (primaryRecovery && !hasPreservedRecovery(working, primaryRecovery.experience.id)) {
     const rebuiltTail = rebuildTailAfterPeak({
       working,
@@ -1907,8 +1922,13 @@ function repairTimeline(params: {
       const [recoveryItem] = working.splice(recoveryIndex, 1);
       working.push(recoveryItem);
 
-      working = recomputeSequentialTimeline(working, plannedMap, input);
-
+      working = recomputeSequentialTimeline(
+        working,
+        plannedMap,
+        input,
+        primaryPeak?.experience.id,
+      );
+      
       repairs.push({
         step: step++,
         action: "insert_recovery",
@@ -1938,7 +1958,13 @@ function repairTimeline(params: {
 
       const beforeOverflowMin = overflow;
       working = working.filter((item) => item.experienceId !== target.experienceId);
-      working = recomputeSequentialTimeline(working, plannedMap, input);
+      working = recomputeSequentialTimeline(
+        working,
+        plannedMap,
+        input,
+        primaryPeak?.experience.id,
+      );
+      
       overflow = getOverflowMin(working, input.dailyEndSlot);
       droppedOptionalIds.push(target.experienceId);
 
