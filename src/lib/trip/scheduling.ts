@@ -1034,52 +1034,8 @@ function estimateRemainingCriticalMinutes(
 
 // === ADD BELOW estimateRemainingCriticalMinutes ===
 
-function buildTailReservationMap(params: {
-  ordered: PlannedExperience[];
-  nodes: ExperienceSequenceNode[];
-  input: PlanningInput;
-}): Map<number, { earliest: number; latest: number }> {
-  const { ordered, nodes, input } = params;
 
-  const map = new Map<number, { earliest: number; latest: number }>();
 
-  for (let i = 0; i < ordered.length; i++) {
-    const item = ordered[i];
-    const role = getRoleForItem(item, nodes);
-
-    if (role !== "recovery" && role !== "soft_end") continue;
-
-    const durationSlots = minutesToSlots(item.experience.minDuration);
-
-    // 핵심: 고정 slot이 아니라 late band
-    const latest = input.dailyEndSlot - durationSlots;
-    const earliest = Math.max(input.dailyStartSlot, latest - 6); // 6 slots ≈ 3시간 band
-
-    map.set(i, { earliest, latest });
-  }
-
-  return map;
-}
-
-function estimateRemainingTailReservedMinutes(params: {
-  ordered: PlannedExperience[];
-  nodes: ExperienceSequenceNode[];
-  currentIndex: number;
-}): number {
-  const { ordered, nodes, currentIndex } = params;
-
-  let total = 0;
-
-  for (let i = currentIndex + 1; i < ordered.length; i++) {
-    const role = getRoleForItem(ordered[i], nodes);
-
-    if (role === "recovery" || role === "soft_end") {
-      total += ordered[i].experience.minDuration + DEFAULT_TRANSITION_MIN;
-    }
-  }
-
-  return total;
-}
 
 function buildTailReservationMap(params: {
   ordered: PlannedExperience[];
