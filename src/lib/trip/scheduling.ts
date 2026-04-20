@@ -1126,7 +1126,7 @@ const durationSlots = minutesToSlots(chosenDuration);
 
     // === 핵심 수정 ===
     if (role === "recovery" || role === "soft_end") {
-      if (tailWindow !== undefinded ) {
+      if (tailWindow !== undefined ) {
         latestStartSlot = tailWindow.latest;
       }
     } else if (role !== "peak") {
@@ -1674,10 +1674,10 @@ function repairTimeline(params: {
       : -1;
 
     if (peakIndex > 0 && peakIndex === working.length - 1 && working.length >= 3) {
-  const [peakItem] = working.splice(peakIndex, 1);
+      const [peakItem] = working.splice(peakIndex, 1);
 
-  const targetPeakIndex = Math.max(1, Math.floor(working.length / 2) - 1);
-  working.splice(targetPeakIndex, 0, peakItem);
+      const targetPeakIndex = Math.max(1, Math.floor(working.length / 2) - 1);
+      working.splice(targetPeakIndex, 0, peakItem);
 
   working = recomputeSequentialTimeline(working, plannedMap, input);
 
