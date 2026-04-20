@@ -817,18 +817,46 @@ function isAllowedWithTolerance(
   startSlot: number,
   flowRole?: FlowRole,
 ): boolean {
-  if (isAllowedTimeSlot(exp.allowedTimes, startSlot)) return true;
+  if (isAllowedTimeSlot(exp.allowedTimes, startSlot)) {
+    return true;
+  }
 
   const tolerance = getTimeWindowToleranceSlots(exp, flowRole);
-  if (tolerance <= 0) return false;
-
-  for (let delta = 1; delta <= tolerance; delta += 1) {
-    if (
-      isAllowedTimeSlot(exp.allowedTimes, startSlot - delta) ||
-      isAllowedTimeSlot(exp.allowedTimes, startSlot + delta)
-    ) {
-      return true;
+  if (tolerance > 0) {
+    for (let delta = 1; delta <= tolerance; delta += 1) {
+      if (
+        isAllowedTimeSlot(exp.allowedTimes, startSlot - delta) ||
+        isAllowedTimeSlot(exp.allowedTimes, startSlot + delta)
+      ) {
+        return true;
+      }
     }
+  }
+
+  const allowed = safeAllowedTimes(exp);
+
+  if (allowed.length === 0) {
+    return true;
+  }
+
+  // soft policy:
+  // peak / recovery / soft_end는 flow 보호를 위해 wider acceptance 허용
+  if (
+    flowRole === "peak" ||
+    flowRole === "recovery" ||
+    flowRole === "soft_end"
+  ) {
+    return true;
+  }
+
+  // high flexibility는 time window miss를 허용
+  if (exp.timeFlexibility === "high") {
+    return true;
+  }
+
+  // medium flexibility + meal 은 실사용 맥락상 어느 정도 허용
+  if (exp.timeFlexibility === "medium" && exp.isMeal) {
+    return true;
   }
 
   return false;
@@ -2069,8 +2097,19 @@ export function evaluateFeasibility(
     }
 
     if (!isAllowedWithTolerance(planned.experience, item.startSlot, item.flowRole)) {
-      issues.push("time_window_violation");
-    }
+  const isSoftRole =
+    item.flowRole === "peak" ||
+    item.flowRole === "recovery" ||
+    item.flowRole === "soft_end";
+
+  const isSoftFlex =
+    planned.experience.timeFlexibility === "high" ||
+    (planned.experience.timeFlexibility === "medium" && planned.experience.isMeal);
+
+  if (!isSoftRole && !isSoftFlex) {
+    issues.push("time_window_violation");
+  }
+}
 
     if (item.endSlot > dayEndSlot) {
       issues.push("time_overflow");
@@ -2232,20 +2271,26 @@ export function scheduleDayPlan(
   const scheduledItemCount = repaired.items.length;
 
   const criticalFailure =
-    !repaired.timelineDiagnostics.preservedPeak ||
-    repaired.timelineDiagnostics.invalidPlacement ||
-    scheduledItemCount < 2;
+  !repaired.timelineDiagnostics.preservedPeak ||
+  repaired.timelineDiagnostics.invalidPlacement ||
+  scheduledItemCount < 2;
 
-  const finalStatus =
-    criticalFailure
-      ? "partial_fail"
-      : repaired.repairs.length > 0
-        ? report.isFeasible
-          ? "repaired"
-          : "partial_fail"
-        : report.isFeasible
-          ? "scheduled"
-          : "partial_fail";
+const onlySoftTimeIssue =
+  report.issues.length > 0 &&
+  report.issues.every((issue) => issue === "time_window_violation");
+
+const effectivelyFeasible = report.isFeasible || onlySoftTimeIssue;
+
+const finalStatus =
+  criticalFailure
+    ? "partial_fail"
+    : repaired.repairs.length > 0
+      ? effectivelyFeasible
+        ? "repaired"
+        : "partial_fail"
+      : effectivelyFeasible
+        ? "scheduled"
+        : "partial_fail";
 
   const sequenceDiagnostics = buildSequenceDiagnostics({
     skeletonType: sequence.skeletonType,
@@ -2286,6 +2331,7 @@ export function scheduleDayPlan(
         `recovery=${sequence.primaryRecovery?.experience.id ?? "none"}`,
         `scheduledItems=${repaired.items.length}`,
         `issues=${report.issues.join(",") || "none"}`,
+        `effectiveFeasible=${effectivelyFeasible ? "yes" : "no"}`
         ...sequence.notes,
         ...sequenceEvalBeforeRepair.notes.map((note) => `before:${note}`),
         ...sequenceEvalAfterRepair.notes.map((note) => `after:${note}`),
