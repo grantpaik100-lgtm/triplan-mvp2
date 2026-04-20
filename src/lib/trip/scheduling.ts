@@ -2331,7 +2331,7 @@ const finalStatus =
         `recovery=${sequence.primaryRecovery?.experience.id ?? "none"}`,
         `scheduledItems=${repaired.items.length}`,
         `issues=${report.issues.join(",") || "none"}`,
-        `effectiveFeasible=${effectivelyFeasible ? "yes" : "no"}`
+        `effectiveFeasible=${effectivelyFeasible ? "yes" : "no"}`,
         ...sequence.notes,
         ...sequenceEvalBeforeRepair.notes.map((note) => `before:${note}`),
         ...sequenceEvalAfterRepair.notes.map((note) => `after:${note}`),
