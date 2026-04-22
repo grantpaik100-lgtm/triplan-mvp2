@@ -552,9 +552,14 @@ function buildExperienceSequence(params: {
   const peak =
     items.find((item) => item.experience.id === planningPeakId) ??
     selectPeak(items, input);
-  const recovery =
-    items.find((item) => item.experience.id === planningRecoveryId) ??
-    undefined;
+
+  // Bug Fix: planningRecoveryId가 없거나 items에 없으면 selectRecovery()로 fallback.
+  // 이전 코드는 planningRecoveryId가 없을 때 undefined를 반환해 primaryRecovery=undefined가
+  // 되었고, evaluateSequenceFlow가 "missing_recovery"를 잘못 발생시켰다.
+  const explicitRecovery = planningRecoveryId
+    ? items.find((item) => item.experience.id === planningRecoveryId)
+    : undefined;
+  const recovery = explicitRecovery ?? selectRecovery(items, peak);
 
   const usedIds = new Set<string>();
   const orderedByRole: Array<{ role: FlowRole; item: PlannedExperience }> = [];
@@ -2434,13 +2439,25 @@ export function scheduleDayPlan(
     });
   }
 
+  // Bug Fix: repair 후 original recovery가 substitute로 교체되면
+  // sequence.primaryRecovery.id가 repairedOrdered에 없어 "missing_recovery"가
+  // false positive로 발생했다. repairedNodes에서 실제 recovery/soft_end 역할 노드를
+  // 찾아 after-repair eval에 전달한다.
+  const actualRecoveryAfterRepair: PlannedExperience | undefined = (() => {
+    const recoveryNode = repairedNodes.find(
+      (n) => n.flowRole === "recovery" || n.flowRole === "soft_end",
+    );
+    if (!recoveryNode) return sequence.primaryRecovery;
+    return plannedMap.get(recoveryNode.experienceId) ?? sequence.primaryRecovery;
+  })();
+
   const sequenceEvalAfterRepair = evaluateSequenceFlow({
     ordered: repairedOrdered,
     nodes: repairedNodes,
     skeletonType: sequence.skeletonType,
     input,
     primaryPeak: sequence.primaryPeak,
-    primaryRecovery: sequence.primaryRecovery,
+    primaryRecovery: actualRecoveryAfterRepair,
   });
 
   const report = evaluateFeasibility(dayPlan, repaired.items, input.dailyEndSlot);
@@ -2472,7 +2489,7 @@ const finalStatus =
   const sequenceDiagnostics = buildSequenceDiagnostics({
     skeletonType: sequence.skeletonType,
     primaryPeak: sequence.primaryPeak,
-    primaryRecovery: sequence.primaryRecovery,
+    primaryRecovery: actualRecoveryAfterRepair,
     sequenceEval: sequenceEvalAfterRepair,
     notes: [...sequence.notes, ...sequenceEvalAfterRepair.notes],
   });
@@ -2492,7 +2509,7 @@ const finalStatus =
       narrativeType: toNarrativeType(sequence.skeletonType),
       skeletonType: sequence.skeletonType,
       primaryPeakId: sequence.primaryPeak?.experience.id,
-      primaryRecoveryId: sequence.primaryRecovery?.experience.id,
+      primaryRecoveryId: actualRecoveryAfterRepair?.experience.id,
       preFeasibilityStatus,
       estimatedTotalMin,
       availableMin,
@@ -2509,7 +2526,8 @@ const finalStatus =
         `planningTargetItemCount=${dayPlan.selection?.targetItemCount ?? "none"}`,
         `planningHardCap=${dayPlan.selection?.hardCap ?? "none"}`,
         `peak=${sequence.primaryPeak?.experience.id ?? "none"}`,
-        `recovery=${sequence.primaryRecovery?.experience.id ?? "none"}`,
+        `recovery=${actualRecoveryAfterRepair?.experience.id ?? "none"}`,
+        `recoveryOriginal=${sequence.primaryRecovery?.experience.id ?? "none"}`,
         `scheduledItems=${repaired.items.length}`,
         `issues=${report.issues.join(",") || "none"}`,
         `effectiveFeasible=${effectivelyFeasible ? "yes" : "no"}`,
