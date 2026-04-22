@@ -337,7 +337,8 @@ export type DaySchedulingDiagnostic = {
   flowScoreBeforeRepair: number;
   flowScoreAfterRepair: number;
   repairs: RepairActionLog[];
-  finalStatus: "scheduled" | "repaired" | "flow_degraded" | "partial_fail";  sequenceDiagnostics: SequenceDiagnostics;
+  finalStatus: "scheduled" | "repaired" | "flow_degraded" | "partial_fail"; 
+  sequenceDiagnostics: SequenceDiagnostics;
   timelineDiagnostics: TimelineDiagnostics;
   notes: string[];
 };
