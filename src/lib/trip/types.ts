@@ -319,7 +319,8 @@ export type TimelineDiagnostics = {
   substitutedExperienceIds: string[];
   droppedOptionalIds: string[];
   preservedPeak: boolean;
-  preservedRecovery: boolean;
+  preservedOriginalRecovery: boolean;
+  recoveredTailRole: boolean;
   notes: string[];
 };
 
@@ -336,8 +337,7 @@ export type DaySchedulingDiagnostic = {
   flowScoreBeforeRepair: number;
   flowScoreAfterRepair: number;
   repairs: RepairActionLog[];
-  finalStatus: "scheduled" | "repaired" | "partial_fail";
-  sequenceDiagnostics: SequenceDiagnostics;
+  finalStatus: "scheduled" | "repaired" | "flow_degraded" | "partial_fail";  sequenceDiagnostics: SequenceDiagnostics;
   timelineDiagnostics: TimelineDiagnostics;
   notes: string[];
 };
