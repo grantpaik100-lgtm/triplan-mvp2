@@ -1828,18 +1828,18 @@ function tryRestoreRecoveryBySacrificingSupport(params: {
     .filter((item) => item.flowRole !== "recovery" && item.flowRole !== "soft_end")
     .sort((a, b) => {
       const aDropScore =
-        (a.priority === "optional" ? 3 : 0) +
-        (a.flowRole === "opener" ? 2 : 0) +
-        (a.flowRole === "activation" ? 1.5 : 0) +
-        (a.flowRole === "transition" ? 1.2 : 0) -
-        (a.isPrimaryPeak ? 100 : 0);
+  (a.priority === "optional" ? 3 : 0) +
+  (a.flowRole === "opener" ? 2 : 0) +
+  (a.flowRole === "activation" ? 1.5 : 0) +
+  (a.flowRole === "support" ? 1.2 : 0) -
+  (a.isPrimaryPeak ? 100 : 0);
 
-      const bDropScore =
-        (b.priority === "optional" ? 3 : 0) +
-        (b.flowRole === "opener" ? 2 : 0) +
-        (b.flowRole === "activation" ? 1.5 : 0) +
-        (b.flowRole === "transition" ? 1.2 : 0) -
-        (b.isPrimaryPeak ? 100 : 0);
+const bDropScore =
+  (b.priority === "optional" ? 3 : 0) +
+  (b.flowRole === "opener" ? 2 : 0) +
+  (b.flowRole === "activation" ? 1.5 : 0) +
+  (b.flowRole === "support" ? 1.2 : 0) -
+  (b.isPrimaryPeak ? 100 : 0);
 
       return bDropScore - aDropScore;
     });
