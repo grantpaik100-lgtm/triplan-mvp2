@@ -1279,8 +1279,15 @@ function buildStructuralPins(params: {
   peakCandidate?: PlannedExperience;
   recoveryCandidate?: PlannedExperience;
   narrative: DayNarrativeRole;
+  skeletonType: DaySkeletonType;
 }): DayPlan["pins"] {
-  const { items, peakCandidate, recoveryCandidate, narrative } = params;
+  const {
+    items,
+    peakCandidate,
+    recoveryCandidate,
+    narrative,
+    skeletonType,
+  } = params;
 
   const peakId = peakCandidate?.experience.id;
   const recoveryId = recoveryCandidate?.experience.id;
@@ -1291,11 +1298,26 @@ function buildStructuralPins(params: {
   const openerConflictsWithPeakOrRecovery =
     openerId !== undefined && (openerId === peakId || openerId === recoveryId);
 
+  const peakConfidence: PinConfidence =
+    skeletonType === "peak_centric" || narrative === "peak"
+      ? "hard"
+      : "soft";
+
+  const recoveryConfidence: PinConfidence =
+    skeletonType === "relaxed" ||
+    narrative === "recovery" ||
+    skeletonType === "balanced"
+      ? "hard"
+      : "soft";
+
+  const openerConfidence: PinConfidence =
+    narrative === "immersion" ? "soft" : "soft";
+
   const peak: StructuralPin | undefined = peakCandidate
     ? {
         experienceId: peakCandidate.experience.id,
         flowRole: "peak",
-        confidence: "soft",
+        confidence: peakConfidence,
       }
     : undefined;
 
@@ -1303,7 +1325,7 @@ function buildStructuralPins(params: {
     ? {
         experienceId: recoveryCandidate.experience.id,
         flowRole: "recovery",
-        confidence: "soft",
+        confidence: recoveryConfidence,
       }
     : undefined;
 
@@ -1312,13 +1334,12 @@ function buildStructuralPins(params: {
       ? {
           experienceId: openerItem.experience.id,
           flowRole: "opener",
-          confidence: "soft",
+          confidence: openerConfidence,
         }
       : undefined;
 
   return { peak, recovery, opener };
 }
-
 /**
  * flow-aware ordered sequence를 만든다.
  * canonical flow: [opener?] → pre-peak support → [peak] → post-peak support → [recovery?]
@@ -1604,11 +1625,12 @@ export function planDaysWithDiagnostics(
     // fallbackPool 을 계산한다. 선택된 items는 변경하지 않는다.
     // =========================================================================
     const contractPins = buildStructuralPins({
-      items: compact.items,
-      peakCandidate: compact.peakCandidate,
-      recoveryCandidate: compact.recoveryCandidate,
-      narrative: dayNarrative,
-    });
+  items: compact.items,
+  peakCandidate: compact.peakCandidate,
+  recoveryCandidate: compact.recoveryCandidate,
+  narrative: dayNarrative,
+  skeletonType: compact.skeletonType,
+});
 
     const suggestedFlow = buildSuggestedFlow(compact.items, contractPins);
 
