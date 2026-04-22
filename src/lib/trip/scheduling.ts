@@ -2453,7 +2453,80 @@ export function scheduleDayPlan(
           : effectivelyFeasible
             ? "scheduled"
             : "partial_fail";
+  export function evaluateFeasibility(
+  dayPlan: DayPlan,
+  items: ScheduledItem[],
+  dayEndSlot: number,
+): FeasibilityReport {
+  const issues: ScheduleIssue[] = [];
+  const plannedItems = [...dayPlan.anchor, ...dayPlan.core, ...dayPlan.optional];
+  const expMap = new Map(plannedItems.map((x) => [x.experience.id, x]));
 
+  let totalFatigue = 0;
+
+  for (const item of items) {
+    const planned = expMap.get(item.experienceId);
+    if (!planned) continue;
+
+    totalFatigue += planned.experience.fatigue;
+
+    if (item.durationMinutes < planned.experience.minDuration) {
+      issues.push("duration_violation");
+    }
+
+    if (!isAllowedWithTolerance(planned.experience, item.startSlot, item.flowRole)) {
+      const isSoftRole =
+        item.flowRole === "peak" ||
+        item.flowRole === "recovery" ||
+        item.flowRole === "soft_end";
+
+      const isSoftFlex =
+        planned.experience.timeFlexibility === "high" ||
+        (planned.experience.timeFlexibility === "medium" && planned.experience.isMeal);
+
+      if (!isSoftRole && !isSoftFlex) {
+        issues.push("time_window_violation");
+      }
+    }
+
+    if (item.endSlot > dayEndSlot) {
+      issues.push("time_overflow");
+    }
+  }
+
+  if (totalFatigue > MAX_FATIGUE_SAFE) {
+    issues.push("fatigue_overflow");
+  }
+
+  let areaOverjumpCount = 0;
+  for (let i = 1; i < items.length; i += 1) {
+    const prevArea = expMap.get(items[i - 1].experienceId)?.experience.area ?? "other";
+    const currentArea = expMap.get(items[i].experienceId)?.experience.area ?? "other";
+
+    if (getAreaDistanceMinutes(prevArea, currentArea) > 60) {
+      areaOverjumpCount += 1;
+    }
+  }
+
+  if (areaOverjumpCount >= 2) {
+    issues.push("area_overjump");
+  }
+
+  const totalMinutes =
+    items.length > 0 ? (items[items.length - 1].endSlot - items[0].startSlot) * 30 : 0;
+
+  const activeMinutes = items.reduce((sum, item) => sum + item.durationMinutes, 0);
+  const gapMinutes = Math.max(0, totalMinutes - activeMinutes);
+
+  return {
+    isFeasible: issues.length === 0,
+    issues: Array.from(new Set(issues)),
+    totalFatigue,
+    totalMinutes,
+    activeMinutes,
+    gapMinutes,
+  };
+}
   const sequenceDiagnostics = buildSequenceDiagnostics({
     skeletonType: sequence.skeletonType,
     primaryPeak: sequence.primaryPeak,
