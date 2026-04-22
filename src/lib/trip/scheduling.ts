@@ -1813,6 +1813,63 @@ function tryReinsertCriticalItem(params: {
   return working;
 }
 
+function tryRestoreRecoveryBySacrificingSupport(params: {
+  working: ScheduledItem[];
+  input: PlanningInput;
+  plannedMap: Map<string, PlannedExperience>;
+  primaryPeak?: PlannedExperience;
+  primaryRecovery: PlannedExperience;
+}): { items: ScheduledItem[]; droppedId?: string } {
+  const { working, input, plannedMap, primaryPeak, primaryRecovery } = params;
+
+  const removableSupport = [...working]
+    .filter((item) => item.experienceId !== primaryRecovery.experience.id)
+    .filter((item) => item.experienceId !== primaryPeak?.experience.id)
+    .filter((item) => item.flowRole !== "recovery" && item.flowRole !== "soft_end")
+    .sort((a, b) => {
+      const aDropScore =
+        (a.priority === "optional" ? 3 : 0) +
+        (a.flowRole === "opener" ? 2 : 0) +
+        (a.flowRole === "activation" ? 1.5 : 0) +
+        (a.flowRole === "transition" ? 1.2 : 0) -
+        (a.isPrimaryPeak ? 100 : 0);
+
+      const bDropScore =
+        (b.priority === "optional" ? 3 : 0) +
+        (b.flowRole === "opener" ? 2 : 0) +
+        (b.flowRole === "activation" ? 1.5 : 0) +
+        (b.flowRole === "transition" ? 1.2 : 0) -
+        (b.isPrimaryPeak ? 100 : 0);
+
+      return bDropScore - aDropScore;
+    });
+
+  for (const candidate of removableSupport) {
+    const reduced = working.filter(
+      (item) => item.experienceId !== candidate.experienceId,
+    );
+
+    const restored = tryReinsertCriticalItem({
+      working: reduced,
+      target: primaryRecovery,
+      forcedRole: "recovery",
+      input,
+      plannedMap,
+      primaryPeakId: primaryPeak?.experience.id,
+    });
+
+    if (hasPreservedRecovery(restored, primaryRecovery.experience.id)) {
+      return {
+        items: restored,
+        droppedId: candidate.experienceId,
+      };
+    }
+  }
+
+  return { items: working };
+}
+
+
 function repairTimeline(params: {
   fitted: TimelineFitResult;
   input: PlanningInput;
@@ -2074,27 +2131,59 @@ function repairTimeline(params: {
   const substitutedExperienceIds: string[] = [];
 
   if (primaryRecovery && !hasPreservedRecovery(working, primaryRecovery.experience.id)) {
-    const beforeOverflowMin = getOverflowMin(working, input.dailyEndSlot);
-    const trimmed = [...working].filter(
-      (item) => !(item.priority === "optional" && item.flowRole !== "peak"),
-    );
+  const beforeOverflowMin = getOverflowMin(working, input.dailyEndSlot);
+  const trimmed = [...working].filter(
+    (item) => !(item.priority === "optional" && item.flowRole !== "peak"),
+  );
 
-    const reinjectedRecovery = tryReinsertCriticalItem({
+  const reinjectedRecovery = tryReinsertCriticalItem({
+    working: trimmed,
+    target: primaryRecovery,
+    forcedRole: "recovery",
+    input,
+    plannedMap,
+    primaryPeakId: primaryPeak?.experience.id,
+  });
+
+  const recoveryRestored = hasPreservedRecovery(
+    reinjectedRecovery,
+    primaryRecovery.experience.id,
+  );
+
+  if (recoveryRestored) {
+    working = reinjectedRecovery;
+
+    repairs.push({
+      step: step++,
+      action: "insert_recovery",
+      targetExperienceId: primaryRecovery.experience.id,
+      beforeOverflowMin,
+      afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
+      reason: "Reinsert missing recovery after trimming non-critical support",
+    });
+  } else {
+    const sacrificed = tryRestoreRecoveryBySacrificingSupport({
       working: trimmed,
-      target: primaryRecovery,
-      forcedRole: "recovery",
       input,
       plannedMap,
-      primaryPeakId: primaryPeak?.experience.id,
+      primaryPeak,
+      primaryRecovery,
     });
 
-    const recoveryRestored = hasPreservedRecovery(
-      reinjectedRecovery,
+    const sacrificedRecoveryRestored = hasPreservedRecovery(
+      sacrificed.items,
       primaryRecovery.experience.id,
     );
 
-    if (recoveryRestored) {
-      working = reinjectedRecovery;
+    if (sacrificedRecoveryRestored) {
+      working = sacrificed.items;
+
+      if (sacrificed.droppedId) {
+        droppedOptionalIds.push(sacrificed.droppedId);
+        notes.push(
+          `criticalRecoverySacrifice=${sacrificed.droppedId}:for_${primaryRecovery.experience.id}`,
+        );
+      }
 
       repairs.push({
         step: step++,
@@ -2102,7 +2191,7 @@ function repairTimeline(params: {
         targetExperienceId: primaryRecovery.experience.id,
         beforeOverflowMin,
         afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
-        reason: "Reinsert missing recovery after trimming non-critical support",
+        reason: "Sacrifice non-peak support to preserve original recovery",
       });
     } else {
       const rebuiltTail = primaryPeak
@@ -2146,7 +2235,9 @@ function repairTimeline(params: {
 
         if (fallbackInserted.insertedId) {
           substitutedExperienceIds.push(fallbackInserted.insertedId);
-          notes.push(`lateFallbackInsert=${fallbackInserted.insertedId}:after_missing_recovery`);
+          notes.push(
+            `lateFallbackInsert=${fallbackInserted.insertedId}:after_missing_recovery`,
+          );
 
           repairs.push({
             step: step++,
@@ -2157,7 +2248,11 @@ function repairTimeline(params: {
             reason: "Fallback late support inserted after recovery soft miss",
           });
         } else {
-          if (primaryPeak && working.length === 2 && input.dailyDensity >= 3) {
+          if (
+            primaryPeak &&
+            working.length === 2 &&
+            input.dailyDensity >= 3
+          ) {
             const emergencyTail = Array.from(plannedMap.values())
               .filter((item) => !working.some((w) => w.experienceId === item.experience.id))
               .filter((item) => item.experience.id !== primaryPeak.experience.id)
@@ -2225,9 +2320,7 @@ function repairTimeline(params: {
             const lateFallbackMissNote =
               `lateFallbackMiss=${primaryRecovery.experience.id}:no_viable_support`;
             const softMissNote =
-              `softMiss=${primaryRecovery.experience.id}:protected_role=${
-                primaryRecovery.functionalRole === "rest" ? "soft_end" : "recovery"
-              }`;
+              `softMiss=${primaryRecovery.experience.id}:protected_role=${primaryRecovery.functionalRole === "rest" ? "soft_end" : "recovery"}`;
 
             if (!notes.includes(lateFallbackMissNote)) {
               notes.push(lateFallbackMissNote);
@@ -2241,6 +2334,7 @@ function repairTimeline(params: {
       }
     }
   }
+}
 
   overflow = getOverflowMin(working, input.dailyEndSlot);
 
