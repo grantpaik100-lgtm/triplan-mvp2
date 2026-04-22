@@ -1783,7 +1783,11 @@ function tryReinsertCriticalItem(params: {
       continue;
     }
 
-    if (inserted.startSlot > latestStartSlot) {
+    if (
+      forcedRole !== "recovery" &&
+      forcedRole !== "soft_end" &&
+      inserted.startSlot > latestStartSlot
+    ) {
       continue;
     }
 
@@ -1810,9 +1814,60 @@ function tryReinsertCriticalItem(params: {
     return recomputed;
   }
 
+  // ------------------------------------------------------------------
+  // Tail-forced fallback:
+  // recovery / soft_end는 strict reinsertion이 모두 실패해도
+  // peak 뒤 tail에 최소 duration으로 강제로 붙여 본다.
+  // ------------------------------------------------------------------
+  if (forcedRole === "recovery" || forcedRole === "soft_end") {
+    const earliestTailSlot = getTailAnchoredEarliestSlot({
+      working,
+      target,
+      forcedRole,
+      plannedMap,
+      input,
+      primaryPeakId,
+    });
+
+    const fallbackStartSlot = Math.max(
+      input.dailyStartSlot,
+      Math.min(latestStartSlot, earliestTailSlot),
+    );
+
+    const fallbackEndSlot = fallbackStartSlot + targetDurationSlots;
+
+    if (fallbackEndSlot <= input.dailyEndSlot) {
+      const appended: ScheduledItem = {
+        experienceId: target.experience.id,
+        placeName: target.experience.placeName,
+        startSlot: fallbackStartSlot,
+        endSlot: fallbackEndSlot,
+        durationMinutes: targetDurationSlots * 30,
+        priority: target.priority,
+        planningTier: target.planningTier,
+        functionalRole: target.functionalRole,
+        themeCluster: target.themeCluster,
+        flowRole: forcedRole,
+        rhythmSlotType: flowRoleToRhythmSlotType(forcedRole),
+        isPrimaryPeak: false,
+      };
+
+      const trial = [...working, appended];
+      const peakPos = primaryPeakId
+        ? trial.findIndex((item) => item.experienceId === primaryPeakId)
+        : -1;
+      const targetPos = trial.findIndex(
+        (item) => item.experienceId === target.experience.id,
+      );
+
+      if (peakPos < 0 || targetPos > peakPos) {
+        return trial;
+      }
+    }
+  }
+
   return working;
 }
-
 function tryRestoreRecoveryBySacrificingSupport(params: {
   working: ScheduledItem[];
   input: PlanningInput;
