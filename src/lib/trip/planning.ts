@@ -1268,6 +1268,11 @@ function findOpenerInItems(
 /**
  * compactDaySelection 결과로부터 structural pins를 만든다.
  * 묶음 A에서는 모두 confidence: "soft" — scheduling이 재검토할 수 있다.
+ *
+ * 묶음 B' update:
+ * - opener가 peak 또는 recovery와 같은 experienceId면 opener pin을 생성하지 않는다.
+ *   (같은 item이 두 role을 동시에 차지하면 suggestedFlow에 중복이 발생하고
+ *    scheduling 쪽 해석도 모호해진다)
  */
 function buildStructuralPins(params: {
   items: PlannedExperience[];
@@ -1277,7 +1282,14 @@ function buildStructuralPins(params: {
 }): DayPlan["pins"] {
   const { items, peakCandidate, recoveryCandidate, narrative } = params;
 
+  const peakId = peakCandidate?.experience.id;
+  const recoveryId = recoveryCandidate?.experience.id;
+
   const openerItem = findOpenerInItems(items, narrative);
+  const openerId = openerItem?.experience.id;
+
+  const openerConflictsWithPeakOrRecovery =
+    openerId !== undefined && (openerId === peakId || openerId === recoveryId);
 
   const peak: StructuralPin | undefined = peakCandidate
     ? {
@@ -1295,13 +1307,14 @@ function buildStructuralPins(params: {
       }
     : undefined;
 
-  const opener: StructuralPin | undefined = openerItem
-    ? {
-        experienceId: openerItem.experience.id,
-        flowRole: "opener",
-        confidence: "soft",
-      }
-    : undefined;
+  const opener: StructuralPin | undefined =
+    openerItem && !openerConflictsWithPeakOrRecovery
+      ? {
+          experienceId: openerItem.experience.id,
+          flowRole: "opener",
+          confidence: "soft",
+        }
+      : undefined;
 
   return { peak, recovery, opener };
 }
@@ -1314,6 +1327,26 @@ function buildStructuralPins(params: {
  * 이 함수는 pins를 존중해서 narrative backbone을 먼저 고정한 뒤
  * 나머지 support items을 time preference로 정렬한다.
  */
+/**
+ * flow-aware ordered sequence를 만든다.
+ *
+ * 묶음 B' update — middle-biased peak positioning:
+ * - scheduling 실측 결과, peak는 수열의 중앙 약간 앞 위치 (idx = floor((N-1)/2))
+ *   가 가장 안정적이었다. 이전 버전처럼 peak를 뒤쪽에 놓으면
+ *   scheduling이 일관되게 move_peak_earlier repair를 발동했다.
+ * - 이 함수는 scheduling의 기대 위치에 맞춰 peak index를 계산한 뒤,
+ *   [opener?, pre-peak support, peak, post-peak support, recovery?]
+ *   구성을 그 기대 인덱스에 맞추도록 support 아이템 개수를 분배한다.
+ *
+ * Dedup:
+ * - opener / peak / recovery pin이 서로 같은 experienceId 를 가질 수 있는
+ *   edge case에서도 결과에 중복 ID가 나오지 않도록 Set으로 마지막에 걸러낸다.
+ */
+function getMiddleBiasedPeakIndex(totalCount: number): number {
+  if (totalCount <= 1) return 0;
+  return Math.max(1, Math.floor((totalCount - 1) / 2));
+}
+
 function buildSuggestedFlow(
   items: PlannedExperience[],
   pins: DayPlan["pins"],
@@ -1329,17 +1362,27 @@ function buildSuggestedFlow(
   const excludeIds = new Set<string>(
     [peakId, recoveryId, openerId].filter((x): x is string => Boolean(x)),
   );
-  const support = items.filter((x) => !excludeIds.has(x.experience.id));
-
-  const peakOrderScore = peakItem ? getOrderScore(peakItem) : 50;
-
-  const prePeakSupport = support
-    .filter((x) => getOrderScore(x) <= peakOrderScore)
+  const support = items
+    .filter((x) => !excludeIds.has(x.experience.id))
     .sort((a, b) => getOrderScore(a) - getOrderScore(b));
 
-  const postPeakSupport = support
-    .filter((x) => getOrderScore(x) > peakOrderScore)
-    .sort((a, b) => getOrderScore(a) - getOrderScore(b));
+  // 목표 peak index: middle-biased
+  // [opener, ...prePeak, peak, ...postPeak, recovery] 순서 기준으로
+  // peak이 차지할 index를 scheduling 기대치에 맞춘다.
+  const targetPeakIndex = getMiddleBiasedPeakIndex(items.length);
+
+  // peak 앞에 배치될 non-support 개수 (opener 유무)
+  const leadCount = openerItem ? 1 : 0;
+
+  // prePeak support 개수 = targetPeakIndex - leadCount
+  // (단 support 배열 크기를 넘을 수 없고 음수가 되지 않도록 clamp)
+  const prePeakSupportCount = Math.max(
+    0,
+    Math.min(support.length, targetPeakIndex - leadCount),
+  );
+
+  const prePeakSupport = support.slice(0, prePeakSupportCount);
+  const postPeakSupport = support.slice(prePeakSupportCount);
 
   const flow: PlannedExperience[] = [];
   if (openerItem) flow.push(openerItem);
@@ -1348,7 +1391,17 @@ function buildSuggestedFlow(
   flow.push(...postPeakSupport);
   if (recoveryItem) flow.push(recoveryItem);
 
-  return flow.map((x) => x.experience.id);
+  // Dedup: 같은 experienceId가 여러 slot에 들어왔을 경우 제거
+  const seenIds = new Set<string>();
+  const dedupedFlow: string[] = [];
+  for (const item of flow) {
+    const id = item.experience.id;
+    if (seenIds.has(id)) continue;
+    seenIds.add(id);
+    dedupedFlow.push(id);
+  }
+
+  return dedupedFlow;
 }
 
 /**
