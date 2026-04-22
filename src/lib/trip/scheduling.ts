@@ -1963,6 +1963,48 @@ function repairTimeline(params: {
     }
   }
 
+  // =========================================================================
+  // NEW: early recovery protection
+  // overflow trimming 전에 recovery를 먼저 살려 본다.
+  // 핵심 의도:
+  // - recovery가 마지막에 soft miss 되는 구조를 줄인다.
+  // - optional trimming보다 recovery reinsertion을 먼저 시도한다.
+  // =========================================================================
+  if (
+    primaryRecovery &&
+    !hasPreservedRecovery(working, primaryRecovery.experience.id)
+  ) {
+    const beforeOverflowMin = getOverflowMin(working, input.dailyEndSlot);
+
+    const reinjectedRecovery = tryReinsertCriticalItem({
+      working,
+      target: primaryRecovery,
+      forcedRole: "recovery",
+      input,
+      plannedMap,
+      primaryPeakId: primaryPeak?.experience.id,
+    });
+
+    const recoveryRestored = hasPreservedRecovery(
+      reinjectedRecovery,
+      primaryRecovery.experience.id,
+    );
+
+    if (recoveryRestored) {
+      working = reinjectedRecovery;
+      notes.push(`earlyRecoveryInsert=${primaryRecovery.experience.id}`);
+
+      repairs.push({
+        step: step++,
+        action: "insert_recovery",
+        targetExperienceId: primaryRecovery.experience.id,
+        beforeOverflowMin,
+        afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
+        reason: "Early recovery protection before optional trimming",
+      });
+    }
+  }
+
   let overflow = getOverflowMin(working, input.dailyEndSlot);
 
   if (overflow > 0) {
@@ -1971,6 +2013,7 @@ function repairTimeline(params: {
         (item) =>
           item.priority === "optional" &&
           !item.isPrimaryPeak &&
+          item.flowRole !== "peak" &&
           item.flowRole !== "recovery" &&
           item.flowRole !== "soft_end",
       )
@@ -2290,7 +2333,6 @@ function repairTimeline(params: {
     timelineDiagnostics,
   };
 }
-
 export function evaluateFeasibility(
   dayPlan: DayPlan,
   items: ScheduledItem[],
