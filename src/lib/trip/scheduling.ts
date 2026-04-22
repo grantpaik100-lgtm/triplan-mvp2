@@ -1085,7 +1085,13 @@ function buildTailReservationMap(params: {
       continue;
     }
 
-    const durationSlots = minutesToSlots(item.experience.minDuration);
+    // BUG FIX: fitSequenceToTimeline()은 chosenDuration (주로 recommendedDuration)
+    // 기준으로 endSlot을 계산한다. 과거엔 여기서 minDuration 을 써서 latest를
+    // 계산했고, 결과적으로 startSlot + recommendedDurationSlots 가 dailyEndSlot 을
+    // 1슬롯(30분) 넘기는 경우가 반복 발생해 recovery 가 조용히 drop 됐다.
+    // 실제 배치에 쓰일 가장 긴 duration 기준으로 latest를 잡아야 startSlot 확정 시
+    // 안전하게 dailyEndSlot 안에 들어온다.
+    const durationSlots = minutesToSlots(item.experience.recommendedDuration);
     const latest = Math.max(input.dailyStartSlot, input.dailyEndSlot - durationSlots);
     const earliest = Math.max(input.dailyStartSlot, latest - 6);
 
