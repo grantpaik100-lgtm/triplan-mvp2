@@ -787,9 +787,11 @@ function getAreasFromMerged(merged: PlannedExperience[]): Area[] {
 function getSkeletonHardCap(skeletonType: DaySkeletonType): number {
   switch (skeletonType) {
     case "short":
+      return 2;
     case "relaxed":
       return 3;
     case "balanced":
+      return 4;
     case "peak_centric":
       return 4;
     case "extended":
@@ -810,6 +812,9 @@ function selectPlanningSkeleton(params: {
   }
 
   if (narrative === "peak") {
+    if (input.companionType === "family") {
+      return "balanced";
+    }
     return "peak_centric";
   }
 
@@ -817,9 +822,16 @@ function selectPlanningSkeleton(params: {
     return "short";
   }
 
+  if (input.companionType === "family") {
+    return "relaxed";
+  }
+
+  if (input.companionType === "couple" && input.dailyDensity <= 3) {
+    return "balanced";
+  }
+
   return "balanced";
 }
-
 function toSelectionRole(
   item: PlannedExperience,
   peakId?: string,
@@ -1025,6 +1037,91 @@ function pickFeasibleRecoveryCandidate(
   };
 }
 
+function getTargetItemCount(params: {
+  skeletonType: DaySkeletonType;
+  hardCap: number;
+  narrative: DayNarrativeRole;
+  companionType: PlanningInput["companionType"];
+  hasRecoveryCandidate: boolean;
+}): number {
+  const { skeletonType, hardCap, narrative, companionType, hasRecoveryCandidate } = params;
+
+  let target =
+    skeletonType === "short"
+      ? 2
+      : skeletonType === "relaxed"
+        ? 3
+        : 4;
+
+  if (companionType === "family") {
+    target = Math.min(target, narrative === "peak" ? 4 : 3);
+  }
+
+  if (companionType === "couple" && narrative !== "peak") {
+    target = Math.min(target, 3);
+  }
+
+  if (!hasRecoveryCandidate) {
+    if (skeletonType === "short") {
+      target = 2;
+    } else if (narrative === "recovery") {
+      target = 2;
+    } else {
+      target = Math.min(target, 3);
+    }
+  }
+
+  return Math.min(target, hardCap);
+}
+
+function rankSupportForContract(params: {
+  pool: PlannedExperience[];
+  peakCandidate?: PlannedExperience;
+  recoveryCandidate?: PlannedExperience;
+  narrative: DayNarrativeRole;
+}): PlannedExperience[] {
+  const { pool, peakCandidate, recoveryCandidate, narrative } = params;
+
+  return [...pool].sort((a, b) => {
+    const getScore = (item: PlannedExperience) => {
+      const sameAreaWithPeak =
+        peakCandidate && item.experience.area === peakCandidate.experience.area ? 1.8 : 0;
+      const sameClusterWithPeak =
+        peakCandidate && item.themeCluster === peakCandidate.themeCluster ? 1.1 : 0;
+
+      const sameAreaWithRecovery =
+        recoveryCandidate && item.experience.area === recoveryCandidate.experience.area ? 0.9 : 0;
+
+      const activationFriendly =
+        !isRestLike(item.experience) && !item.experience.isMeal ? 1.0 : 0;
+
+      const lighterBeforePeak =
+        item.experience.fatigue <= 3 ? 0.7 : 0;
+
+      const narrativeBonus =
+        narrative === "peak" && !item.experience.isMeal && !isRestLike(item.experience)
+          ? 0.4
+          : 0;
+
+      const penalty =
+        item.experience.isMeal || isRestLike(item.experience) ? 0.5 : 0;
+
+      return (
+        item.planningScore +
+        sameAreaWithPeak +
+        sameClusterWithPeak +
+        sameAreaWithRecovery +
+        activationFriendly +
+        lighterBeforePeak +
+        narrativeBonus -
+        penalty
+      );
+    };
+
+    return getScore(b) - getScore(a);
+  });
+}
+
 function compactDaySelection(params: {
   merged: PlannedExperience[];
   optionalPool: PlannedExperience[];
@@ -1033,8 +1130,9 @@ function compactDaySelection(params: {
   skeletonType: DaySkeletonType;
   maxPerDay: number;
   narrative: DayNarrativeRole;
+  companionType: PlanningInput["companionType"];
 }): PlanningCompactSelectionResult {
-    const {
+  const {
     merged,
     optionalPool,
     primaryAreaPool,
@@ -1042,7 +1140,9 @@ function compactDaySelection(params: {
     skeletonType,
     maxPerDay,
     narrative,
+    companionType,
   } = params;
+
   const hardCap = Math.min(getSkeletonHardCap(skeletonType), maxPerDay);
 
   const peakCandidate = [...merged]
@@ -1064,93 +1164,72 @@ function compactDaySelection(params: {
   ]);
 
   const reserveLateFallbackPool = [...primaryAreaPool, ...spilloverPool]
-  .filter((item) => !selectedBaseIds.has(item.experience.id))
-  .map((item) =>
-    toPlannedExperience(
-      item,
-      "optional",
-      "optional",
-      item.experience.isMeal
-        ? "meal"
-        : isRestLike(item.experience)
-          ? "rest"
-          : "optional",
-      ["feasibility_safe", "diversity_fill"],
-    ),
-  );
+    .filter((item) => !selectedBaseIds.has(item.experience.id))
+    .map((item) =>
+      toPlannedExperience(
+        item,
+        "optional",
+        "optional",
+        item.experience.isMeal
+          ? "meal"
+          : isRestLike(item.experience)
+            ? "rest"
+            : "optional",
+        ["feasibility_safe", "diversity_fill"],
+      ),
+    );
 
   const lateFallbackIds = [...optionalPool, ...reserveLateFallbackPool]
-  .filter((item) => item.experience.id !== peakCandidate?.experience.id)
-  .filter((item) => item.experience.id !== recoveryCandidate?.experience.id)
-  .filter((item) => canServeAsLateFallback(item.experience))
-  .sort((a, b) => {
-const aSameArea =
-  (recoveryCandidate && a.experience.area === recoveryCandidate.experience.area ? 3 : 0) + // 🔥 2 → 3
-  (peakCandidate && a.experience.area === peakCandidate.experience.area ? 1.5 : 0);       // 🔥 1 → 1.5
+    .filter((item) => item.experience.id !== peakCandidate?.experience.id)
+    .filter((item) => item.experience.id !== recoveryCandidate?.experience.id)
+    .filter((item) => canServeAsLateFallback(item.experience))
+    .sort((a, b) => {
+      const score = (item: PlannedExperience) => {
+        const sameRecoveryArea =
+          recoveryCandidate && item.experience.area === recoveryCandidate.experience.area ? 3 : 0;
+        const samePeakArea =
+          peakCandidate && item.experience.area === peakCandidate.experience.area ? 1.5 : 0;
+        const sameRecoveryCluster =
+          recoveryCandidate && item.themeCluster === recoveryCandidate.themeCluster ? 2 : 0;
+        const samePeakCluster =
+          peakCandidate && item.themeCluster === peakCandidate.themeCluster ? 1 : 0;
+        const mealOrRest =
+          (item.experience.isMeal ? 1.2 : 0) +
+          (isRestLike(item.experience) ? 1.0 : 0) +
+          (item.experience.timeFlexibility === "high"
+            ? 0.6
+            : item.experience.timeFlexibility === "medium"
+              ? 0.3
+              : 0);
 
-    const bSameArea =
-      (recoveryCandidate && b.experience.area === recoveryCandidate.experience.area ? 2 : 0) +
-      (peakCandidate && b.experience.area === peakCandidate.experience.area ? 1 : 0);
+        const narrativeBonus =
+          (narrative === "peak" && item.experience.isMeal ? 0.8 : 0) +
+          (narrative === "recovery" && isRestLike(item.experience) ? 0.8 : 0);
 
-    const aSameCluster =
-      (recoveryCandidate && a.themeCluster === recoveryCandidate.themeCluster ? 2 : 0) +
-      (peakCandidate && a.themeCluster === peakCandidate.themeCluster ? 1 : 0);
+        return (
+          item.planningScore +
+          sameRecoveryArea +
+          samePeakArea +
+          sameRecoveryCluster +
+          samePeakCluster +
+          mealOrRest +
+          narrativeBonus
+        );
+      };
 
-    const bSameCluster =
-      (recoveryCandidate && b.themeCluster === recoveryCandidate.themeCluster ? 2 : 0) +
-      (peakCandidate && b.themeCluster === peakCandidate.themeCluster ? 1 : 0);
+      return score(b) - score(a);
+    })
+    .map((item) => item.experience.id)
+    .filter((id, index, arr) => arr.indexOf(id) === index)
+    .slice(0, narrative === "peak" ? 6 : 4);
 
-    const aMealOrRest =
-      (a.experience.isMeal ? 1.2 : 0) +
-      (isRestLike(a.experience) ? 1.0 : 0) +
-      (a.experience.timeFlexibility === "high" ? 0.6 : a.experience.timeFlexibility === "medium" ? 0.3 : 0);
-
-    const bMealOrRest =
-      (b.experience.isMeal ? 1.2 : 0) +
-      (isRestLike(b.experience) ? 1.0 : 0) +
-      (b.experience.timeFlexibility === "high" ? 0.6 : b.experience.timeFlexibility === "medium" ? 0.3 : 0);
-
-    const aNarrativeBonus =
-      (narrative === "peak" && a.experience.isMeal ? 0.8 : 0) +
-      (narrative === "recovery" && isRestLike(a.experience) ? 0.8 : 0) +
-      (skeletonType === "short" && peakCandidate && a.experience.area === peakCandidate.experience.area ? 1.2 : 0);
-
-    const bNarrativeBonus =
-      (narrative === "peak" && b.experience.isMeal ? 0.8 : 0) +
-      (narrative === "recovery" && isRestLike(b.experience) ? 0.8 : 0) +
-      (skeletonType === "short" && peakCandidate && b.experience.area === peakCandidate.experience.area ? 1.2 : 0);
-
-    const aScore = aSameArea + aSameCluster + aMealOrRest + aNarrativeBonus + a.planningScore;
-    const bScore = bSameArea + bSameCluster + bMealOrRest + bNarrativeBonus + b.planningScore;
-
-    return bScore - aScore;
-  })
-  .map((item) => item.experience.id)
-  .filter((id, index, arr) => arr.indexOf(id) === index)
-  .slice(
-  0,
-  skeletonType === "short"
-    ? 6   // 🔥 short에서 하나 더 확보
-    : narrative === "peak"
-      ? 6 // 🔥 peak day도 하나 더
-      : narrative === "recovery"
-        ? 3
-        : 4,
-);
-  let targetItemCount =
-    skeletonType === "relaxed" || skeletonType === "short" ? 3 : 4;
-
-  if (!recoveryCandidate) {
-    if (skeletonType === "short") {
-      targetItemCount = 2;
-    } else if (narrative === "recovery") {
-      targetItemCount = 2;
-    } else {
-      targetItemCount = Math.min(targetItemCount, 3);
-    }
-  }
-
-  targetItemCount = Math.min(targetItemCount, hardCap);
+  const targetItemCount = getTargetItemCount({
+    skeletonType,
+    hardCap,
+    narrative,
+    companionType,
+    hasRecoveryCandidate: Boolean(recoveryCandidate),
+  });
 
   const selected: PlannedExperience[] = [];
   const usedIds = new Set<string>();
@@ -1163,59 +1242,60 @@ const aSameArea =
     selected.push(item);
   };
 
-  if (narrative !== "recovery") {
-    const openerCandidate = [...merged, ...optionalPool]
-      .filter((item) => !usedIds.has(item.experience.id))
-      .find((item) => isOpenerCandidate(item.experience));
+  const openerCandidate =
+    narrative === "recovery"
+      ? undefined
+      : [...merged]
+          .filter((item) => item.experience.id !== peakCandidate?.experience.id)
+          .filter((item) => item.experience.id !== recoveryCandidate?.experience.id)
+          .find((item) => isOpenerCandidate(item.experience));
 
+  const supportPool = rankSupportForContract({
+    pool: [...merged].filter(
+      (item) =>
+        item.experience.id !== peakCandidate?.experience.id &&
+        item.experience.id !== recoveryCandidate?.experience.id &&
+        item.experience.id !== openerCandidate?.experience.id,
+    ),
+    peakCandidate,
+    recoveryCandidate,
+    narrative,
+  });
+
+  const minSupportSlots =
+    targetItemCount -
+    (openerCandidate ? 1 : 0) -
+    (peakCandidate ? 1 : 0) -
+    (recoveryCandidate ? 1 : 0);
+
+  if (openerCandidate) {
     pushItem(openerCandidate);
   }
 
-  pushItem(peakCandidate);
-  pushItem(recoveryCandidate);
-
-  const supportPool = [...merged]
-    .filter((item) => !usedIds.has(item.experience.id))
-    .sort((a, b) => {
-      const aNearPeak =
-        peakCandidate &&
-        (a.experience.area === peakCandidate.experience.area ||
-          a.themeCluster === peakCandidate.themeCluster)
-          ? 1
-          : 0;
-
-      const bNearPeak =
-        peakCandidate &&
-        (b.experience.area === peakCandidate.experience.area ||
-          b.themeCluster === peakCandidate.themeCluster)
-          ? 1
-          : 0;
-
-      const aPriorityRank = a.priority === "anchor" ? 2 : a.priority === "core" ? 1 : 0;
-      const bPriorityRank = b.priority === "anchor" ? 2 : b.priority === "core" ? 1 : 0;
-
-      return (
-        bNearPeak * 3 +
-        bPriorityRank +
-        b.planningScore -
-        (aNearPeak * 3 + aPriorityRank + a.planningScore)
-      );
-    });
-
-  for (const item of supportPool) {
+  for (const item of supportPool.slice(0, Math.max(0, minSupportSlots))) {
     pushItem(item);
   }
 
-  if (selected.length < targetItemCount && recoveryCandidate) {
-    for (const item of optionalPool) {
-      pushItem(item);
+  pushItem(peakCandidate);
+
+  const additionalSupportPool = supportPool.filter(
+    (item) => !usedIds.has(item.experience.id),
+  );
+
+  for (const item of additionalSupportPool) {
+    if (selected.length >= Math.max(0, targetItemCount - (recoveryCandidate ? 1 : 0))) {
+      break;
     }
+    pushItem(item);
   }
+
+  pushItem(recoveryCandidate);
 
   const trimmed = selected.slice(0, targetItemCount);
 
-  const lateFallbackReserve = [...optionalPool, ...reserveLateFallbackPool]
-  .filter((item) => lateFallbackIds.includes(item.experience.id));
+  const lateFallbackReserve = [...optionalPool, ...reserveLateFallbackPool].filter((item) =>
+    lateFallbackIds.includes(item.experience.id),
+  );
 
   return {
     items: trimmed,
@@ -1231,7 +1311,6 @@ const aSameArea =
     spareCapacity: Math.max(0, hardCap - trimmed.length),
   };
 }
-
 export function planDays(
   user: UserVector,
   input: PlanningInput,
@@ -1388,48 +1467,50 @@ function buildSuggestedFlow(
 
   const support = items
     .filter((x) => !excludeIds.has(x.experience.id))
-    .sort((a, b) => getOrderScore(a) - getOrderScore(b));
+    .sort((a, b) => {
+      const aScore =
+        getOrderScore(a) +
+        (peakItem && a.experience.area === peakItem.experience.area ? 10 : 0) +
+        (peakItem && a.themeCluster === peakItem.themeCluster ? 6 : 0) -
+        (a.experience.isMeal || isRestLike(a.experience) ? 8 : 0);
 
-  // support를 core/anchor 계열과 optional 계열로 분리한다.
-  // 핵심 의도:
-  // - recovery를 optional보다 먼저 배치해서
-  //   scheduling overflow 시 optional이 먼저 희생되게 만든다.
-  const committedSupport = support.filter((x) => x.priority !== "optional");
-  const optionalSupport = support.filter((x) => x.priority === "optional");
+      const bScore =
+        getOrderScore(b) +
+        (peakItem && b.experience.area === peakItem.experience.area ? 10 : 0) +
+        (peakItem && b.themeCluster === peakItem.themeCluster ? 6 : 0) -
+        (b.experience.isMeal || isRestLike(b.experience) ? 8 : 0);
 
-  // peak의 중간 배치는 committedSupport만 기준으로 계산한다.
-  // optional은 tail로 보내므로 peak 위치 계산에 섞으면 오히려 peak가 뒤로 밀린다.
-  const structuralCount =
-    (openerItem ? 1 : 0) +
-    committedSupport.length +
-    (peakItem ? 1 : 0) +
-    (recoveryItem ? 1 : 0);
-
-  const targetPeakIndex = getMiddleBiasedPeakIndex(structuralCount);
-
-  const leadCount = openerItem ? 1 : 0;
-
-  const prePeakSupportCount = Math.max(
-    0,
-    Math.min(committedSupport.length, targetPeakIndex - leadCount),
-  );
-
-  const prePeakSupport = committedSupport.slice(0, prePeakSupportCount);
-  const postPeakSupport = committedSupport.slice(prePeakSupportCount);
+      return aScore - bScore;
+    });
 
   const flow: PlannedExperience[] = [];
 
-  if (openerItem) flow.push(openerItem);
-  flow.push(...prePeakSupport);
-  if (peakItem) flow.push(peakItem);
-  flow.push(...postPeakSupport);
+  if (openerItem) {
+    flow.push(openerItem);
+  }
 
-  // 🔥 핵심 변경:
-  // recovery를 optional보다 먼저 둔다.
-  if (recoveryItem) flow.push(recoveryItem);
+  if (support.length === 0) {
+    if (peakItem) flow.push(peakItem);
+    if (recoveryItem) flow.push(recoveryItem);
+  } else {
+    const peakInsertIndex = getMiddleBiasedPeakIndex(
+      support.length + (openerItem ? 1 : 0) + (peakItem ? 1 : 0),
+    );
 
-  // optional support는 제일 뒤로 보낸다.
-  flow.push(...optionalSupport);
+    const currentLeadCount = openerItem ? 1 : 0;
+    const prePeakSupportCount = Math.max(
+      0,
+      Math.min(support.length, peakInsertIndex - currentLeadCount),
+    );
+
+    const prePeakSupport = support.slice(0, prePeakSupportCount);
+    const postPeakSupport = support.slice(prePeakSupportCount);
+
+    flow.push(...prePeakSupport);
+    if (peakItem) flow.push(peakItem);
+    flow.push(...postPeakSupport);
+    if (recoveryItem) flow.push(recoveryItem);
+  }
 
   const seenIds = new Set<string>();
   const dedupedFlow: string[] = [];
@@ -1439,6 +1520,11 @@ function buildSuggestedFlow(
     if (seenIds.has(id)) continue;
     seenIds.add(id);
     dedupedFlow.push(id);
+  }
+
+  if (recoveryId && dedupedFlow.includes(recoveryId)) {
+    const withoutRecovery = dedupedFlow.filter((id) => id !== recoveryId);
+    return [...withoutRecovery, recoveryId];
   }
 
   return dedupedFlow;
@@ -1612,6 +1698,7 @@ export function planDaysWithDiagnostics(
       skeletonType,
       maxPerDay: densityMaxPerDay,
       narrative: dayNarrative,
+      companionType: input.companionType,
     });
 
     for (const item of compact.items) {
