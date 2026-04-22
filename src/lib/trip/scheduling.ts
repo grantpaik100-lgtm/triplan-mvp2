@@ -1828,18 +1828,18 @@ function tryRestoreRecoveryBySacrificingSupport(params: {
     .filter((item) => item.flowRole !== "recovery" && item.flowRole !== "soft_end")
     .sort((a, b) => {
       const aDropScore =
-  (a.priority === "optional" ? 3 : 0) +
-  (a.flowRole === "opener" ? 2 : 0) +
-  (a.flowRole === "activation" ? 1.5 : 0) +
-  (a.flowRole === "support" ? 1.2 : 0) -
-  (a.isPrimaryPeak ? 100 : 0);
+        (a.priority === "optional" ? 3 : 0) +
+        (a.flowRole === "opener" ? 2 : 0) +
+        (a.flowRole === "activation" ? 1.5 : 0) +
+        (a.flowRole === "support" ? 1.2 : 0) -
+        (a.isPrimaryPeak ? 100 : 0);
 
-const bDropScore =
-  (b.priority === "optional" ? 3 : 0) +
-  (b.flowRole === "opener" ? 2 : 0) +
-  (b.flowRole === "activation" ? 1.5 : 0) +
-  (b.flowRole === "support" ? 1.2 : 0) -
-  (b.isPrimaryPeak ? 100 : 0);
+      const bDropScore =
+        (b.priority === "optional" ? 3 : 0) +
+        (b.flowRole === "opener" ? 2 : 0) +
+        (b.flowRole === "activation" ? 1.5 : 0) +
+        (b.flowRole === "support" ? 1.2 : 0) -
+        (b.isPrimaryPeak ? 100 : 0);
 
       return bDropScore - aDropScore;
     });
@@ -1866,9 +1866,42 @@ const bDropScore =
     }
   }
 
+  // fallback: smart ranking으로도 recovery 복구가 안 되면
+  // 3개 이상 시퀀스에서는 non-peak item 하나를 강제로 희생해서 다시 시도한다.
+  if (working.length >= 3) {
+    const fallbackTarget = working.find(
+      (item) =>
+        item.experienceId !== primaryPeak?.experience.id &&
+        item.experienceId !== primaryRecovery.experience.id &&
+        item.flowRole !== "recovery" &&
+        item.flowRole !== "soft_end",
+    );
+
+    if (fallbackTarget) {
+      const reduced = working.filter(
+        (item) => item.experienceId !== fallbackTarget.experienceId,
+      );
+
+      const restored = tryReinsertCriticalItem({
+        working: reduced,
+        target: primaryRecovery,
+        forcedRole: "recovery",
+        input,
+        plannedMap,
+        primaryPeakId: primaryPeak?.experience.id,
+      });
+
+      if (hasPreservedRecovery(restored, primaryRecovery.experience.id)) {
+        return {
+          items: restored,
+          droppedId: fallbackTarget.experienceId,
+        };
+      }
+    }
+  }
+
   return { items: working };
 }
-
 
 function repairTimeline(params: {
   fitted: TimelineFitResult;
