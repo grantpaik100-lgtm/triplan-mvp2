@@ -1175,6 +1175,9 @@ const durationSlots = minutesToSlots(chosenDuration);
     if (earliestSlot > latestStartSlot) {
       if (planned.priority === "optional") {
         droppedOptionalIds.push(planned.experience.id);
+        notes.push(
+          `dropInFit=${planned.experience.id}:optional:earliest_gt_latest:earliest=${earliestSlot},latest=${latestStartSlot},role=${role}`,
+        );
         continue;
       }
 
@@ -1183,6 +1186,9 @@ const durationSlots = minutesToSlots(chosenDuration);
         notes.push(`invalidPlacement=${planned.experience.id}:peak_conflict`);
       }
 
+      notes.push(
+        `dropInFit=${planned.experience.id}:${planned.priority}:earliest_gt_latest:earliest=${earliestSlot},latest=${latestStartSlot},role=${role}`,
+      );
       continue;
     }
 
@@ -1193,7 +1199,12 @@ const durationSlots = minutesToSlots(chosenDuration);
 
     const endSlot = startSlot + durationSlots;
 
-    if (endSlot > input.dailyEndSlot) continue;
+    if (endSlot > input.dailyEndSlot) {
+      notes.push(
+        `dropInFit=${planned.experience.id}:${planned.priority}:end_exceeds_day:endSlot=${endSlot},dailyEnd=${input.dailyEndSlot},role=${role}`,
+      );
+      continue;
+    }
 
     items.push({
       experienceId: planned.experience.id,
@@ -2460,6 +2471,10 @@ const finalStatus =
     notes: [...sequence.notes, ...sequenceEvalAfterRepair.notes],
   });
 
+  const scheduledItemIds = new Set(repaired.items.map((x) => x.experienceId));
+  const plannedItemIds = flattened.map((x) => x.experience.id);
+  const notScheduledIds = plannedItemIds.filter((id) => !scheduledItemIds.has(id));
+
   return {
     schedule: {
       day: dayPlan.day,
@@ -2492,6 +2507,16 @@ const finalStatus =
         `scheduledItems=${repaired.items.length}`,
         `issues=${report.issues.join(",") || "none"}`,
         `effectiveFeasible=${effectivelyFeasible ? "yes" : "no"}`,
+        // Drop/compression/substitution observability (실제 탈락 id 확인용)
+        `plannedIds=${plannedItemIds.join(",") || "none"}`,
+        `scheduledIds=${Array.from(scheduledItemIds).join(",") || "none"}`,
+        `notScheduledIds=${notScheduledIds.join(",") || "none"}`,
+        `droppedOptionalIds=${repaired.timelineDiagnostics.droppedOptionalIds.join(",") || "none"}`,
+        `compressedIds=${repaired.timelineDiagnostics.compressedExperienceIds.join(",") || "none"}`,
+        `substitutedIds=${repaired.timelineDiagnostics.substitutedExperienceIds.join(",") || "none"}`,
+        `preservedPeak=${repaired.timelineDiagnostics.preservedPeak}`,
+        `preservedRecovery=${repaired.timelineDiagnostics.preservedRecovery}`,
+        `invalidPlacement=${repaired.timelineDiagnostics.invalidPlacement}`,
         ...sequence.notes,
         ...sequenceEvalBeforeRepair.notes.map((note) => `before:${note}`),
         ...sequenceEvalAfterRepair.notes.map((note) => `after:${note}`),
