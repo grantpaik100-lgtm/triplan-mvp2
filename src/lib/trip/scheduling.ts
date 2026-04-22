@@ -2053,13 +2053,6 @@ function repairTimeline(params: {
     }
   }
 
-  // =========================================================================
-  // NEW: early recovery protection
-  // overflow trimming 전에 recovery를 먼저 살려 본다.
-  // 핵심 의도:
-  // - recovery가 마지막에 soft miss 되는 구조를 줄인다.
-  // - optional trimming보다 recovery reinsertion을 먼저 시도한다.
-  // =========================================================================
   if (
     primaryRecovery &&
     !hasPreservedRecovery(working, primaryRecovery.experience.id)
@@ -2164,59 +2157,24 @@ function repairTimeline(params: {
   const substitutedExperienceIds: string[] = [];
 
   if (primaryRecovery && !hasPreservedRecovery(working, primaryRecovery.experience.id)) {
-  const beforeOverflowMin = getOverflowMin(working, input.dailyEndSlot);
-  const trimmed = [...working].filter(
-    (item) => !(item.priority === "optional" && item.flowRole !== "peak"),
-  );
+    const beforeOverflowMin = getOverflowMin(working, input.dailyEndSlot);
 
-  const reinjectedRecovery = tryReinsertCriticalItem({
-    working: trimmed,
-    target: primaryRecovery,
-    forcedRole: "recovery",
-    input,
-    plannedMap,
-    primaryPeakId: primaryPeak?.experience.id,
-  });
-
-  const recoveryRestored = hasPreservedRecovery(
-    reinjectedRecovery,
-    primaryRecovery.experience.id,
-  );
-
-  if (recoveryRestored) {
-    working = reinjectedRecovery;
-
-    repairs.push({
-      step: step++,
-      action: "insert_recovery",
-      targetExperienceId: primaryRecovery.experience.id,
-      beforeOverflowMin,
-      afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
-      reason: "Reinsert missing recovery after trimming non-critical support",
-    });
-  } else {
-    const sacrificed = tryRestoreRecoveryBySacrificingSupport({
-      working: trimmed,
+    const reinjectedRecovery = tryReinsertCriticalItem({
+      working,
+      target: primaryRecovery,
+      forcedRole: "recovery",
       input,
       plannedMap,
-      primaryPeak,
-      primaryRecovery,
+      primaryPeakId: primaryPeak?.experience.id,
     });
 
-    const sacrificedRecoveryRestored = hasPreservedRecovery(
-      sacrificed.items,
+    const recoveryRestored = hasPreservedRecovery(
+      reinjectedRecovery,
       primaryRecovery.experience.id,
     );
 
-    if (sacrificedRecoveryRestored) {
-      working = sacrificed.items;
-
-      if (sacrificed.droppedId) {
-        droppedOptionalIds.push(sacrificed.droppedId);
-        notes.push(
-          `criticalRecoverySacrifice=${sacrificed.droppedId}:for_${primaryRecovery.experience.id}`,
-        );
-      }
+    if (recoveryRestored) {
+      working = reinjectedRecovery;
 
       repairs.push({
         step: step++,
@@ -2224,150 +2182,182 @@ function repairTimeline(params: {
         targetExperienceId: primaryRecovery.experience.id,
         beforeOverflowMin,
         afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
-        reason: "Sacrifice non-peak support to preserve original recovery",
+        reason: "Reinsert missing recovery after trimming non-critical support",
       });
     } else {
-      const rebuiltTail = primaryPeak
-        ? rebuildTailAfterPeak({
-            working: trimmed,
-            input,
-            plannedMap,
-            primaryPeak,
-            primaryRecovery,
-            lateFallbackIds,
-          })
-        : { items: trimmed, insertedIds: [] as string[] };
+      const sacrificed = tryRestoreRecoveryBySacrificingSupport({
+        working,
+        input,
+        plannedMap,
+        primaryPeak,
+        primaryRecovery,
+      });
 
-      if (rebuiltTail.insertedIds.length > 0) {
-        working = rebuiltTail.items;
-        substitutedExperienceIds.push(...rebuiltTail.insertedIds);
+      const sacrificedRecoveryRestored = hasPreservedRecovery(
+        sacrificed.items,
+        primaryRecovery.experience.id,
+      );
 
-        for (const insertedId of rebuiltTail.insertedIds) {
-          notes.push(`tailRebuildInsert=${insertedId}:after_missing_recovery`);
+      if (sacrificedRecoveryRestored) {
+        working = sacrificed.items;
+
+        if (sacrificed.droppedId) {
+          droppedOptionalIds.push(sacrificed.droppedId);
+          notes.push(
+            `criticalRecoverySacrifice=${sacrificed.droppedId}:for_${primaryRecovery.experience.id}`,
+          );
         }
 
         repairs.push({
           step: step++,
           action: "insert_recovery",
-          targetExperienceId: rebuiltTail.insertedIds[0],
+          targetExperienceId: primaryRecovery.experience.id,
           beforeOverflowMin,
           afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
-          reason: "Tail rebuild inserted late support after recovery soft miss",
+          reason: "Sacrifice non-peak support to preserve original recovery",
         });
       } else {
-        const fallbackInserted = tryInsertLateFallbackSupport({
-          working: trimmed,
-          input,
-          plannedMap,
-          primaryPeak,
-          primaryRecovery,
-          lateFallbackIds,
-        });
+        const rebuiltTail = primaryPeak
+          ? rebuildTailAfterPeak({
+              working,
+              input,
+              plannedMap,
+              primaryPeak,
+              primaryRecovery,
+              lateFallbackIds,
+            })
+          : { items: working, insertedIds: [] as string[] };
 
-        working = fallbackInserted.items;
+        if (rebuiltTail.insertedIds.length > 0) {
+          working = rebuiltTail.items;
+          substitutedExperienceIds.push(...rebuiltTail.insertedIds);
 
-        if (fallbackInserted.insertedId) {
-          substitutedExperienceIds.push(fallbackInserted.insertedId);
-          notes.push(
-            `lateFallbackInsert=${fallbackInserted.insertedId}:after_missing_recovery`,
-          );
+          for (const insertedId of rebuiltTail.insertedIds) {
+            notes.push(`tailRebuildInsert=${insertedId}:after_missing_recovery`);
+          }
 
           repairs.push({
             step: step++,
             action: "insert_recovery",
-            targetExperienceId: fallbackInserted.insertedId,
+            targetExperienceId: rebuiltTail.insertedIds[0],
             beforeOverflowMin,
             afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
-            reason: "Fallback late support inserted after recovery soft miss",
+            reason: "Tail rebuild inserted late support after recovery soft miss",
           });
         } else {
-          if (
-            primaryPeak &&
-            working.length === 2 &&
-            input.dailyDensity >= 3
-          ) {
-            const emergencyTail = Array.from(plannedMap.values())
-              .filter((item) => !working.some((w) => w.experienceId === item.experience.id))
-              .filter((item) => item.experience.id !== primaryPeak.experience.id)
-              .filter((item) => {
-                const allowed = safeAllowedTimes(item.experience);
-                return (
-                  item.experience.recommendedDuration <= 90 &&
-                  item.experience.fatigue <= 4 &&
-                  (item.experience.isMeal ||
-                    isRecoveryCandidate(item) ||
-                    item.experience.timeFlexibility !== "low") &&
-                  (allowed.length === 0 ||
-                    allowed.includes("afternoon") ||
-                    allowed.includes("sunset") ||
-                    allowed.includes("dinner") ||
-                    allowed.includes("night"))
-                );
-              })
-              .sort((a, b) => {
-                const aScore =
-                  (a.experience.area === primaryPeak.experience.area ? 2 : 0) +
-                  (a.themeCluster === primaryPeak.themeCluster ? 1.2 : 0) +
-                  (a.experience.isMeal ? 1 : 0) +
-                  (isRecoveryCandidate(a) ? 1 : 0) +
-                  a.planningScore;
+          const fallbackInserted = tryInsertLateFallbackSupport({
+            working,
+            input,
+            plannedMap,
+            primaryPeak,
+            primaryRecovery,
+            lateFallbackIds,
+          });
 
-                const bScore =
-                  (b.experience.area === primaryPeak.experience.area ? 2 : 0) +
-                  (b.themeCluster === primaryPeak.themeCluster ? 1.2 : 0) +
-                  (b.experience.isMeal ? 1 : 0) +
-                  (isRecoveryCandidate(b) ? 1 : 0) +
-                  b.planningScore;
+          working = fallbackInserted.items;
 
-                return bScore - aScore;
-              })[0];
+          if (fallbackInserted.insertedId) {
+            substitutedExperienceIds.push(fallbackInserted.insertedId);
+            notes.push(
+              `lateFallbackInsert=${fallbackInserted.insertedId}:after_missing_recovery`,
+            );
 
-            if (emergencyTail) {
-              const withEmergencyTail = tryReinsertCriticalItem({
-                working,
-                target: emergencyTail,
-                forcedRole: "soft_end",
-                input,
-                plannedMap,
-                primaryPeakId: primaryPeak.experience.id,
-              });
+            repairs.push({
+              step: step++,
+              action: "insert_recovery",
+              targetExperienceId: fallbackInserted.insertedId,
+              beforeOverflowMin,
+              afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
+              reason: "Fallback late support inserted after recovery soft miss",
+            });
+          } else {
+            if (
+              primaryPeak &&
+              working.length === 2 &&
+              input.dailyDensity >= 3
+            ) {
+              const emergencyTail = Array.from(plannedMap.values())
+                .filter((item) => !working.some((w) => w.experienceId === item.experience.id))
+                .filter((item) => item.experience.id !== primaryPeak.experience.id)
+                .filter((item) => {
+                  const allowed = safeAllowedTimes(item.experience);
+                  return (
+                    item.experience.recommendedDuration <= 90 &&
+                    item.experience.fatigue <= 4 &&
+                    (item.experience.isMeal ||
+                      isRecoveryCandidate(item) ||
+                      item.experience.timeFlexibility !== "low") &&
+                    (allowed.length === 0 ||
+                      allowed.includes("afternoon") ||
+                      allowed.includes("sunset") ||
+                      allowed.includes("dinner") ||
+                      allowed.includes("night"))
+                  );
+                })
+                .sort((a, b) => {
+                  const aScore =
+                    (a.experience.area === primaryPeak.experience.area ? 2 : 0) +
+                    (a.themeCluster === primaryPeak.themeCluster ? 1.2 : 0) +
+                    (a.experience.isMeal ? 1 : 0) +
+                    (isRecoveryCandidate(a) ? 1 : 0) +
+                    a.planningScore;
 
-              if (withEmergencyTail.some((x) => x.experienceId === emergencyTail.experience.id)) {
-                working = withEmergencyTail;
-                substitutedExperienceIds.push(emergencyTail.experience.id);
-                notes.push(`emergencyTailInsert=${emergencyTail.experience.id}:after_missing_recovery`);
+                  const bScore =
+                    (b.experience.area === primaryPeak.experience.area ? 2 : 0) +
+                    (b.themeCluster === primaryPeak.themeCluster ? 1.2 : 0) +
+                    (b.experience.isMeal ? 1 : 0) +
+                    (isRecoveryCandidate(b) ? 1 : 0) +
+                    b.planningScore;
 
-                repairs.push({
-                  step: step++,
-                  action: "insert_recovery",
-                  targetExperienceId: emergencyTail.experience.id,
-                  beforeOverflowMin,
-                  afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
-                  reason: "Emergency tail insert after peak-preserving 2-item collapse",
+                  return bScore - aScore;
+                })[0];
+
+              if (emergencyTail) {
+                const withEmergencyTail = tryReinsertCriticalItem({
+                  working,
+                  target: emergencyTail,
+                  forcedRole: "soft_end",
+                  input,
+                  plannedMap,
+                  primaryPeakId: primaryPeak.experience.id,
                 });
+
+                if (withEmergencyTail.some((x) => x.experienceId === emergencyTail.experience.id)) {
+                  working = withEmergencyTail;
+                  substitutedExperienceIds.push(emergencyTail.experience.id);
+                  notes.push(`emergencyTailInsert=${emergencyTail.experience.id}:after_missing_recovery`);
+
+                  repairs.push({
+                    step: step++,
+                    action: "insert_recovery",
+                    targetExperienceId: emergencyTail.experience.id,
+                    beforeOverflowMin,
+                    afterOverflowMin: getOverflowMin(working, input.dailyEndSlot),
+                    reason: "Emergency tail insert after peak-preserving 2-item collapse",
+                  });
+                }
               }
             }
-          }
 
-          if (!working.some((x) => x.flowRole === "soft_end" || x.flowRole === "recovery")) {
-            const lateFallbackMissNote =
-              `lateFallbackMiss=${primaryRecovery.experience.id}:no_viable_support`;
-            const softMissNote =
-              `softMiss=${primaryRecovery.experience.id}:protected_role=${primaryRecovery.functionalRole === "rest" ? "soft_end" : "recovery"}`;
+            if (!working.some((x) => x.flowRole === "soft_end" || x.flowRole === "recovery")) {
+              const lateFallbackMissNote =
+                `lateFallbackMiss=${primaryRecovery.experience.id}:no_viable_support`;
+              const softMissNote =
+                `softMiss=${primaryRecovery.experience.id}:protected_role=${primaryRecovery.functionalRole === "rest" ? "soft_end" : "recovery"}`;
 
-            if (!notes.includes(lateFallbackMissNote)) {
-              notes.push(lateFallbackMissNote);
-            }
+              if (!notes.includes(lateFallbackMissNote)) {
+                notes.push(lateFallbackMissNote);
+              }
 
-            if (!notes.includes(softMissNote)) {
-              notes.push(softMissNote);
+              if (!notes.includes(softMissNote)) {
+                notes.push(softMissNote);
+              }
             }
           }
         }
       }
     }
   }
-}
 
   overflow = getOverflowMin(working, input.dailyEndSlot);
 
