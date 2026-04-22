@@ -1385,38 +1385,55 @@ function buildSuggestedFlow(
   const excludeIds = new Set<string>(
     [peakId, recoveryId, openerId].filter((x): x is string => Boolean(x)),
   );
+
   const support = items
     .filter((x) => !excludeIds.has(x.experience.id))
     .sort((a, b) => getOrderScore(a) - getOrderScore(b));
 
-  // 목표 peak index: middle-biased
-  // [opener, ...prePeak, peak, ...postPeak, recovery] 순서 기준으로
-  // peak이 차지할 index를 scheduling 기대치에 맞춘다.
-  const targetPeakIndex = getMiddleBiasedPeakIndex(items.length);
+  // support를 core/anchor 계열과 optional 계열로 분리한다.
+  // 핵심 의도:
+  // - recovery를 optional보다 먼저 배치해서
+  //   scheduling overflow 시 optional이 먼저 희생되게 만든다.
+  const committedSupport = support.filter((x) => x.priority !== "optional");
+  const optionalSupport = support.filter((x) => x.priority === "optional");
 
-  // peak 앞에 배치될 non-support 개수 (opener 유무)
+  // peak의 중간 배치는 committedSupport만 기준으로 계산한다.
+  // optional은 tail로 보내므로 peak 위치 계산에 섞으면 오히려 peak가 뒤로 밀린다.
+  const structuralCount =
+    (openerItem ? 1 : 0) +
+    committedSupport.length +
+    (peakItem ? 1 : 0) +
+    (recoveryItem ? 1 : 0);
+
+  const targetPeakIndex = getMiddleBiasedPeakIndex(structuralCount);
+
   const leadCount = openerItem ? 1 : 0;
 
-  // prePeak support 개수 = targetPeakIndex - leadCount
-  // (단 support 배열 크기를 넘을 수 없고 음수가 되지 않도록 clamp)
   const prePeakSupportCount = Math.max(
     0,
-    Math.min(support.length, targetPeakIndex - leadCount),
+    Math.min(committedSupport.length, targetPeakIndex - leadCount),
   );
 
-  const prePeakSupport = support.slice(0, prePeakSupportCount);
-  const postPeakSupport = support.slice(prePeakSupportCount);
+  const prePeakSupport = committedSupport.slice(0, prePeakSupportCount);
+  const postPeakSupport = committedSupport.slice(prePeakSupportCount);
 
   const flow: PlannedExperience[] = [];
+
   if (openerItem) flow.push(openerItem);
   flow.push(...prePeakSupport);
   if (peakItem) flow.push(peakItem);
   flow.push(...postPeakSupport);
+
+  // 🔥 핵심 변경:
+  // recovery를 optional보다 먼저 둔다.
   if (recoveryItem) flow.push(recoveryItem);
 
-  // Dedup: 같은 experienceId가 여러 slot에 들어왔을 경우 제거
+  // optional support는 제일 뒤로 보낸다.
+  flow.push(...optionalSupport);
+
   const seenIds = new Set<string>();
   const dedupedFlow: string[] = [];
+
   for (const item of flow) {
     const id = item.experience.id;
     if (seenIds.has(id)) continue;
@@ -1426,7 +1443,6 @@ function buildSuggestedFlow(
 
   return dedupedFlow;
 }
-
 /**
  * planning 시점의 time budget 추정.
  * scheduling의 precise timeline fit 전 pre-check 용도.
