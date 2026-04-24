@@ -490,6 +490,14 @@ export type PlanningInput = {
 export type ScoredExperience = {
   experience: ExperienceMetadata;
   score: number;
+  scoreBreakdown?: {
+    preference: number;
+    companion: number;
+    timeFit: number;
+    areaFit: number;
+    anchorBonus: number;
+    penalty: number;
+  };
   planningTier?: PlanItemTier;
   functionalRole?: FunctionalRole;
   selectionReason?: SelectionReason;
