@@ -37,6 +37,8 @@
  * - User Model의 stable layer로 연결되는 핵심 파일이다.
  * - 삭제 금지.
  */
+import type { CharacterProfile, UserVector } from "@/lib/trip/types";
+
 export type Scores = {
   rest: number;
   schedule: number;
@@ -183,5 +185,46 @@ export function buildPrimaryResultPayload(
     type,
     scores,
     userVector,
+  };
+}
+// ─── CharacterProfile builder ────────────────────────────────────────────────
+
+const PLANNING_POLICY_MAP: Record
+  PrimaryType,
+  CharacterProfile["planningPolicy"]
+> = {
+  rest: {
+    maxDailyDensity: 2,
+    recoveryLevel: "hard",
+    peakStructure: "single",
+    eveningActivation: false,
+  },
+  schedule: {
+    maxDailyDensity: 4,
+    recoveryLevel: "soft",
+    peakStructure: "single",
+    eveningActivation: false,
+  },
+  mood: {
+    maxDailyDensity: 3,
+    recoveryLevel: "soft",
+    peakStructure: "single",
+    eveningActivation: true,
+  },
+  strategy: {
+    maxDailyDensity: 4,
+    recoveryLevel: "implicit",
+    peakStructure: "double_wave",
+    eveningActivation: true,
+  },
+};
+
+export function buildCharacterProfile(
+  payload: PrimaryResultPayload,
+): CharacterProfile {
+  return {
+    primaryType: payload.type,
+    userVector: payload.userVector as unknown as UserVector,
+    planningPolicy: PLANNING_POLICY_MAP[payload.type],
   };
 }
