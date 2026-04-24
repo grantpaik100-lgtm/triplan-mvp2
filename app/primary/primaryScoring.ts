@@ -189,7 +189,7 @@ export function buildPrimaryResultPayload(
 }
 // ─── CharacterProfile builder ────────────────────────────────────────────────
 
-const PLANNING_POLICY_MAP: Record
+const PLANNING_POLICY_MAP: Record<
   PrimaryType,
   CharacterProfile["planningPolicy"]
 > = {
