@@ -21,7 +21,7 @@ export type ExtractedSlots = {
   emotionalContext?: string | null;
 };
 
-export type PlanningInput = {
+export type FollowupContext = {
   source: {
     seedSource: string;
     seedCreatedAt: string;
@@ -68,6 +68,6 @@ export type TurnChatResponse = {
 
 export type FinalizeChatResponse = {
   source: "openai" | "rule_based_fallback";
-  planningInput: PlanningInput;
+  planningInput: FollowupContext;
   error?: string;
 };
