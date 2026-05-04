@@ -626,3 +626,68 @@ export type CharacterProfile = {
     eveningActivation: boolean;
   };
 };
+// ─── Decision Layer ──────────────────────────────────────────────────────────
+//
+// Decision Layer 전용 타입 계약.
+// engine 파이프라인(Scoring → Planning → Scheduling) 구조를 변경하지 않는다.
+// DaySkeletonType / FlowRole의 subset을 사용하지만, Decision Layer 계약으로 별도 정의한다.
+
+/**
+ * Decision Layer가 사용자에게 제시하는 하루 구조 유형.
+ * DaySkeletonType("short" | "extended" 제외)의 UI-facing subset.
+ */
+export type DayStructureType = "balanced" | "peak_centric" | "relaxed";
+
+/**
+ * Decision Layer에서 각 option이 담당하는 역할.
+ * FlowRole의 decision-facing subset.
+ */
+export type DecisionFlowRole = "peak" | "recovery" | "support";
+
+/**
+ * 사용자에게 제시되는 하나의 선택지.
+ * role별 3개 고정.
+ */
+export type DecisionOption = {
+  experienceId: string;
+  placeName: string;
+  role: DecisionFlowRole;
+  planningScore: number;
+  themeCluster?: ThemeCluster;
+};
+
+/**
+ * Decision Layer가 사용자에게 제시하는 day plan 계약.
+ * 기존 DayPlan을 변경하지 않는 독립 wrapper.
+ * options는 role별 정확히 3개 tuple.
+ */
+export type DecisionReadyDayPlan = {
+  dayIndex: number;
+  structureType: DayStructureType;
+  options: {
+    peak: [DecisionOption, DecisionOption, DecisionOption];
+    recovery: [DecisionOption, DecisionOption, DecisionOption];
+    support: [DecisionOption, DecisionOption, DecisionOption];
+  };
+};
+
+/**
+ * 사용자가 role별로 내린 선택 기록.
+ */
+export type UserChoiceLog = {
+  dayIndex: number;
+  role: DecisionFlowRole;
+  chosenExperienceId: string;
+  chosenAt: number; // Unix timestamp (ms)
+};
+
+/**
+ * Decision scoring에 사용하는 가중치.
+ * 합계 = 1.0 권장 (강제하지 않음, MVP 기준).
+ */
+export type DecisionScoreWeights = {
+  planningScore: number;
+  companionFit: number;
+  themeCoherence: number;
+  fatigueBalance: number;
+};
