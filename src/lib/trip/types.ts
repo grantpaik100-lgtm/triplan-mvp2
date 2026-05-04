@@ -355,9 +355,31 @@ export type SchedulingDiagnostics = {
   notes: string[];
 };
 
+export type DecisionActionType =
+  | "trim_overflow_optional"
+  | "rebuild_suggested_flow"
+  | "no_op";
+
+export type DayDecisionLog = {
+  dayIndex: number;
+  actionsTaken: DecisionActionType[];
+  trimmedOptionalIds: string[];
+  suggestedFlowRebuilt: boolean;
+  budgetBeforeMin: number;
+  budgetAfterMin: number;
+  notes: string[];
+};
+
+export type DecisionDiagnostics = {
+  days: DayDecisionLog[];
+  totalTrimsApplied: number;
+  notes: string[];
+};
+
 export type TripDebug = {
   candidateDiagnostics: CandidateDiagnostics;
   planningDiagnostics: PlanningDiagnostics;
+  decisionDiagnostics: DecisionDiagnostics;   // ← 이 줄만 추가
   schedulingDiagnostics: SchedulingDiagnostics;
 };
 
