@@ -691,3 +691,65 @@ export type DecisionScoreWeights = {
   themeCoherence: number;
   fatigueBalance: number;
 };
+// ─── Decision Layer ──────────────────────────────────────────────────────────
+
+export type DecisionDayStructureType =
+  | "balanced"
+  | "peak_centric"
+  | "relaxed";
+
+export type DecisionFlowRole =
+  | "peak"
+  | "recovery"
+  | "support";
+
+export type DecisionOption = {
+  id: string;
+  experienceId: string;
+  role: DecisionFlowRole;
+  title: string;
+  scoreBreakdown: {
+    preferenceMatch: number;
+    behaviorAlignment: number;
+    flowFit: number;
+    constraintRisk: number;
+    finalScore: number;
+  };
+  explanation: {
+    whyRecommended: string;
+    roleReason: string;
+    tradeOff: string;
+    duplicateDifference?: string;
+  };
+  metadata: {
+    experienceType: string;
+    area: Area;
+    expectedFatigue: number;
+    estimatedDuration: number;
+    feasible: boolean;
+  };
+};
+
+export type DecisionReadyDayPlan = {
+  dayIndex: number;
+  structure: DecisionDayStructureType;
+  options: {
+    peak: DecisionOption[];
+    recovery: DecisionOption[];
+    support: DecisionOption[];
+  };
+};
+
+export type DecisionScoreWeights = {
+  preferenceMatch: number;
+  behaviorAlignment: number;
+  flowFit: number;
+  constraintRisk: number;
+};
+
+export type UserChoiceLog = {
+  selectedOptionId: string;
+  rejectedOptionIds: string[];
+  role: DecisionFlowRole;
+  selectionOrder: number;
+};
