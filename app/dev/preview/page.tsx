@@ -120,6 +120,12 @@ function buildPreviewText(results: PreviewScenarioResult[]) {
       lines.push(`DAY ${day.dayIndex}`);
       lines.push(`status=${day.status}`);
       lines.push(`structure=${day.structureType}`);
+      lines.push(`quality=${day.quality}`);
+      lines.push(`qualityScore=${day.qualityScore}`);
+      lines.push(`qualitySummary=${day.qualitySummary}`);
+
+
+      
       lines.push(
         `selectedExperienceIds=${day.selectedExperienceIds.join(",") || "none"}`,
       );
@@ -517,7 +523,9 @@ export default function DevPreviewPage() {
                               Day {day.dayIndex} · {day.structureType}
                             </div>
 
-                            <div style={smallMutedStyle}>{day.status}</div>
+                            <div style={smallMutedStyle}>
+                              {day.status} · {day.quality} · {day.qualityScore}
+                          </div>
                           </div>
 
                           <div style={smallTextStyle}>
@@ -554,7 +562,9 @@ export default function DevPreviewPage() {
                           <div style={smallMutedStyle}>
                             {day.analysis.summary}
                           </div>
-
+                          <div style={smallTextStyle}>
+                            quality: {day.qualitySummary}
+                          </div>
                           {selectedLog && (
                             <div style={smallTextStyle}>
                               peak:{" "}
