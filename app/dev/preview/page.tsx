@@ -2,27 +2,27 @@
 /**
  * TriPlan V4
  * Current Role:
- * - Scheduling Preview 결과를 직접 실행하고 확인하는 dev 전용 preview UI다.
+ * - 모든 dev scenario의 Scheduling Preview 결과를 한 번에 실행하고 비교하는 내부 검증 UI다.
  *
  * Target Role:
- * - Decision 결과의 시간/피로/충돌/trade-off를 사람이 확인할 수 있는 내부 검증 화면.
+ * - Decision 결과의 시간/피로/충돌/trade-off를 scenario별로 빠르게 비교하는 Preview Runner.
  *
  * Chain:
  * - generate | engine | preview
  *
  * Inputs:
- * - dev scenario
+ * - dev scenarios
  *
  * Outputs:
- * - schedulingPreview diagnostics
- * - selectedExperienceIds
- * - conflicts / tradeOffs / alternatives
+ * - scenario별 schedulingPreview diagnostics
+ * - combined preview text
  *
  * Called From:
  * - /dev/preview
  *
  * Side Effects:
- * - fetch / clipboard
+ * - fetch
+ * - clipboard
  *
  * Current Status:
  * - canonical
@@ -44,10 +44,8 @@ import type { TripPlanResult } from "@/lib/trip/types";
 import {
   COLORS,
   DENSITY,
-  FOCUS_RING,
   GLASS,
   MAXWIDTH,
-  MOTION,
   RADIUS,
   SHADOW,
   SPACE,
@@ -56,12 +54,15 @@ import {
 
 type RunnerStatus = "idle" | "running" | "success" | "error";
 
-type PreviewRunState = {
+type PreviewScenarioResult = {
+  name: string;
   status: RunnerStatus;
   durationMs?: number;
   result?: TripPlanResult;
   error?: string;
 };
+
+const density = DENSITY.base;
 
 function buildSecondaryAnswersFromStoredInput(stored: any) {
   const rawAnswers = stored?.raw?.surveyRawAnswers ?? {};
@@ -80,140 +81,172 @@ function buildSecondaryAnswersFromStoredInput(stored: any) {
   };
 }
 
-function getStatusLabel(status?: string) {
-  if (!status) return "unknown";
-  return status;
-}
-
-function getPreviewText(result?: TripPlanResult) {
-  if (!result?.debug?.schedulingPreview) return "No preview result";
-
+function buildPreviewText(results: PreviewScenarioResult[]) {
   const lines: string[] = [];
-  const preview = result.debug.schedulingPreview;
 
-  lines.push("TRIPLAN SCHEDULING PREVIEW");
-  lines.push(`totalDays=${preview.diagnostics.totalDays}`);
-  lines.push(`safeDays=${preview.diagnostics.safeDays}`);
-  lines.push(`tightDays=${preview.diagnostics.tightDays}`);
-  lines.push(`conflictDays=${preview.diagnostics.conflictDays}`);
-  lines.push(`totalConflictCount=${preview.diagnostics.totalConflictCount}`);
+  lines.push("TRIPLAN SCHEDULING PREVIEW COMPARE");
   lines.push("");
 
-  for (const day of preview.days) {
-    lines.push(`DAY ${day.dayIndex}`);
-    lines.push(`status=${day.status}`);
-    lines.push(`structure=${day.structureType}`);
-    lines.push(`selectedExperienceIds=${day.selectedExperienceIds.join(",") || "none"}`);
-    lines.push(`estimatedTotalMinutes=${day.analysis.estimatedTotalMinutes}`);
-    lines.push(`availableMinutes=${day.analysis.availableMinutes}`);
-    lines.push(`bufferMinutes=${day.analysis.bufferMinutes}`);
-    lines.push(`estimatedFatigue=${day.analysis.estimatedFatigue}`);
-    lines.push(`summary=${day.analysis.summary}`);
+  for (const item of results) {
+    lines.push(`SCENARIO: ${item.name}`);
+    lines.push(`status=${item.status}`);
 
-    for (const conflict of day.conflicts) {
+    if (item.durationMs != null) {
+      lines.push(`durationMs=${item.durationMs}`);
+    }
+
+    if (item.error) {
+      lines.push(`error=${item.error}`);
+      lines.push("");
+      continue;
+    }
+
+    const preview = item.result?.debug?.schedulingPreview;
+
+    if (!preview) {
+      lines.push("preview=none");
+      lines.push("");
+      continue;
+    }
+
+    lines.push(`totalDays=${preview.diagnostics.totalDays}`);
+    lines.push(`safeDays=${preview.diagnostics.safeDays}`);
+    lines.push(`tightDays=${preview.diagnostics.tightDays}`);
+    lines.push(`conflictDays=${preview.diagnostics.conflictDays}`);
+    lines.push(`totalConflictCount=${preview.diagnostics.totalConflictCount}`);
+    lines.push("");
+
+    for (const day of preview.days) {
+      lines.push(`DAY ${day.dayIndex}`);
+      lines.push(`status=${day.status}`);
+      lines.push(`structure=${day.structureType}`);
       lines.push(
-        `conflict=${conflict.type} severity=${conflict.severity} message=${conflict.message}`,
+        `selectedExperienceIds=${day.selectedExperienceIds.join(",") || "none"}`,
       );
+      lines.push(`estimatedTotalMinutes=${day.analysis.estimatedTotalMinutes}`);
+      lines.push(`availableMinutes=${day.analysis.availableMinutes}`);
+      lines.push(`bufferMinutes=${day.analysis.bufferMinutes}`);
+      lines.push(`estimatedFatigue=${day.analysis.estimatedFatigue}`);
+      lines.push(`summary=${day.analysis.summary}`);
+
+      for (const conflict of day.conflicts) {
+        lines.push(
+          `conflict=${conflict.type} severity=${conflict.severity} message=${conflict.message}`,
+        );
+      }
+
+      for (const tradeOff of day.tradeOffs) {
+        lines.push(`tradeOff=${tradeOff}`);
+      }
+
+      for (const alternative of day.alternatives) {
+        lines.push(`alternative=${alternative.title}`);
+      }
+
+      lines.push("");
     }
 
-    for (const tradeOff of day.tradeOffs) {
-      lines.push(`tradeOff=${tradeOff}`);
-    }
-
-    for (const alternative of day.alternatives) {
-      lines.push(`alternative=${alternative.title}`);
-    }
-
+    lines.push("--------------------------------------------------");
     lines.push("");
   }
 
   return lines.join("\n");
 }
 
-const density = DENSITY.base;
+async function runScenarioPreview(name: string): Promise<PreviewScenarioResult> {
+  const scenario = loadScenario(name);
+
+  const primaryResult = {
+    ...scenario.primaryResult,
+    completedAt: new Date().toISOString(),
+    source: "dev_preview",
+    scenarioName: scenario.name,
+  };
+
+  const planningInput = {
+    ...scenario.planningInput,
+    source: "dev_preview",
+    scenarioName: scenario.name,
+  };
+
+  const secondaryAnswers = buildSecondaryAnswersFromStoredInput(planningInput);
+  const startedAt = performance.now();
+
+  try {
+    const response = await fetch("/api/generate-trip", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        primaryResult,
+        planningInput,
+        secondaryAnswers,
+      }),
+    });
+
+    const data = await response.json();
+    const durationMs = Math.round(performance.now() - startedAt);
+
+    if (!response.ok || !data.ok) {
+      return {
+        name,
+        status: "error",
+        durationMs,
+        error: data.detail ?? data.error ?? "Failed to generate trip",
+      };
+    }
+
+    return {
+      name,
+      status: "success",
+      durationMs,
+      result: data.result as TripPlanResult,
+    };
+  } catch (error) {
+    return {
+      name,
+      status: "error",
+      durationMs: Math.round(performance.now() - startedAt),
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
 
 export default function DevPreviewPage() {
-  const scenarioNames = getScenarioNames();
-  const [selectedScenario, setSelectedScenario] = useState(
-    scenarioNames[0] ?? "",
-  );
-  const [runState, setRunState] = useState<PreviewRunState>({
-    status: "idle",
-  });
+  const names = getScenarioNames();
+
+  const [results, setResults] = useState<PreviewScenarioResult[]>([]);
+  const [running, setRunning] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
     "idle",
   );
 
-  const preview = runState.result?.debug?.schedulingPreview;
-  const selectedLogs = runState.result?.debug?.selectedOptions ?? [];
+  const previewText = useMemo(() => buildPreviewText(results), [results]);
 
-  const previewText = useMemo(
-    () => getPreviewText(runState.result),
-    [runState.result],
-  );
-
-  async function runPreview() {
-    setRunState({ status: "running" });
+  async function runAllPreview() {
+    setRunning(true);
     setCopyState("idle");
 
-    const scenario = loadScenario(selectedScenario);
+    const initial = names.map((name) => ({
+      name,
+      status: "running" as RunnerStatus,
+    }));
 
-    const primaryResult = {
-      ...scenario.primaryResult,
-      completedAt: new Date().toISOString(),
-      source: "dev_preview",
-      scenarioName: scenario.name,
-    };
+    setResults(initial);
 
-    const planningInput = {
-      ...scenario.planningInput,
-      source: "dev_preview",
-      scenarioName: scenario.name,
-    };
+    const nextResults: PreviewScenarioResult[] = [];
 
-    const secondaryAnswers = buildSecondaryAnswersFromStoredInput(planningInput);
-    const startedAt = performance.now();
-
-    try {
-      const response = await fetch("/api/generate-trip", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          primaryResult,
-          planningInput,
-          secondaryAnswers,
-        }),
-      });
-
-      const data = await response.json();
-      const durationMs = Math.round(performance.now() - startedAt);
-
-      if (!response.ok || !data.ok) {
-        setRunState({
-          status: "error",
-          durationMs,
-          error: data.detail ?? data.error ?? "Failed to generate trip",
-        });
-        return;
-      }
-
-      setRunState({
-        status: "success",
-        durationMs,
-        result: data.result as TripPlanResult,
-      });
-    } catch (error) {
-      setRunState({
-        status: "error",
-        durationMs: Math.round(performance.now() - startedAt),
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+    for (const name of names) {
+      const result = await runScenarioPreview(name);
+      nextResults.push(result);
+      setResults([...nextResults]);
     }
+
+    setRunning(false);
   }
 
-  async function copyPreviewText() {
+  async function copyAllPreview() {
     try {
       await navigator.clipboard.writeText(previewText);
       setCopyState("copied");
@@ -247,30 +280,29 @@ export default function DevPreviewPage() {
             border: GLASS.border,
             boxShadow: SHADOW.level2,
             backdropFilter: `blur(${GLASS.backdropBlurPx}px)`,
-            transform: `scale(${MOTION.enter.to.scale})`,
           }}
         >
-          <div style={{ display: "grid", gap: SPACE[8] }}>
-            <div
-              style={{
-                fontSize: TYPE.h1.size,
-                lineHeight: TYPE.h1.lineHeight,
-                fontWeight: TYPE.h1.weight,
-              }}
-            >
-              Scheduling Preview Dev
-            </div>
-            <div
-              style={{
-                color: COLORS.muted,
-                fontSize: TYPE.body.size,
-                lineHeight: TYPE.body.lineHeight,
-                fontWeight: TYPE.body.weight,
-              }}
-            >
-              Decision 선택 결과의 시간, 피로, 충돌, trade-off를 확인하는 V4
-              내부 검증 화면.
-            </div>
+          <div
+            style={{
+              fontSize: TYPE.h1.size,
+              lineHeight: TYPE.h1.lineHeight,
+              fontWeight: TYPE.h1.weight,
+            }}
+          >
+            Scheduling Preview Compare
+          </div>
+
+          <div
+            style={{
+              marginTop: SPACE[8],
+              color: COLORS.muted,
+              fontSize: TYPE.body.size,
+              lineHeight: TYPE.body.lineHeight,
+              fontWeight: TYPE.body.weight,
+            }}
+          >
+            모든 dev scenario를 한 번에 실행해서 Decision 선택 결과의
+            시간·피로·trade-off를 비교한다.
           </div>
 
           <div
@@ -282,38 +314,10 @@ export default function DevPreviewPage() {
               alignItems: "center",
             }}
           >
-            <select
-              value={selectedScenario}
-              onChange={(event) => setSelectedScenario(event.target.value)}
-              style={{
-                minHeight: density.buttonHeight,
-                paddingInline: SPACE[14],
-                borderRadius: RADIUS.md,
-                border: GLASS.border,
-                background: GLASS.background,
-                color: COLORS.text,
-                fontSize: TYPE.body.size,
-                fontWeight: TYPE.body.weight,
-                outline: "none",
-              }}
-              onFocus={(event) => {
-                event.currentTarget.style.boxShadow = FOCUS_RING.ring;
-              }}
-              onBlur={(event) => {
-                event.currentTarget.style.boxShadow = "none";
-              }}
-            >
-              {scenarioNames.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-
             <button
               type="button"
-              onClick={runPreview}
-              disabled={runState.status === "running"}
+              onClick={runAllPreview}
+              disabled={running}
               style={{
                 minHeight: density.buttonHeight,
                 paddingInline: SPACE[18],
@@ -324,16 +328,16 @@ export default function DevPreviewPage() {
                 fontSize: TYPE.body.size,
                 fontWeight: TYPE.body.weight,
                 boxShadow: SHADOW.level1,
-                cursor: runState.status === "running" ? "default" : "pointer",
+                cursor: running ? "default" : "pointer",
               }}
             >
-              {runState.status === "running" ? "Running..." : "Run Preview"}
+              {running ? "Running all..." : "Run All Preview"}
             </button>
 
             <button
               type="button"
-              onClick={copyPreviewText}
-              disabled={!runState.result}
+              onClick={copyAllPreview}
+              disabled={results.length === 0}
               style={{
                 minHeight: density.buttonHeight,
                 paddingInline: SPACE[18],
@@ -344,10 +348,10 @@ export default function DevPreviewPage() {
                 fontSize: TYPE.body.size,
                 fontWeight: TYPE.body.weight,
                 boxShadow: SHADOW.level1,
-                cursor: runState.result ? "pointer" : "default",
+                cursor: results.length === 0 ? "default" : "pointer",
               }}
             >
-              Copy Preview
+              Copy All Preview
             </button>
 
             <span
@@ -358,241 +362,14 @@ export default function DevPreviewPage() {
                 fontWeight: TYPE.caption.weight,
               }}
             >
-              status={runState.status}
-              {runState.durationMs != null ? ` · ${runState.durationMs}ms` : ""}
+              scenarios={names.length}
               {copyState === "copied" ? " · copied" : ""}
               {copyState === "failed" ? " · copy failed" : ""}
             </span>
           </div>
         </section>
 
-        {runState.error && (
-          <section
-            style={{
-              padding: density.cardPadY,
-              borderRadius: RADIUS.lg,
-              background: GLASS.background,
-              border: GLASS.border,
-              boxShadow: SHADOW.level1,
-              color: COLORS.danger,
-              fontSize: TYPE.body.size,
-              lineHeight: TYPE.body.lineHeight,
-              fontWeight: TYPE.body.weight,
-            }}
-          >
-            {runState.error}
-          </section>
-        )}
-
-        {preview && (
-          <>
-            <section
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                gap: SPACE[12],
-              }}
-            >
-              {[
-                ["safe", preview.diagnostics.safeDays],
-                ["tight", preview.diagnostics.tightDays],
-                ["conflict", preview.diagnostics.conflictDays],
-                ["conflicts", preview.diagnostics.totalConflictCount],
-              ].map(([label, value]) => (
-                <div
-                  key={label}
-                  style={{
-                    padding: density.cardPadY,
-                    borderRadius: RADIUS.lg,
-                    background: GLASS.background,
-                    border: GLASS.border,
-                    boxShadow: SHADOW.level1,
-                  }}
-                >
-                  <div
-                    style={{
-                      color: COLORS.muted,
-                      fontSize: TYPE.caption.size,
-                      lineHeight: TYPE.caption.lineHeight,
-                      fontWeight: TYPE.caption.weight,
-                    }}
-                  >
-                    {label}
-                  </div>
-                  <div
-                    style={{
-                      marginTop: SPACE[4],
-                      fontSize: TYPE.h2.size,
-                      lineHeight: TYPE.h2.lineHeight,
-                      fontWeight: TYPE.h2.weight,
-                    }}
-                  >
-                    {value}
-                  </div>
-                </div>
-              ))}
-            </section>
-
-            <section style={{ display: "grid", gap: SPACE[14] }}>
-              {preview.days.map((day) => {
-                const selectedLog = selectedLogs.find(
-                  (log) => log.dayIndex === day.dayIndex,
-                );
-
-                return (
-                  <article
-                    key={day.dayIndex}
-                    style={{
-                      padding: density.cardPadY,
-                      borderRadius: RADIUS.xl,
-                      background: GLASS.background,
-                      border: GLASS.border,
-                      boxShadow: SHADOW.level2,
-                      display: "grid",
-                      gap: SPACE[14],
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: SPACE[12],
-                        alignItems: "flex-start",
-                      }}
-                    >
-                      <div>
-                        <div
-                          style={{
-                            fontSize: TYPE.h2.size,
-                            lineHeight: TYPE.h2.lineHeight,
-                            fontWeight: TYPE.h2.weight,
-                          }}
-                        >
-                          Day {day.dayIndex} · {day.structureType}
-                        </div>
-                        <div
-                          style={{
-                            marginTop: SPACE[4],
-                            color: COLORS.muted,
-                            fontSize: TYPE.caption.size,
-                            lineHeight: TYPE.caption.lineHeight,
-                            fontWeight: TYPE.caption.weight,
-                          }}
-                        >
-                          selected:{" "}
-                          {day.selectedExperienceIds.join(", ") || "none"}
-                        </div>
-                      </div>
-
-                      <div
-                        style={{
-                          paddingInline: SPACE[12],
-                          paddingBlock: SPACE[6],
-                          borderRadius: RADIUS.pill,
-                          border: GLASS.border,
-                          fontSize: TYPE.caption.size,
-                          lineHeight: TYPE.caption.lineHeight,
-                          fontWeight: TYPE.caption.weight,
-                        }}
-                      >
-                        {getStatusLabel(day.status)}
-                      </div>
-                    </div>
-
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-                        gap: SPACE[10],
-                      }}
-                    >
-                      <Metric label="total" value={`${day.analysis.estimatedTotalMinutes}m`} />
-                      <Metric label="available" value={`${day.analysis.availableMinutes}m`} />
-                      <Metric label="buffer" value={`${day.analysis.bufferMinutes}m`} />
-                      <Metric label="fatigue" value={String(day.analysis.estimatedFatigue)} />
-                    </div>
-
-                    <div
-                      style={{
-                        color: COLORS.muted,
-                        fontSize: TYPE.body.size,
-                        lineHeight: TYPE.body.lineHeight,
-                        fontWeight: TYPE.body.weight,
-                      }}
-                    >
-                      {day.analysis.summary}
-                    </div>
-
-                    {selectedLog && (
-                      <div
-                        style={{
-                          display: "grid",
-                          gap: SPACE[6],
-                          padding: SPACE[12],
-                          borderRadius: RADIUS.md,
-                          border: GLASS.border,
-                        }}
-                      >
-                        <SectionTitle>Selected options</SectionTitle>
-                        <div style={smallTextStyle}>
-                          peak: {selectedLog.selectedOptions.peak?.title ?? "none"}
-                        </div>
-                        <div style={smallTextStyle}>
-                          recovery:{" "}
-                          {selectedLog.selectedOptions.recovery?.title ?? "none"}
-                        </div>
-                        <div style={smallTextStyle}>
-                          support:{" "}
-                          {selectedLog.selectedOptions.support
-                            .map((option) => option.title)
-                            .join(", ") || "none"}
-                        </div>
-                      </div>
-                    )}
-
-                    <Block title="Conflicts">
-                      {day.conflicts.length === 0 ? (
-                        <Line text="none" />
-                      ) : (
-                        day.conflicts.map((conflict, index) => (
-                          <Line
-                            key={`${conflict.type}-${index}`}
-                            text={`${conflict.type} · ${conflict.severity} · ${conflict.message}`}
-                          />
-                        ))
-                      )}
-                    </Block>
-
-                    <Block title="Trade-offs">
-                      {day.tradeOffs.length === 0 ? (
-                        <Line text="none" />
-                      ) : (
-                        day.tradeOffs.map((tradeOff, index) => (
-                          <Line key={index} text={tradeOff} />
-                        ))
-                      )}
-                    </Block>
-
-                    <Block title="Alternatives">
-                      {day.alternatives.length === 0 ? (
-                        <Line text="none" />
-                      ) : (
-                        day.alternatives.map((alternative) => (
-                          <Line
-                            key={alternative.id}
-                            text={`${alternative.title} — ${alternative.description}`}
-                          />
-                        ))
-                      )}
-                    </Block>
-                  </article>
-                );
-              })}
-            </section>
-          </>
-        )}
-
-        {!preview && !runState.error && (
+        {results.length === 0 ? (
           <section
             style={{
               padding: density.cardPadY,
@@ -606,9 +383,274 @@ export default function DevPreviewPage() {
               fontWeight: TYPE.body.weight,
             }}
           >
-            scenario를 선택하고 Run Preview를 누르면 Scheduling Preview 결과가
+            Run All Preview를 누르면 세 scenario의 preview 결과가 한 번에
             표시된다.
           </section>
+        ) : (
+          <>
+            <section
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                gap: SPACE[14],
+              }}
+            >
+              {results.map((item) => {
+                const preview = item.result?.debug?.schedulingPreview;
+
+                return (
+                  <article
+                    key={item.name}
+                    style={{
+                      padding: density.cardPadY,
+                      borderRadius: RADIUS.xl,
+                      background: GLASS.background,
+                      border: GLASS.border,
+                      boxShadow: SHADOW.level1,
+                      display: "grid",
+                      gap: SPACE[10],
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: TYPE.title.size,
+                        lineHeight: TYPE.title.lineHeight,
+                        fontWeight: TYPE.title.weight,
+                      }}
+                    >
+                      {item.name}
+                    </div>
+
+                    <div style={smallMutedStyle}>
+                      status={item.status}
+                      {item.durationMs != null ? ` · ${item.durationMs}ms` : ""}
+                    </div>
+
+                    {item.error && (
+                      <div
+                        style={{
+                          color: COLORS.danger,
+                          fontSize: TYPE.caption.size,
+                          lineHeight: TYPE.caption.lineHeight,
+                          fontWeight: TYPE.caption.weight,
+                        }}
+                      >
+                        {item.error}
+                      </div>
+                    )}
+
+                    {preview && (
+                      <div style={{ display: "grid", gap: SPACE[6] }}>
+                        <Line
+                          text={`safe=${preview.diagnostics.safeDays}, tight=${preview.diagnostics.tightDays}, conflict=${preview.diagnostics.conflictDays}`}
+                        />
+                        <Line
+                          text={`totalConflictCount=${preview.diagnostics.totalConflictCount}`}
+                        />
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </section>
+
+            <section style={{ display: "grid", gap: SPACE[16] }}>
+              {results.map((item) => {
+                const preview = item.result?.debug?.schedulingPreview;
+                const selectedLogs = item.result?.debug?.selectedOptions ?? [];
+
+                if (!preview) return null;
+
+                return (
+                  <article
+                    key={`${item.name}-detail`}
+                    style={{
+                      padding: density.cardPadY,
+                      borderRadius: RADIUS.xl,
+                      background: GLASS.background,
+                      border: GLASS.border,
+                      boxShadow: SHADOW.level2,
+                      display: "grid",
+                      gap: SPACE[14],
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: TYPE.h2.size,
+                        lineHeight: TYPE.h2.lineHeight,
+                        fontWeight: TYPE.h2.weight,
+                      }}
+                    >
+                      {item.name}
+                    </div>
+
+                    {preview.days.map((day) => {
+                      const selectedLog = selectedLogs.find(
+                        (log) => log.dayIndex === day.dayIndex,
+                      );
+
+                      return (
+                        <div
+                          key={`${item.name}-${day.dayIndex}`}
+                          style={{
+                            padding: SPACE[12],
+                            borderRadius: RADIUS.lg,
+                            border: GLASS.border,
+                            display: "grid",
+                            gap: SPACE[8],
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              gap: SPACE[12],
+                            }}
+                          >
+                            <div
+                              style={{
+                                fontSize: TYPE.title.size,
+                                lineHeight: TYPE.title.lineHeight,
+                                fontWeight: TYPE.title.weight,
+                              }}
+                            >
+                              Day {day.dayIndex} · {day.structureType}
+                            </div>
+
+                            <div style={smallMutedStyle}>{day.status}</div>
+                          </div>
+
+                          <div style={smallTextStyle}>
+                            selected:{" "}
+                            {day.selectedExperienceIds.join(", ") || "none"}
+                          </div>
+
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns:
+                                "repeat(auto-fit, minmax(120px, 1fr))",
+                              gap: SPACE[8],
+                            }}
+                          >
+                            <Metric
+                              label="total"
+                              value={`${day.analysis.estimatedTotalMinutes}m`}
+                            />
+                            <Metric
+                              label="available"
+                              value={`${day.analysis.availableMinutes}m`}
+                            />
+                            <Metric
+                              label="buffer"
+                              value={`${day.analysis.bufferMinutes}m`}
+                            />
+                            <Metric
+                              label="fatigue"
+                              value={String(day.analysis.estimatedFatigue)}
+                            />
+                          </div>
+
+                          <div style={smallMutedStyle}>
+                            {day.analysis.summary}
+                          </div>
+
+                          {selectedLog && (
+                            <div style={smallTextStyle}>
+                              peak:{" "}
+                              {selectedLog.selectedOptions.peak?.title ??
+                                "none"}{" "}
+                              / recovery:{" "}
+                              {selectedLog.selectedOptions.recovery?.title ??
+                                "none"}{" "}
+                              / support:{" "}
+                              {selectedLog.selectedOptions.support
+                                .map((option) => option.title)
+                                .join(", ") || "none"}
+                            </div>
+                          )}
+
+                          <Block title="Conflicts">
+                            {day.conflicts.length === 0 ? (
+                              <Line text="none" />
+                            ) : (
+                              day.conflicts.map((conflict, index) => (
+                                <Line
+                                  key={`${conflict.type}-${index}`}
+                                  text={`${conflict.type} · ${conflict.severity} · ${conflict.message}`}
+                                />
+                              ))
+                            )}
+                          </Block>
+
+                          <Block title="Trade-offs">
+                            {day.tradeOffs.length === 0 ? (
+                              <Line text="none" />
+                            ) : (
+                              day.tradeOffs.map((tradeOff, index) => (
+                                <Line key={index} text={tradeOff} />
+                              ))
+                            )}
+                          </Block>
+
+                          <Block title="Alternatives">
+                            {day.alternatives.length === 0 ? (
+                              <Line text="none" />
+                            ) : (
+                              day.alternatives.map((alternative) => (
+                                <Line
+                                  key={alternative.id}
+                                  text={`${alternative.title} — ${alternative.description}`}
+                                />
+                              ))
+                            )}
+                          </Block>
+                        </div>
+                      );
+                    })}
+                  </article>
+                );
+              })}
+            </section>
+
+            <section
+              style={{
+                padding: density.cardPadY,
+                borderRadius: RADIUS.xl,
+                background: GLASS.background,
+                border: GLASS.border,
+                boxShadow: SHADOW.level1,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: TYPE.title.size,
+                  lineHeight: TYPE.title.lineHeight,
+                  fontWeight: TYPE.title.weight,
+                  marginBottom: SPACE[10],
+                }}
+              >
+                Combined Preview Text
+              </div>
+
+              <textarea
+                readOnly
+                value={previewText}
+                style={{
+                  width: "100%",
+                  minHeight: 420,
+                  padding: SPACE[12],
+                  borderRadius: RADIUS.lg,
+                  border: GLASS.border,
+                  background: GLASS.background,
+                  color: COLORS.text,
+                  fontSize: TYPE.caption.size,
+                  lineHeight: TYPE.caption.lineHeight,
+                  fontWeight: TYPE.caption.weight,
+                }}
+              />
+            </section>
+          </>
         )}
       </div>
     </main>
@@ -619,7 +661,7 @@ function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div
       style={{
-        padding: SPACE[12],
+        padding: SPACE[10],
         borderRadius: RADIUS.md,
         border: GLASS.border,
       }}
@@ -628,9 +670,9 @@ function Metric({ label, value }: { label: string; value: string }) {
       <div
         style={{
           marginTop: SPACE[4],
-          fontSize: TYPE.title.size,
-          lineHeight: TYPE.title.lineHeight,
-          fontWeight: TYPE.title.weight,
+          fontSize: TYPE.caption.size,
+          lineHeight: TYPE.caption.lineHeight,
+          fontWeight: TYPE.caption.weight,
         }}
       >
         {value}
@@ -651,26 +693,20 @@ function Block({
       style={{
         display: "grid",
         gap: SPACE[6],
-        padding: SPACE[12],
+        padding: SPACE[10],
         borderRadius: RADIUS.md,
         border: GLASS.border,
       }}
     >
-      <SectionTitle>{title}</SectionTitle>
-      {children}
-    </div>
-  );
-}
-
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      style={{
-        fontSize: TYPE.caption.size,
-        lineHeight: TYPE.caption.lineHeight,
-        fontWeight: TYPE.caption.weight,
-      }}
-    >
+      <div
+        style={{
+          fontSize: TYPE.caption.size,
+          lineHeight: TYPE.caption.lineHeight,
+          fontWeight: TYPE.caption.weight,
+        }}
+      >
+        {title}
+      </div>
       {children}
     </div>
   );
@@ -689,7 +725,7 @@ const smallTextStyle = {
 
 const smallMutedStyle = {
   color: COLORS.muted,
-  fontSize: TYPE.tiny.size,
-  lineHeight: TYPE.tiny.lineHeight,
-  fontWeight: TYPE.tiny.weight,
+  fontSize: TYPE.caption.size,
+  lineHeight: TYPE.caption.lineHeight,
+  fontWeight: TYPE.caption.weight,
 } as const;
