@@ -548,6 +548,8 @@ quality: ExperienceQualityLevel;
 qualityScore: number;
 qualitySummary: string;
 
+suggestions: string[];
+  
 analysis: SchedulingPreviewAnalysis;
   conflicts: SchedulingPreviewConflict[];
   tradeOffs: string[];
