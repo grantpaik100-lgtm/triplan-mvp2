@@ -218,6 +218,13 @@ function detectConflicts(params: {
   const selectedOptionIds = getSelectedOptionIds(options);
   const selectedExperienceIds = getSelectedExperienceIds(options);
 
+  const peakOptions = options.filter((option) => option.role === "peak");
+  const recoveryOptions = options.filter((option) => option.role === "recovery");
+  const supportOptions = options.filter((option) => option.role === "support");
+
+  const hasPeak = peakOptions.length > 0;
+  const hasRecovery = recoveryOptions.length > 0;
+
   if (analysis.bufferMinutes < 0) {
     conflicts.push({
       type: "time",
@@ -255,23 +262,117 @@ function detectConflicts(params: {
     });
   }
 
-  const timeWindowConflicts = options.filter((option) => {
+  if (hasPeak && !hasRecovery) {
+    conflicts.push({
+      type: "recovery_missing",
+      severity: "high",
+      affectedOptionIds: selectedOptionIds,
+      affectedExperienceIds: selectedExperienceIds,
+      message: "peak 선택은 있지만 회복 역할의 선택지가 없어 후반부 만족도 저하 위험이 크다.",
+      reason: "peak selected without recovery option",
+    });
+  }
+
+  for (const recoveryOption of recoveryOptions) {
+    const metadata = experienceMap.get(recoveryOption.experienceId);
+
+    if (!metadata) {
+      conflicts.push({
+        type: "recovery_placement_risk",
+        severity: "medium",
+        affectedOptionIds: [recoveryOption.id],
+        affectedExperienceIds: [recoveryOption.experienceId],
+        message: "recovery 선택지의 메타데이터를 찾지 못해 실제 배치 안정성을 판단하기 어렵다.",
+        reason: "missing recovery metadata",
+      });
+      continue;
+    }
+
+    const narrowTimeWindow =
+      metadata.timeFlexibility === "low" || metadata.allowedTimes.length <= 1;
+
+    const notEasyRecovery =
+      metadata.fatigue >= 4 ||
+      (!metadata.isMeal &&
+        metadata.features.quiet < 0.45 &&
+        metadata.timeFlexibility !== "high");
+
+    if (narrowTimeWindow || notEasyRecovery) {
+      conflicts.push({
+        type: "recovery_placement_risk",
+        severity: narrowTimeWindow ? "medium" : "low",
+        affectedOptionIds: [recoveryOption.id],
+        affectedExperienceIds: [recoveryOption.experienceId],
+        message: "선택된 recovery가 실제 일정 후반에 안정적으로 배치되지 못할 위험이 있다.",
+        reason: [
+          `timeFlexibility=${metadata.timeFlexibility}`,
+          `allowedTimes=${metadata.allowedTimes.join(",") || "none"}`,
+          `fatigue=${metadata.fatigue}`,
+          `quiet=${metadata.features.quiet}`,
+        ].join("|"),
+      });
+    }
+  }
+
+  for (const peakOption of peakOptions) {
+    const metadata = experienceMap.get(peakOption.experienceId);
+
+    if (!metadata) {
+      conflicts.push({
+        type: "peak_placement_risk",
+        severity: "medium",
+        affectedOptionIds: [peakOption.id],
+        affectedExperienceIds: [peakOption.experienceId],
+        message: "peak 선택지의 메타데이터를 찾지 못해 실제 배치 안정성을 판단하기 어렵다.",
+        reason: "missing peak metadata",
+      });
+      continue;
+    }
+
+    const narrowPeakWindow =
+      metadata.timeFlexibility === "low" || metadata.allowedTimes.length <= 1;
+
+    const latePeak =
+      metadata.preferredTime === "sunset" ||
+      metadata.preferredTime === "dinner" ||
+      metadata.preferredTime === "night";
+
+    const lowBuffer = analysis.bufferMinutes < 180;
+
+    if (narrowPeakWindow || (latePeak && lowBuffer)) {
+      conflicts.push({
+        type: "peak_placement_risk",
+        severity: narrowPeakWindow ? "medium" : "low",
+        affectedOptionIds: [peakOption.id],
+        affectedExperienceIds: [peakOption.experienceId],
+        message: "선택된 peak가 선호 시간대나 좁은 시간창 때문에 실제 배치에서 충돌할 위험이 있다.",
+        reason: [
+          `preferredTime=${metadata.preferredTime}`,
+          `timeFlexibility=${metadata.timeFlexibility}`,
+          `allowedTimes=${metadata.allowedTimes.join(",") || "none"}`,
+          `bufferMinutes=${analysis.bufferMinutes}`,
+        ].join("|"),
+      });
+    }
+  }
+
+  const timeWindowSensitiveOptions = options.filter((option) => {
     const metadata = experienceMap.get(option.experienceId);
     if (!metadata) return false;
 
-    return metadata.timeFlexibility === "low" && metadata.allowedTimes.length <= 1;
+    return metadata.timeFlexibility === "low" || metadata.allowedTimes.length <= 1;
   });
 
-  if (timeWindowConflicts.length > 0 && analysis.status !== "safe") {
+  if (timeWindowSensitiveOptions.length >= 2) {
     conflicts.push({
       type: "time_window",
       severity: "medium",
-      affectedOptionIds: timeWindowConflicts.map((option) => option.id),
-      affectedExperienceIds: timeWindowConflicts.map(
+      affectedOptionIds: timeWindowSensitiveOptions.map((option) => option.id),
+      affectedExperienceIds: timeWindowSensitiveOptions.map(
         (option) => option.experienceId,
       ),
-      message: "일부 선택지는 가능한 시간대가 좁아 일정 충돌 위험을 키운다.",
-      reason: "low timeFlexibility with narrow allowedTimes",
+      message: "시간창이 좁은 선택지가 여러 개 있어 실제 배치 순서에서 충돌할 수 있다.",
+      reason: `timeWindowSensitiveCount=${timeWindowSensitiveOptions.length}`,
     });
   }
 
@@ -286,23 +387,30 @@ function detectConflicts(params: {
     });
   }
 
-  if (
-    options.some((option) => option.role === "peak") &&
-    options.some((option) => option.role === "recovery") === false
-  ) {
+  if (hasPeak && !hasRecovery) {
     conflicts.push({
       type: "sequence",
+      severity: "medium",
+      affectedOptionIds: selectedOptionIds,
+      affectedExperienceIds: selectedExperienceIds,
+      message: "peak 이후 recovery가 없어 경험 흐름이 급격하게 끝날 수 있다.",
+      reason: "peak selected without recovery",
+    });
+  }
+
+  if (hasPeak && hasRecovery && supportOptions.length === 0) {
+    conflicts.push({
+      type: "selection_schedule_mismatch",
       severity: "low",
       affectedOptionIds: selectedOptionIds,
       affectedExperienceIds: selectedExperienceIds,
-      message: "peak 이후 회복 역할의 경험이 없어 흐름이 급격하게 끝날 수 있다.",
-      reason: "peak selected without recovery",
+      message: "선택 구조가 peak/recovery만으로 단순해 실제 scheduling 결과와 preview 판단이 어긋날 수 있다.",
+      reason: "selected only peak/recovery; converted DayPlan may include or drop different structural items",
     });
   }
 
   return conflicts;
 }
-
 function buildTradeOffs(params: {
   analysis: SchedulingPreviewAnalysis;
   conflicts: SchedulingPreviewConflict[];
@@ -335,9 +443,24 @@ function buildTradeOffs(params: {
     tradeOffs.push("시간대가 좁은 경험을 유지하면 나머지 선택의 배치 자유도가 낮아진다.");
   }
 
+  if (conflicts.some((conflict) => conflict.type === "recovery_missing")) {
+    tradeOffs.push("recovery 없이 peak를 유지하면 강한 경험은 남지만 하루의 마무리 만족도가 불안정해진다.");
+  }
+
+  if (conflicts.some((conflict) => conflict.type === "recovery_placement_risk")) {
+    tradeOffs.push("선택한 recovery를 유지하더라도 실제 시간 배치에서 탈락하거나 약화될 수 있다.");
+  }
+
+  if (conflicts.some((conflict) => conflict.type === "peak_placement_risk")) {
+    tradeOffs.push("선택한 peak를 유지하면 핵심 경험은 보존되지만, 선호 시간대 충돌 가능성이 있다.");
+  }
+
+  if (conflicts.some((conflict) => conflict.type === "selection_schedule_mismatch")) {
+    tradeOffs.push("preview 선택 구조와 실제 scheduling 입력 구조가 달라질 수 있어 safe 판정이 과신될 수 있다.");
+  }
+
   return tradeOffs;
 }
-
 function buildAlternatives(params: {
   options: DecisionOption[];
   conflicts: SchedulingPreviewConflict[];
@@ -347,6 +470,9 @@ function buildAlternatives(params: {
   if (conflicts.length === 0) return [];
 
   const supportOptions = options.filter((option) => option.role === "support");
+  const recoveryOptions = options.filter((option) => option.role === "recovery");
+  const peakOptions = options.filter((option) => option.role === "peak");
+
   const alternatives: SchedulingPreviewAlternative[] = [];
 
   if (supportOptions.length > 0) {
@@ -395,9 +521,63 @@ function buildAlternatives(params: {
     });
   }
 
+  if (
+    conflicts.some((conflict) => conflict.type === "recovery_missing") &&
+    peakOptions.length > 0
+  ) {
+    alternatives.push({
+      id: "add-recovery-required",
+      title: "recovery 선택 추가 필요",
+      description:
+        "peak 선택을 유지하려면 후반부 회복 역할의 경험을 반드시 추가해야 한다.",
+      suggestedOptionIds: options.map((option) => option.id),
+      suggestedExperienceIds: options.map((option) => option.experienceId),
+      improves: ["recovery_missing", "sequence"],
+      tradeOffs: [
+        "하루 흐름의 안정성은 올라간다.",
+        "전체 소요 시간은 늘어날 수 있다.",
+        "사용자가 추가 선택을 해야 한다.",
+      ],
+    });
+  }
+
+  if (
+    conflicts.some((conflict) => conflict.type === "recovery_placement_risk") &&
+    recoveryOptions.length > 0
+  ) {
+    alternatives.push({
+      id: "replace-or-relax-recovery",
+      title: "recovery 후보 재선택",
+      description:
+        "현재 recovery가 실제 배치에서 탈락할 위험이 있으므로 더 유연한 recovery 후보를 선택한다.",
+      suggestedOptionIds: options.map((option) => option.id),
+      suggestedExperienceIds: options.map((option) => option.experienceId),
+      improves: ["recovery_placement_risk", "time_window"],
+      tradeOffs: [
+        "배치 안정성은 올라간다.",
+        "처음 선택한 recovery의 취향 적합도는 낮아질 수 있다.",
+      ],
+    });
+  }
+
+  if (conflicts.some((conflict) => conflict.type === "peak_placement_risk")) {
+    alternatives.push({
+      id: "adjust-peak-time",
+      title: "peak 시간대 조정",
+      description:
+        "peak 자체는 유지하되, 선호 시간대 충돌을 줄이기 위해 peak 배치 시간을 앞당기거나 후보를 재검토한다.",
+      suggestedOptionIds: options.map((option) => option.id),
+      suggestedExperienceIds: options.map((option) => option.experienceId),
+      improves: ["peak_placement_risk", "time_window"],
+      tradeOffs: [
+        "핵심 경험은 유지된다.",
+        "원래 기대한 분위기나 시간대 감성은 약해질 수 있다.",
+      ],
+    });
+  }
+
   return alternatives;
 }
-
 function getConflictTypes(
   conflicts: SchedulingPreviewConflict[],
 ): SchedulingPreviewConflictType[] {
