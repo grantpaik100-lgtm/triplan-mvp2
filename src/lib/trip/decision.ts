@@ -658,14 +658,21 @@ export function convertDecisionSelectionToDayPlan(
   const nextAnchorIds = new Set(nextAnchor.map((item) => item.experience.id));
 
   const nextCore = dedupedOrderedItems.filter((item) => {
-    const id = item.experience.id;
-    return !nextAnchorIds.has(id);
-  });
+  const id = item.experience.id;
+
+  if (id === peakItem?.experience.id) return false;
+  if (id === recoveryItem?.experience.id) return false;
+
+  return true;
+});
 
   const nextOptional = sourceDayPlan.optional.filter((item) => {
-    const id = item.experience.id;
-    return !suggestedFlow.includes(id);
-  });
+  const id = item.experience.id;
+
+  if (id === recoveryItem?.experience.id) return false;
+
+  return !suggestedFlow.includes(id);
+});
 
   return {
     ...sourceDayPlan,
