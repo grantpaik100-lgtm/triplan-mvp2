@@ -34,7 +34,7 @@
  * Notes:
  * - 타입 파일(types.ts)과 함께 engine 기반 계약을 안정화한다.
  */
-import type { Area, TimeBucket, UserVector } from "./types";
+import type { Area, DecisionScoreWeights, DaySkeletonType, FlowRole, TimeBucket, UserVector } from "./types";
 
 export const TIME_BUCKET_SLOTS: Record<TimeBucket, number[]> = {
   early_morning: [10, 11, 12, 13], // 05:00 ~ 07:00
