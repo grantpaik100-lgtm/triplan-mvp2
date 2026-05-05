@@ -428,7 +428,7 @@ function evaluateExperienceQuality(options: DecisionOption[]): {
   if (hasRecovery) qualityScore += 30;
   qualityScore += Math.min(supportCount, 2) * 15;
 
-  if (qualityScore >= 85) {
+  if (hasPeak && hasRecovery && supportCount >= 2) {
     return {
       quality: "rich",
       qualityScore,
@@ -437,21 +437,21 @@ function evaluateExperienceQuality(options: DecisionOption[]): {
     };
   }
 
-  if (qualityScore >= 70) {
+  if (hasPeak && hasRecovery && supportCount === 1) {
     return {
       quality: "balanced",
       qualityScore,
       qualitySummary:
-        "핵심 경험과 회복 경험이 함께 있어 기본적인 흐름은 안정적이다.",
+        "핵심 경험과 보조 경험, 회복 경험이 함께 있어 하루 흐름이 비교적 균형적이다.",
     };
   }
 
-  if (qualityScore >= 50) {
+  if (hasPeak && hasRecovery && supportCount === 0) {
     return {
       quality: "flat",
       qualityScore,
       qualitySummary:
-        "실행은 쉽지만 peak/recovery 중심으로 단순해 경험 밀도는 낮을 수 있다.",
+        "실행은 쉽지만 peak/recovery 중심의 2-node flow라 경험 밀도는 낮을 수 있다.",
     };
   }
 
@@ -462,7 +462,6 @@ function evaluateExperienceQuality(options: DecisionOption[]): {
       "경험 구조가 약하다. peak 또는 recovery 역할이 부족해 하루 만족 구조가 불안정할 수 있다.",
   };
 }
-
 function buildTradeOffs(params: {
   analysis: SchedulingPreviewAnalysis;
   conflicts: SchedulingPreviewConflict[];
