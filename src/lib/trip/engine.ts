@@ -205,8 +205,25 @@ const selectedOptions: DecisionSelectedOptions = {
       "Scheduling diagnostics preserved",
     ],
   };
+  // [5] Scheduling Preview
+  // V4:
+  // Scheduling은 사용자 선택을 바로 수정하지 않는다.
+  // 먼저 선택 결과의 시간/피로/충돌/trade-off를 preview로 분석한다.
+  const availableMinutes = Math.max(
+    0,
+    (input.dailyEndSlot - input.dailyStartSlot) * 30,
+  );
 
-  // [5] Scheduling
+  const schedulingPreview = generateSchedulingPreview({
+    days: selectedOptionLogs.map((log, index) => ({
+      dayIndex: log.dayIndex,
+      structureType: decisionPlans[index]?.structureType ?? "balanced",
+      selectedOptions: log.selectedOptions,
+      availableMinutes,
+    })),
+    experiences,
+  });
+  // [6] Scheduling
   const schedules = [];
   const schedulingDayDiagnostics: DaySchedulingDiagnostic[] = [];
 
@@ -232,12 +249,13 @@ const selectedOptions: DecisionSelectedOptions = {
     dayPlans,
     schedules,
     debug: {
-      candidateDiagnostics,
-      planningDiagnostics,
-      decisionDiagnostics,
-      decisionPlans,
-      selectedOptions: selectedOptionLogs,
-      schedulingDiagnostics,
-    },
+  candidateDiagnostics,
+  planningDiagnostics,
+  decisionDiagnostics,
+  decisionPlans,
+  selectedOptions: selectedOptionLogs,
+  schedulingPreview,
+  schedulingDiagnostics,
+},
   };
 }
