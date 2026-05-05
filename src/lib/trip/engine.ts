@@ -138,29 +138,41 @@ export function generateTripPlan(
     selectedOptions: DecisionSelectedOptions;
   }[] = [];
 
-  const dayPlans = rawDayPlans.map((rawDayPlan, index) => {
-  const decisionPlan = decisionPlans[index];
+   const dayPlans = rawDayPlans.map((rawDayPlan, index) => {
+    const decisionPlan = decisionPlans[index];
 
-  const targetItemCount =
-  rawDayPlan.selection?.targetItemCount ??
-  rawDayPlan.suggestedFlow?.length ??
-  rawDayPlan.roughOrder.length ??
-  3;
+    const targetItemCount =
+      rawDayPlan.selection?.targetItemCount ??
+      rawDayPlan.suggestedFlow?.length ??
+      rawDayPlan.roughOrder.length ??
+      3;
 
-const mandatorySelectionCount =
-  (decisionPlan.options.peak[0] ? 1 : 0) +
-  (decisionPlan.options.recovery[0] ? 1 : 0);
+    const mandatorySelectionCount =
+      (decisionPlan.options.peak[0] ? 1 : 0) +
+      (decisionPlan.options.recovery[0] ? 1 : 0);
 
-const supportSelectionCount = Math.max(
-  0,
-  targetItemCount - mandatorySelectionCount,
-);
+    const baseSupportSelectionCount = Math.max(
+      0,
+      targetItemCount - mandatorySelectionCount,
+    );
 
-const selectedOptions: DecisionSelectedOptions = {
-  peak: decisionPlan.options.peak[0],
-  recovery: decisionPlan.options.recovery[0],
-  support: decisionPlan.options.support.slice(0, supportSelectionCount),
-};
+    // V4 Decision Feedback MVP:
+    // Scheduling Preview에서 flat이 반복되는 원인은 peak/recovery만 선택되는 2-node flow다.
+    // Scheduling이 선택을 수정하는 것이 아니라, Decision fallback 단계에서 support를 최소 1개 보강한다.
+    // 단, 사용자가 직접 선택한 UI가 없는 MVP fallback에서만 적용되는 임시 정책이다.
+    const minimumSupportForQuality =
+      decisionPlan.options.support.length > 0 ? 1 : 0;
+
+    const supportSelectionCount = Math.min(
+      decisionPlan.options.support.length,
+      Math.max(baseSupportSelectionCount, minimumSupportForQuality),
+    );
+
+    const selectedOptions: DecisionSelectedOptions = {
+      peak: decisionPlan.options.peak[0],
+      recovery: decisionPlan.options.recovery[0],
+      support: decisionPlan.options.support.slice(0, supportSelectionCount),
+    };
 
     selectedOptionLogs.push({
       dayIndex: decisionPlan.dayIndex,
@@ -173,7 +185,6 @@ const selectedOptions: DecisionSelectedOptions = {
       structureType: decisionPlan.structureType,
     });
   });
-
   // [4] Decision Diagnostics
   // 기존 planning/scheduling diagnostics와 별도로 decision layer 상태를 남긴다.
   const decisionDiagnostics: DecisionDiagnostics = {
