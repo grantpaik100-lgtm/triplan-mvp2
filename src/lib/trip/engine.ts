@@ -48,6 +48,8 @@ import { scheduleDayPlan } from "./scheduling";
 import type {
   CandidateDiagnostics,
   DaySchedulingDiagnostic,
+  DecisionDiagnostics,
+  DecisionSelectedOptions,
   ExperienceMetadata,
   PlanningInput,
   SchedulingDiagnostics,
