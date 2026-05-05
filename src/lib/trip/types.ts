@@ -493,6 +493,7 @@ export type UserChoiceLog = {
 // Decision-facing preview contract다.
 
 export type SchedulingPreviewStatus = "safe" | "tight" | "conflict";
+export type ExperienceQualityLevel = "rich" | "balanced" | "flat" | "weak";
 
 export type SchedulingPreviewConflictType =
   | "time"
@@ -542,9 +543,12 @@ export type SchedulingPreviewDay = {
   selectedExperienceIds: string[];
 
   feasibility: SchedulingPreviewStatus;
-  status: SchedulingPreviewStatus;
+status: SchedulingPreviewStatus;
+quality: ExperienceQualityLevel;
+qualityScore: number;
+qualitySummary: string;
 
-  analysis: SchedulingPreviewAnalysis;
+analysis: SchedulingPreviewAnalysis;
   conflicts: SchedulingPreviewConflict[];
   tradeOffs: string[];
   alternatives: SchedulingPreviewAlternative[];
