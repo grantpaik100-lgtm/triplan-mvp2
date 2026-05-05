@@ -46,6 +46,7 @@ import {
 
 import type {
   DecisionDayStructureType,
+  DecisionDiagnostics,
   DecisionFlowRole,
   DecisionOption,
   DecisionReadyDayPlan,
@@ -390,8 +391,8 @@ function calculateFlowFit(
     return clamp01((lowFatigueFit + quietFit) / 2);
   }
 
-  const supportFatigueFit = fatigue <= 4 ? 0.8 : 0.4;
-  return clamp01((supportFatigueFit + item.experience.timeFlexibilityScore ?? 0.6) / 2);
+ const supportFatigueFit = fatigue <= 4 ? 0.8 : 0.4;
+return clamp01(supportFatigueFit);
 }
 
 function calculateConstraintRisk(
@@ -498,10 +499,38 @@ function clamp01(value: number): number {
  */
 export function applyDecisionLayer(
   dayPlans: DayPlan[],
-  input: PlanningInput,
-  userVector: UserVector,
-): DecisionReadyDayPlan[] {
-  return dayPlans.map((dayPlan) =>
-    buildDecisionReadyDayPlan(dayPlan, input, userVector),
-  );
+  _input: PlanningInput,
+): {
+  dayPlans: DayPlan[];
+  diagnostics: DecisionDiagnostics;
+} {
+  const diagnostics: DecisionDiagnostics = {
+    days: dayPlans.map((dayPlan) => ({
+      dayIndex: dayPlan.day,
+      actionsTaken: ["no_op"],
+      trimmedOptionalIds: [],
+      suggestedFlowRebuilt: false,
+      budgetBeforeMin: dayPlan.timeBudget?.estimatedTotalMin ?? 0,
+      budgetAfterMin: dayPlan.timeBudget?.estimatedTotalMin ?? 0,
+      notes: [
+        "decision_layer:structure_preserved",
+        "decision_layer:no_auto_modification",
+        `structure=${dayPlan.selection?.skeletonType ?? "unknown"}`,
+      ],
+    })),
+    totalTrimsApplied: 0,
+    notes: [
+      "Decision Layer MVP active",
+      "Planning output preserved",
+      "Scheduling input contract preserved",
+      "No automatic experience replacement",
+      "No automatic role change",
+      "No automatic structure change",
+    ],
+  };
+
+  return {
+    dayPlans,
+    diagnostics,
+  };
 }
