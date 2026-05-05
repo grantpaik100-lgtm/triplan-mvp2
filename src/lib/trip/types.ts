@@ -724,6 +724,18 @@ export type TripPlanResult = {
   debug: TripDebug;
 };
 
+export type DecisionSelectedOptions = {
+  peak?: DecisionOption;
+  recovery?: DecisionOption;
+  support: DecisionOption[];
+};
+
+export type ConvertDecisionSelectionParams = {
+  sourceDayPlan: DayPlan;
+  selectedOptions: DecisionSelectedOptions;
+  structureType: DecisionDayStructureType;
+};
+
 // ─── CharacterProfile ────────────────────────────────────────────────────────
 
 
