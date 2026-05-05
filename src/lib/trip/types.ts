@@ -499,7 +499,11 @@ export type SchedulingPreviewConflictType =
   | "distance"
   | "fatigue"
   | "sequence"
-  | "time_window";
+  | "time_window"
+  | "recovery_missing"
+  | "recovery_placement_risk"
+  | "peak_placement_risk"
+  | "selection_schedule_mismatch";
 
 export type SchedulingPreviewConflict = {
   type: SchedulingPreviewConflictType;
