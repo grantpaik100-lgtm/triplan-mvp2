@@ -462,6 +462,24 @@ function evaluateExperienceQuality(options: DecisionOption[]): {
       "경험 구조가 약하다. peak 또는 recovery 역할이 부족해 하루 만족 구조가 불안정할 수 있다.",
   };
 }
+
+
+function generateDecisionSuggestions(options: DecisionOption[]): string[] {
+  const supportCount = options.filter((option) => option.role === "support").length;
+
+  const suggestions: string[] = [];
+
+  if (supportCount === 0) {
+    suggestions.push("support 경험을 1~2개 추가하면 경험 밀도와 하루 흐름이 개선된다.");
+  }
+
+  if (supportCount === 1) {
+    suggestions.push("support 경험을 하나 더 추가하면 peak와 recovery 사이의 연결감이 좋아진다.");
+  }
+
+  return suggestions;
+}
+
 function buildTradeOffs(params: {
   analysis: SchedulingPreviewAnalysis;
   conflicts: SchedulingPreviewConflict[];
@@ -657,6 +675,7 @@ function buildPreviewDay(params: {
     experienceMap,
   });
   const qualityResult = evaluateExperienceQuality(selectedOptions);
+  const suggestions = generateDecisionSuggestions(selectedOptions);
  const highSeverity = conflicts.some((c) => c.severity === "high");
 const mediumSeverity = conflicts.some((c) => c.severity === "medium");
 
@@ -694,6 +713,7 @@ if (highSeverity) {
     quality: qualityResult.quality,
 qualityScore: qualityResult.qualityScore,
 qualitySummary: qualityResult.qualitySummary,
+suggestions,
 
 analysis: {
       ...analysis,
