@@ -95,23 +95,50 @@ export function buildDecisionReadyDayPlan(
     (item) => !isDecisionFeasible(item, dayPlan, input),
   ).length;
 
-  const optionsByRole = {
-    peak: buildOptionsForRole(uniqueItems, "peak", dayPlan, input, userVector),
-    recovery: buildOptionsForRole(
-      uniqueItems,
-      "recovery",
+  let optionsByRole = {
+  peak: buildOptionsForRole(uniqueItems, "peak", dayPlan, input, userVector),
+  recovery: buildOptionsForRole(uniqueItems, "recovery", dayPlan, input, userVector),
+  support: buildOptionsForRole(uniqueItems, "support", dayPlan, input, userVector),
+};
+
+// 🔥 fallback: support 후보가 없으면 강제로 생성
+if (optionsByRole.support.length === 0) {
+  const fallbackSupport = uniqueItems.filter((item) => {
+    const role = classifyDecisionRole(item, dayPlan);
+    return role !== "peak" && role !== "recovery";
+  });
+
+  optionsByRole.support = fallbackSupport.slice(0, 3).map((item, index) => {
+    const scoreBreakdown = calculateDecisionScore({
+      item,
+      role: "support",
       dayPlan,
       input,
       userVector,
-    ),
-    support: buildOptionsForRole(
-      uniqueItems,
-      "support",
-      dayPlan,
-      input,
-      userVector,
-    ),
-  };
+    });
+
+    return {
+      id: `${dayPlan.day}-support-fallback-${item.experience.id}-${index}`,
+      experienceId: item.experience.id,
+      role: "support",
+      title: item.experience.baseExperienceLabel || item.experience.placeName,
+      scoreBreakdown,
+      explanation: buildDecisionExplanation({
+        item,
+        role: "support",
+        scoreBreakdown,
+      }),
+      metadata: {
+        experienceType: getExperienceType(item),
+        area: item.experience.area,
+        themeCluster: item.themeCluster,
+        expectedFatigue: item.experience.fatigue,
+        estimatedDuration: item.experience.recommendedDuration,
+        feasible: true,
+      },
+    };
+  });
+}
 
   const duplicatePolicyUsed = Object.values(optionsByRole).some((options) =>
     hasDuplicateExperienceType(options),
