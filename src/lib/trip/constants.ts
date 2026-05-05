@@ -33,7 +33,15 @@
  * Notes:
  * - 타입 파일(types.ts)과 함께 engine 기반 계약을 안정화한다.
  */
-import type { Area, DecisionScoreWeights, FlowRole, TimeBucket, UserVector } from "./types";
+import type {
+  Area,
+  DecisionDayStructureType,
+  DecisionFlowRole,
+  DecisionScoreWeights,
+  TimeBucket,
+  UserVector,
+} from "./types";
+
 
 export const TIME_BUCKET_SLOTS: Record<TimeBucket, number[]> = {
   early_morning: [10, 11, 12, 13], // 05:00 ~ 07:00
@@ -223,36 +231,19 @@ export const DAILY_EXPERIENCE_COUNT_BY_DENSITY: Record<1 | 2 | 3 | 4 | 5, number
 
 // ─── Decision Layer ───────────────────────────────────────────────────────────
 
-/**
- * Decision Layer가 추론에 사용하는 day structure 템플릿.
- *
- * key  : DaySkeletonType 중 Decision Layer가 다루는 세 가지 서브셋
- * value: 해당 스켈레톤에서 기대하는 FlowRole 순서 (opener/activation 제외한 논리 구조)
- *
- * NOTE: scheduling.ts의 buildSkeletonRoles()와 역할이 다름.
- *   - buildSkeletonRoles      : opener/activation 포함, 실제 sequence 생성용
- *   - DAY_STRUCTURE_TEMPLATES : support/peak/recovery 위주, Decision Layer 추론용
- */
 export const DAY_STRUCTURE_TEMPLATES: Readonly<
-  Record<"balanced" | "peak_centric" | "relaxed", readonly FlowRole[]>
+  Record<DecisionDayStructureType, readonly DecisionFlowRole[]>
 > = {
-  balanced:     ["support", "peak", "recovery"],
+  balanced: ["support", "peak", "recovery"],
   peak_centric: ["support", "peak", "support", "recovery"],
-  relaxed:      ["support", "recovery", "support"],
+  relaxed: ["support", "recovery", "support"],
 } as const;
 
-/**
- * Decision Layer scoring에서 사용하는 weight 배분.
- * 합계: 0.35 + 0.25 + 0.25 + 0.15 = 1.0
- */
 export const DECISION_SCORE_WEIGHTS: Readonly<DecisionScoreWeights> = {
-  preferenceMatch:   0.35,
+  preferenceMatch: 0.35,
   behaviorAlignment: 0.25,
-  flowFit:           0.25,
-  constraintRisk:    0.15,
+  flowFit: 0.25,
+  constraintRisk: 0.15,
 } as const;
 
-/**
- * Decision Layer가 각 FlowRole별로 생성하는 option 후보 수.
- */
 export const DECISION_OPTION_COUNT_PER_ROLE = 3 as const;
