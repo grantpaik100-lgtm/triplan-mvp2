@@ -97,8 +97,20 @@ export function buildDecisionReadyDayPlan(
 
   const optionsByRole = {
     peak: buildOptionsForRole(uniqueItems, "peak", dayPlan, input, userVector),
-    recovery: buildOptionsForRole(uniqueItems, "recovery", dayPlan, input, userVector),
-    support: buildOptionsForRole(uniqueItems, "support", dayPlan, input, userVector),
+    recovery: buildOptionsForRole(
+      uniqueItems,
+      "recovery",
+      dayPlan,
+      input,
+      userVector,
+    ),
+    support: buildOptionsForRole(
+      uniqueItems,
+      "support",
+      dayPlan,
+      input,
+      userVector,
+    ),
   };
 
   const duplicatePolicyUsed = Object.values(optionsByRole).some((options) =>
@@ -308,7 +320,9 @@ function buildOptionsForRole(
   return applyDecisionDiversityPolicy(rawOptions);
 }
 
-function resolveDecisionDayStructureType(dayPlan: DayPlan): DecisionDayStructureType {
+function resolveDecisionDayStructureType(
+  dayPlan: DayPlan,
+): DecisionDayStructureType {
   const skeletonType = dayPlan.selection?.skeletonType;
 
   if (skeletonType === "peak_centric") return "peak_centric";
@@ -317,7 +331,9 @@ function resolveDecisionDayStructureType(dayPlan: DayPlan): DecisionDayStructure
   return "balanced";
 }
 
-function dedupePlannedExperiences(items: PlannedExperience[]): PlannedExperience[] {
+function dedupePlannedExperiences(
+  items: PlannedExperience[],
+): PlannedExperience[] {
   const seen = new Set<string>();
 
   return items.filter((item) => {
@@ -383,7 +399,9 @@ function calculateFlowFit(
   const fatigue = item.experience.fatigue;
 
   if (role === "peak") {
-    return clamp01((item.experience.actionStrength + (fatigue >= 3 ? 1 : 0.4)) / 2);
+    return clamp01(
+      (item.experience.actionStrength + (fatigue >= 3 ? 1 : 0.4)) / 2,
+    );
   }
 
   if (role === "recovery") {
@@ -392,8 +410,8 @@ function calculateFlowFit(
     return clamp01((lowFatigueFit + quietFit) / 2);
   }
 
- const supportFatigueFit = fatigue <= 4 ? 0.8 : 0.4;
-return clamp01(supportFatigueFit);
+  const supportFatigueFit = fatigue <= 4 ? 0.8 : 0.4;
+  return clamp01(supportFatigueFit);
 }
 
 function calculateConstraintRisk(
@@ -490,13 +508,14 @@ function clamp01(value: number): number {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 🔴 ENGINE ENTRY POINT (필수)
+// ENGINE ENTRY POINT
 // ─────────────────────────────────────────────────────────────
 
 /**
  * Planning → Decision Layer 연결 함수
  *
- * engine.ts에서 사용하는 공식 entry point
+ * 기존 호환용 no-op decision layer.
+ * 실제 DecisionReadyDayPlan 생성/자동 선택 fallback은 engine.ts에서 수행한다.
  */
 export function applyDecisionLayer(
   dayPlans: DayPlan[],
@@ -544,7 +563,11 @@ export function convertDecisionSelectionToDayPlan(
   const plannedMap = buildPlannedExperienceMap(sourceDayPlan);
 
   const peakItem = selectedOptions.peak
-    ? requirePlannedExperience(plannedMap, selectedOptions.peak.experienceId, "peak")
+    ? requirePlannedExperience(
+        plannedMap,
+        selectedOptions.peak.experienceId,
+        "peak",
+      )
     : undefined;
 
   const recoveryItem = selectedOptions.recovery
@@ -559,11 +582,16 @@ export function convertDecisionSelectionToDayPlan(
     requirePlannedExperience(plannedMap, option.experienceId, "support"),
   );
 
+  const sourcePoolCount =
+    sourceDayPlan.anchor.length +
+    sourceDayPlan.core.length +
+    sourceDayPlan.optional.length;
+
   const targetItemCount =
     sourceDayPlan.selection?.targetItemCount ??
     sourceDayPlan.suggestedFlow?.length ??
     sourceDayPlan.roughOrder.length ??
-    sourceDayPlan.anchor.length + sourceDayPlan.core.length + sourceDayPlan.optional.length;
+    sourcePoolCount;
 
   const sourceOrderIds =
     sourceDayPlan.suggestedFlow && sourceDayPlan.suggestedFlow.length > 0
@@ -574,7 +602,6 @@ export function convertDecisionSelectionToDayPlan(
   const oldRecoveryId = sourceDayPlan.selection?.recoveryCandidateId;
 
   const selectedIds = new Set<string>();
-
   const orderedItems: PlannedExperience[] = [];
 
   function pushUnique(item?: PlannedExperience): void {
@@ -598,18 +625,17 @@ export function convertDecisionSelectionToDayPlan(
       continue;
     }
 
-    const item = plannedMap.get(id);
-    pushUnique(item);
+    pushUnique(plannedMap.get(id));
   }
 
-  // selected option이 기존 suggestedFlow 안에 없던 경우 보존 삽입
   pushUnique(peakItem);
+
   for (const supportItem of supportItems) {
     pushUnique(supportItem);
   }
+
   pushUnique(recoveryItem);
 
-  // 그래도 targetItemCount보다 부족하면 기존 planning pool에서 채운다.
   const fallbackItems = [
     ...sourceDayPlan.anchor,
     ...sourceDayPlan.core,
@@ -629,7 +655,6 @@ export function convertDecisionSelectionToDayPlan(
   const suggestedFlow = dedupedOrderedItems.map((item) => item.experience.id);
 
   const nextAnchor = peakItem ? [peakItem] : sourceDayPlan.anchor;
-
   const nextAnchorIds = new Set(nextAnchor.map((item) => item.experience.id));
 
   const nextCore = dedupedOrderedItems.filter((item) => {
@@ -656,9 +681,11 @@ export function convertDecisionSelectionToDayPlan(
       skeletonType: structureType,
       hardCap: sourceDayPlan.selection?.hardCap ?? targetItemCount,
       targetItemCount,
-      peakCandidateId: peakItem?.experience.id ?? sourceDayPlan.selection?.peakCandidateId,
+      peakCandidateId:
+        peakItem?.experience.id ?? sourceDayPlan.selection?.peakCandidateId,
       recoveryCandidateId:
-        recoveryItem?.experience.id ?? sourceDayPlan.selection?.recoveryCandidateId,
+        recoveryItem?.experience.id ??
+        sourceDayPlan.selection?.recoveryCandidateId,
       lateFallbackIds: sourceDayPlan.selection?.lateFallbackIds ?? [],
       selectedOrder: suggestedFlow,
       spareCapacity: Math.max(0, targetItemCount - dedupedOrderedItems.length),
@@ -699,28 +726,32 @@ export function convertDecisionSelectionToDayPlan(
     fallbackPool: sourceDayPlan.fallbackPool ?? [],
   };
 }
-function materializeDecisionRoleSequence(
-  roleSequence: readonly DecisionFlowRole[],
-  selectedByRole: Partial<Record<DecisionFlowRole, PlannedExperience[]>>,
-): PlannedExperience[] {
-  const roleCursor: Record<DecisionFlowRole, number> = {
-    peak: 0,
-    recovery: 0,
-    support: 0,
-  };
 
-  const result: PlannedExperience[] = [];
+function buildPlannedExperienceMap(
+  dayPlan: DayPlan,
+): Map<string, PlannedExperience> {
+  const items = [
+    ...dayPlan.anchor,
+    ...dayPlan.core,
+    ...dayPlan.optional,
+    ...(dayPlan.lateFallbackReserve ?? []),
+  ];
 
-  for (const role of roleSequence) {
-    const candidates = selectedByRole[role] ?? [];
-    const index = roleCursor[role];
-    const item = candidates[index];
+  return new Map(items.map((item) => [item.experience.id, item]));
+}
 
-    if (item) {
-      result.push(item);
-      roleCursor[role] += 1;
-    }
+function requirePlannedExperience(
+  plannedMap: Map<string, PlannedExperience>,
+  experienceId: string,
+  role: DecisionFlowRole,
+): PlannedExperience {
+  const item = plannedMap.get(experienceId);
+
+  if (!item) {
+    throw new Error(
+      `convertDecisionSelectionToDayPlan: selected ${role} option not found in source DayPlan. experienceId=${experienceId}`,
+    );
   }
 
-  return result;
+  return item;
 }
