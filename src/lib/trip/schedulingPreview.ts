@@ -401,7 +401,7 @@ function detectConflicts(params: {
   if (hasPeak && hasRecovery && supportOptions.length === 0) {
     conflicts.push({
       type: "selection_schedule_mismatch",
-      severity: "low",
+      severity: "medium",
       affectedOptionIds: selectedOptionIds,
       affectedExperienceIds: selectedExperienceIds,
       message: "선택 구조가 peak/recovery만으로 단순해 실제 scheduling 결과와 preview 판단이 어긋날 수 있다.",
@@ -606,10 +606,30 @@ function buildPreviewDay(params: {
     experienceMap,
   });
 
-  const hasConflict = conflicts.some(
-    (conflict) => conflict.severity === "medium" || conflict.severity === "high",
-  );
+  const highSeverity = conflicts.some((c) => c.severity === "high");
+const mediumSeverity = conflicts.some((c) => c.severity === "medium");
 
+const structuralConflict = conflicts.some(
+  (c) =>
+    c.type === "recovery_missing" ||
+    c.type === "recovery_placement_risk" ||
+    c.type === "peak_placement_risk" ||
+    c.type === "selection_schedule_mismatch",
+);
+
+let status: SchedulingPreviewStatus;
+
+if (highSeverity) {
+  status = "conflict";
+} else if (structuralConflict && mediumSeverity) {
+  status = "conflict";
+} else if (structuralConflict) {
+  status = "tight";
+} else if (analysis.status === "tight") {
+  status = "tight";
+} else {
+  status = "safe";
+}
   const status: SchedulingPreviewStatus =
     analysis.status === "conflict" || hasConflict
       ? "conflict"
