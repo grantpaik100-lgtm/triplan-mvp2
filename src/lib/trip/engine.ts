@@ -44,6 +44,7 @@ import {
   convertDecisionSelectionToDayPlan,
 } from "./decision";
 
+import { scheduleDayPlan } from "./scheduling";
 import { generateSchedulingPreview } from "./schedulingPreview";
 import type {
   CandidateDiagnostics,
