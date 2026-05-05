@@ -1,12 +1,13 @@
 "use client";
 /**
- * TriPlan V3
+ * TriPlan V4
  * Current Role:
  * - dev scenario를 선택해 sessionStorage에 canonical input을 주입하고 generate 체인으로 보내는 내부 테스트 route다.
+ * - scenario compare 출력에서 planning / scheduling / schedulingPreview diagnostics를 확인한다.
  *
  * Target Role:
- * - 단일 scenario 실행과 다중 scenario 비교 실행을 모두 지원하는 공식 dev scenario runner가 되어야 한다.
- * - Planning Contract(묶음 A) observation을 compare 출력에 포함한다.
+ * - 단일 scenario 실행과 다중 scenario 비교 실행을 모두 지원하는 공식 dev scenario runner.
+ * - Scheduling Preview 결과를 dev output에서 검증할 수 있어야 한다.
  *
  * Chain:
  * - generate
@@ -18,7 +19,7 @@
  * - sessionStorage.triplan_primary_result
  * - sessionStorage.triplan_planning_input
  * - /trip/generate navigation
- * - compare diagnostics UI (scheduling + planning)
+ * - compare diagnostics UI
  *
  * Called From:
  * - /dev/scenario route
@@ -40,15 +41,16 @@
  *
  * Notes:
  * - dev/internal route다.
- * - 사용자용 설문 체인을 대체하는 것이 아니라 엔진 반복 실험 속도를 올리기 위한 route다.
- * - 비교 실행은 세 시나리오를 한 번에 돌려 회귀(regression)와 병목 패턴을 빠르게 파악하기 위한 기능이다.
- * - planning diagnostics는 PlanningContract observation(pins / timeBudget / suggestedFlow / fallbackPool)을 노출하기 위한 섹션이다.
+ * - 사용자용 설문 체인을 대체하지 않는다.
  */
+
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getScenarioNames, loadScenario } from "@/lib/trip/scenarioLoader";
 import type { TripPlanResult } from "@/lib/trip/types";
+
 type RunnerStatus = "idle" | "running" | "success" | "error";
+
 type ScenarioRunResult = {
   name: string;
   status: RunnerStatus;
@@ -56,8 +58,10 @@ type ScenarioRunResult = {
   result?: TripPlanResult;
   error?: string;
 };
+
 function buildSecondaryAnswersFromStoredInput(stored: any) {
   const rawAnswers = stored?.raw?.surveyRawAnswers ?? {};
+
   return {
     ...rawAnswers,
     tripDays: rawAnswers.tripDays,
@@ -71,6 +75,7 @@ function buildSecondaryAnswersFromStoredInput(stored: any) {
     diversityMode: rawAnswers.diversityMode ?? rawAnswers.diversity_mode,
   };
 }
+
 function countNotesContaining(result: TripPlanResult, keyword: string) {
   return (
     result.debug?.schedulingDiagnostics?.days?.reduce((sum, day) => {
@@ -80,8 +85,10 @@ function countNotesContaining(result: TripPlanResult, keyword: string) {
     }, 0) ?? 0
   );
 }
+
 function getStatusCounts(result: TripPlanResult) {
   const days = result.debug?.schedulingDiagnostics?.days ?? [];
+
   return days.reduce(
     (acc, day) => {
       const key = day.finalStatus;
@@ -91,10 +98,7 @@ function getStatusCounts(result: TripPlanResult) {
     {} as Record<string, number>,
   );
 }
-/**
- * Planning Contract observation 카운터.
- * budgetFeasible=false 인 day 수를 세서 planning 단계에서의 pre-check 정확도를 관측한다.
- */
+
 function countPlanningBudgetInfeasible(result: TripPlanResult) {
   return (
     result.debug?.planningDiagnostics?.dayPlans?.reduce((sum, day) => {
@@ -104,53 +108,88 @@ function countPlanningBudgetInfeasible(result: TripPlanResult) {
     }, 0) ?? 0
   );
 }
+
+function getPreviewStatusCounts(result: TripPlanResult) {
+  const previewDays = result.debug?.schedulingPreview?.days ?? [];
+
+  return previewDays.reduce(
+    (acc, day) => {
+      acc[day.status] = (acc[day.status] ?? 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>,
+  );
+}
+
 function buildScenarioSummary(result: TripPlanResult) {
   const scheduling = result.debug?.schedulingDiagnostics;
   const days = scheduling?.days ?? [];
   const statusCounts = getStatusCounts(result);
+
   return {
     totalRepairs: scheduling?.totalRepairCount ?? 0,
     overflowDays: scheduling?.totalOverflowDays ?? 0,
     missingRecoveryCount: countNotesContaining(result, "after:missing_recovery"),
     lateFallbackMissCount: countNotesContaining(result, "lateFallbackMiss="),
-    timeWindowViolationCount: countNotesContaining(result, "issues=time_window_violation"),
+    timeWindowViolationCount: countNotesContaining(
+      result,
+      "issues=time_window_violation",
+    ),
     softMissCount: countNotesContaining(result, "timeline:softMiss="),
     planningInfeasibleDays: countPlanningBudgetInfeasible(result),
+    previewConflictDays:
+      result.debug?.schedulingPreview?.diagnostics?.conflictDays ?? 0,
+    previewTotalConflicts:
+      result.debug?.schedulingPreview?.diagnostics?.totalConflictCount ?? 0,
+    previewStatusCounts: getPreviewStatusCounts(result),
     statusCounts,
     dayLines: days.map((day) => {
       const plannedItemsNote =
-        day.notes?.find((note) => note.startsWith("plannedItems=")) ?? "plannedItems=unknown";
+        day.notes?.find((note) => note.startsWith("plannedItems=")) ??
+        "plannedItems=unknown";
       const scheduledItemsNote =
-        day.notes?.find((note) => note.startsWith("scheduledItems=")) ?? "scheduledItems=unknown";
+        day.notes?.find((note) => note.startsWith("scheduledItems=")) ??
+        "scheduledItems=unknown";
       const skeletonNote =
-        day.notes?.find((note) => note.startsWith("skeleton=")) ?? "skeleton=unknown";
+        day.notes?.find((note) => note.startsWith("skeleton=")) ??
+        "skeleton=unknown";
       const recoveryNote =
-        day.notes?.find((note) => note.startsWith("recovery=")) ?? "recovery=none";
+        day.notes?.find((note) => note.startsWith("recovery=")) ??
+        "recovery=none";
+
       return `DAY ${day.dayIndex} | ${day.narrativeType} | ${skeletonNote} | ${plannedItemsNote} | ${scheduledItemsNote} | ${recoveryNote} | status=${day.finalStatus}`;
     }),
   };
 }
+
 function buildCopyText(results: ScenarioRunResult[]) {
   const lines: string[] = [];
+
   lines.push("TRIPLAN DEV SCENARIO COMPARE");
   lines.push("");
+
   for (const item of results) {
     lines.push(`SCENARIO: ${item.name}`);
     lines.push(`status=${item.status}`);
+
     if (item.durationMs != null) {
       lines.push(`durationMs=${item.durationMs}`);
     }
+
     if (item.error) {
       lines.push(`error=${item.error}`);
       lines.push("");
       continue;
     }
+
     if (!item.result) {
       lines.push("result=none");
       lines.push("");
       continue;
     }
+
     const summary = buildScenarioSummary(item.result);
+
     lines.push(`repairCount=${summary.totalRepairs}`);
     lines.push(`overflowDays=${summary.overflowDays}`);
     lines.push(`missingRecoveryCount=${summary.missingRecoveryCount}`);
@@ -158,17 +197,33 @@ function buildCopyText(results: ScenarioRunResult[]) {
     lines.push(`softMissCount=${summary.softMissCount}`);
     lines.push(`timeWindowViolationCount=${summary.timeWindowViolationCount}`);
     lines.push(`planningInfeasibleDays=${summary.planningInfeasibleDays}`);
+    lines.push(`previewConflictDays=${summary.previewConflictDays}`);
+    lines.push(`previewTotalConflicts=${summary.previewTotalConflicts}`);
     lines.push(
-      `statusCounts=${Object.entries(summary.statusCounts)
-        .map(([key, value]) => `${key}:${value}`)
-        .join(", ") || "none"}`,
+      `previewStatusCounts=${
+        Object.entries(summary.previewStatusCounts)
+          .map(([key, value]) => `${key}:${value}`)
+          .join(", ") || "none"
+      }`,
     );
+    lines.push(
+      `statusCounts=${
+        Object.entries(summary.statusCounts)
+          .map(([key, value]) => `${key}:${value}`)
+          .join(", ") || "none"
+      }`,
+    );
+
     for (const dayLine of summary.dayLines) {
       lines.push(dayLine);
     }
+
     lines.push("");
+
     const schedulingDays = item.result.debug?.schedulingDiagnostics?.days ?? [];
     const planningDays = item.result.debug?.planningDiagnostics?.dayPlans ?? [];
+    const previewDays = item.result.debug?.schedulingPreview?.days ?? [];
+
     for (const day of schedulingDays) {
       lines.push(`DAY ${day.dayIndex} SCHEDULING DIAGNOSTICS`);
       lines.push(`narrative=${day.narrativeType}`);
@@ -176,21 +231,27 @@ function buildCopyText(results: ScenarioRunResult[]) {
       lines.push(`flow=${day.flowScoreBeforeRepair} -> ${day.flowScoreAfterRepair}`);
       lines.push(`overflow=${day.overflowMin}`);
       lines.push(`finalStatus=${day.finalStatus}`);
+
       if (day.repairs?.length) {
         for (const repair of day.repairs) {
           lines.push(
-            `repair.step=${repair.step} action=${repair.action}${repair.targetExperienceId ? ` target=${repair.targetExperienceId}` : ""}`,
+            `repair.step=${repair.step} action=${repair.action}${
+              repair.targetExperienceId ? ` target=${repair.targetExperienceId}` : ""
+            }`,
           );
         }
       }
+
       if (day.notes?.length) {
         for (const note of day.notes) {
           lines.push(`note=${note}`);
         }
       }
+
       lines.push("");
-      // PLANNING CONTRACT OBSERVATION (묶음 A)
+
       const planDay = planningDays.find((p) => p.dayIndex === day.dayIndex);
+
       if (planDay) {
         lines.push(`DAY ${day.dayIndex} PLANNING DIAGNOSTICS`);
         lines.push(`strategy=${planDay.targetClusterStrategy}`);
@@ -201,34 +262,93 @@ function buildCopyText(results: ScenarioRunResult[]) {
         lines.push(`optionalIds=${planDay.optionalIds.join(",") || "none"}`);
         lines.push(`peakCandidateId=${planDay.peakCandidateId ?? "none"}`);
         lines.push(`recoveryCandidateId=${planDay.recoveryCandidateId ?? "none"}`);
+
         if (planDay.notes?.length) {
           for (const note of planDay.notes) {
             lines.push(`pnote=${note}`);
           }
         }
+
+        lines.push("");
+      }
+
+      const previewDay = previewDays.find((p) => p.dayIndex === day.dayIndex);
+
+      if (previewDay) {
+        lines.push(`DAY ${day.dayIndex} SCHEDULING PREVIEW`);
+        lines.push(`previewStatus=${previewDay.status}`);
+        lines.push(`previewFeasibility=${previewDay.feasibility}`);
+        lines.push(
+          `selectedOptionIds=${previewDay.selectedOptionIds.join(",") || "none"}`,
+        );
+        lines.push(
+          `selectedExperienceIds=${
+            previewDay.selectedExperienceIds.join(",") || "none"
+          }`,
+        );
+        lines.push(
+          `estimatedTotalMinutes=${previewDay.analysis.estimatedTotalMinutes}`,
+        );
+        lines.push(`availableMinutes=${previewDay.analysis.availableMinutes}`);
+        lines.push(
+          `estimatedTravelMinutes=${previewDay.analysis.estimatedTravelMinutes}`,
+        );
+        lines.push(`estimatedFatigue=${previewDay.analysis.estimatedFatigue}`);
+        lines.push(`bufferMinutes=${previewDay.analysis.bufferMinutes}`);
+        lines.push(`previewSummary=${previewDay.analysis.summary}`);
+
+        if (previewDay.conflicts.length) {
+          for (const conflict of previewDay.conflicts) {
+            lines.push(
+              `previewConflict=${conflict.type} severity=${conflict.severity} message=${conflict.message}`,
+            );
+          }
+        }
+
+        if (previewDay.tradeOffs.length) {
+          for (const tradeOff of previewDay.tradeOffs) {
+            lines.push(`previewTradeOff=${tradeOff}`);
+          }
+        }
+
+        if (previewDay.alternatives.length) {
+          for (const alternative of previewDay.alternatives) {
+            lines.push(
+              `previewAlternative=${alternative.id} title=${alternative.title}`,
+            );
+          }
+        }
+
         lines.push("");
       }
     }
+
     lines.push("--------------------------------------------------");
     lines.push("");
   }
+
   return lines.join("\n");
 }
+
 async function runScenarioByName(name: string): Promise<ScenarioRunResult> {
   const scenario = loadScenario(name);
+
   const primaryResult = {
     ...scenario.primaryResult,
     completedAt: new Date().toISOString(),
     source: "dev_scenario",
     scenarioName: scenario.name,
   };
+
   const planningInput = {
     ...scenario.planningInput,
     source: "dev_scenario",
     scenarioName: scenario.name,
   };
+
   const secondaryAnswers = buildSecondaryAnswersFromStoredInput(planningInput);
   const startedAt = performance.now();
+
   try {
     const response = await fetch("/api/generate-trip", {
       method: "POST",
@@ -241,8 +361,10 @@ async function runScenarioByName(name: string): Promise<ScenarioRunResult> {
         secondaryAnswers,
       }),
     });
+
     const data = await response.json();
     const durationMs = Math.round(performance.now() - startedAt);
+
     if (!response.ok || !data.ok) {
       return {
         name,
@@ -251,6 +373,7 @@ async function runScenarioByName(name: string): Promise<ScenarioRunResult> {
         error: data.error ?? "Failed to generate trip",
       };
     }
+
     return {
       name,
       status: "success",
@@ -266,52 +389,72 @@ async function runScenarioByName(name: string): Promise<ScenarioRunResult> {
     };
   }
 }
+
 export default function DevScenarioPage() {
   const router = useRouter();
   const names = getScenarioNames();
+
   const [selected, setSelected] = useState(names[0] ?? "");
   const [compareResults, setCompareResults] = useState<ScenarioRunResult[]>([]);
   const [runningAll, setRunningAll] = useState(false);
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
+    "idle",
+  );
+
   function handleRunSingle() {
     const scenario = loadScenario(selected);
+
     const primaryResult = {
       ...scenario.primaryResult,
       completedAt: new Date().toISOString(),
       source: "dev_scenario",
       scenarioName: scenario.name,
     };
+
     const planningInput = {
       ...scenario.planningInput,
       source: "dev_scenario",
       scenarioName: scenario.name,
     };
+
     sessionStorage.setItem("triplan_primary_result", JSON.stringify(primaryResult));
     sessionStorage.setItem("primaryResult", JSON.stringify(primaryResult));
     sessionStorage.setItem("triplan_planning_input", JSON.stringify(planningInput));
+
     router.push("/trip/generate");
   }
+
   async function handleRunAll() {
     setRunningAll(true);
     setCopyState("idle");
+
     const initial = names.map((name) => ({
       name,
       status: "running" as RunnerStatus,
     }));
+
     setCompareResults(initial);
+
     const nextResults: ScenarioRunResult[] = [];
+
     for (const name of names) {
       const result = await runScenarioByName(name);
       nextResults.push(result);
       setCompareResults([...nextResults]);
     }
+
     try {
-      sessionStorage.setItem("triplan_dev_compare_results", JSON.stringify(nextResults));
+      sessionStorage.setItem(
+        "triplan_dev_compare_results",
+        JSON.stringify(nextResults),
+      );
     } catch {
       // dev helper storage failure는 무시
     }
+
     setRunningAll(false);
   }
+
   async function handleCopy() {
     try {
       const text = buildCopyText(compareResults);
@@ -321,7 +464,12 @@ export default function DevScenarioPage() {
       setCopyState("failed");
     }
   }
-  const compareText = useMemo(() => buildCopyText(compareResults), [compareResults]);
+
+  const compareText = useMemo(
+    () => buildCopyText(compareResults),
+    [compareResults],
+  );
+
   return (
     <main
       style={{
@@ -354,9 +502,12 @@ export default function DevScenarioPage() {
           <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700 }}>
             TriPlan Dev Scenario Runner
           </h1>
+
           <p style={{ marginTop: 8, opacity: 0.72 }}>
-            설문 없이 scenario JSON으로 바로 generate/result까지 실행하고, 세 시나리오를 한 번에 비교한다.
+            설문 없이 scenario JSON으로 바로 generate/result까지 실행하고,
+            compare output에서 scheduling preview까지 확인한다.
           </p>
+
           <div
             style={{
               marginTop: 16,
@@ -384,6 +535,7 @@ export default function DevScenarioPage() {
                 </option>
               ))}
             </select>
+
             <button
               onClick={handleRunSingle}
               style={{
@@ -397,6 +549,7 @@ export default function DevScenarioPage() {
             >
               Run selected
             </button>
+
             <button
               onClick={handleRunAll}
               disabled={runningAll}
@@ -411,6 +564,7 @@ export default function DevScenarioPage() {
             >
               {runningAll ? "Running all..." : "Run all scenarios"}
             </button>
+
             <button
               onClick={handleCopy}
               disabled={compareResults.length === 0}
@@ -425,12 +579,14 @@ export default function DevScenarioPage() {
             >
               Copy diagnostics text
             </button>
+
             <div style={{ fontSize: 12, opacity: 0.7 }}>
               {copyState === "copied" && "복사 완료"}
               {copyState === "failed" && "복사 실패"}
             </div>
           </div>
         </section>
+
         {compareResults.length === 0 ? (
           <section
             style={{
@@ -440,7 +596,8 @@ export default function DevScenarioPage() {
               opacity: 0.8,
             }}
           >
-            아직 compare 결과가 없다. 상단에서 <strong>Run all scenarios</strong>를 눌러 세 시나리오를 한 번에 실행하면 된다.
+            아직 compare 결과가 없다. 상단에서{" "}
+            <strong>Run all scenarios</strong>를 눌러 실행하면 된다.
           </section>
         ) : (
           <>
@@ -452,7 +609,10 @@ export default function DevScenarioPage() {
               }}
             >
               {compareResults.map((item) => {
-                const summary = item.result ? buildScenarioSummary(item.result) : null;
+                const summary = item.result
+                  ? buildScenarioSummary(item.result)
+                  : null;
+
                 return (
                   <article
                     key={item.name}
@@ -463,35 +623,75 @@ export default function DevScenarioPage() {
                       background: "rgba(255,255,255,0.03)",
                     }}
                   >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 12,
+                      }}
+                    >
                       <div>
-                        <div style={{ fontSize: 18, fontWeight: 700 }}>{item.name}</div>
+                        <div style={{ fontSize: 18, fontWeight: 700 }}>
+                          {item.name}
+                        </div>
                         <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>
                           status={item.status}
                           {item.durationMs != null ? ` · ${item.durationMs}ms` : ""}
                         </div>
                       </div>
                     </div>
+
                     {item.error && (
                       <div style={{ marginTop: 12, color: "#fca5a5" }}>
                         error: {item.error}
                       </div>
                     )}
+
                     {summary && (
-                      <div style={{ marginTop: 16, display: "grid", gap: 8, fontSize: 14 }}>
+                      <div
+                        style={{
+                          marginTop: 16,
+                          display: "grid",
+                          gap: 8,
+                          fontSize: 14,
+                        }}
+                      >
                         <div>repairCount: {summary.totalRepairs}</div>
                         <div>overflowDays: {summary.overflowDays}</div>
-                        <div>missingRecoveryCount: {summary.missingRecoveryCount}</div>
-                        <div>lateFallbackMissCount: {summary.lateFallbackMissCount}</div>
+                        <div>
+                          missingRecoveryCount: {summary.missingRecoveryCount}
+                        </div>
+                        <div>
+                          lateFallbackMissCount: {summary.lateFallbackMissCount}
+                        </div>
                         <div>softMissCount: {summary.softMissCount}</div>
-                        <div>timeWindowViolationCount: {summary.timeWindowViolationCount}</div>
-                        <div>planningInfeasibleDays: {summary.planningInfeasibleDays}</div>
+                        <div>
+                          timeWindowViolationCount:{" "}
+                          {summary.timeWindowViolationCount}
+                        </div>
+                        <div>
+                          planningInfeasibleDays:{" "}
+                          {summary.planningInfeasibleDays}
+                        </div>
+                        <div>
+                          previewConflictDays: {summary.previewConflictDays}
+                        </div>
+                        <div>
+                          previewTotalConflicts: {summary.previewTotalConflicts}
+                        </div>
+                        <div>
+                          previewStatusCounts:{" "}
+                          {Object.entries(summary.previewStatusCounts)
+                            .map(([key, value]) => `${key}:${value}`)
+                            .join(", ") || "none"}
+                        </div>
                         <div>
                           statusCounts:{" "}
                           {Object.entries(summary.statusCounts)
                             .map(([key, value]) => `${key}:${value}`)
                             .join(", ") || "none"}
                         </div>
+
                         <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
                           {summary.dayLines.map((line) => (
                             <div key={line} style={{ marginBottom: 4 }}>
@@ -505,6 +705,7 @@ export default function DevScenarioPage() {
                 );
               })}
             </section>
+
             <section
               style={{
                 border: "1px solid rgba(255,255,255,0.08)",
@@ -513,7 +714,10 @@ export default function DevScenarioPage() {
                 background: "rgba(255,255,255,0.03)",
               }}
             >
-              <div style={{ fontWeight: 700, marginBottom: 12 }}>Combined diagnostics text</div>
+              <div style={{ fontWeight: 700, marginBottom: 12 }}>
+                Combined diagnostics text
+              </div>
+
               <textarea
                 readOnly
                 value={compareText}
@@ -530,109 +734,6 @@ export default function DevScenarioPage() {
                   lineHeight: 1.5,
                 }}
               />
-            </section>
-            <section
-              style={{
-                display: "grid",
-                gap: 16,
-              }}
-            >
-              {compareResults.map((item) => {
-                if (!item.result) return null;
-                const schedulingDays = item.result.debug?.schedulingDiagnostics?.days ?? [];
-                const planningDays = item.result.debug?.planningDiagnostics?.dayPlans ?? [];
-                return (
-                  <div
-                    key={`${item.name}-diagnostics`}
-                    style={{
-                      border: "1px solid rgba(255,255,255,0.08)",
-                      borderRadius: 16,
-                      padding: 16,
-                      background: "rgba(255,255,255,0.03)",
-                    }}
-                  >
-                    <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 12 }}>
-                      {item.name} diagnostics
-                    </div>
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-                        gap: 12,
-                      }}
-                    >
-                      {schedulingDays.map((diag) => {
-                        const planDay = planningDays.find((p) => p.dayIndex === diag.dayIndex);
-                        return (
-                          <div
-                            key={`${item.name}-day-${diag.dayIndex}`}
-                            style={{
-                              border: "1px solid rgba(255,255,255,0.08)",
-                              borderRadius: 12,
-                              padding: 12,
-                            }}
-                          >
-                            <div style={{ fontWeight: 700, marginBottom: 8 }}>
-                              DAY {diag.dayIndex}
-                            </div>
-                            <div style={{ fontSize: 13, lineHeight: 1.7 }}>
-                              <div>narrative: {diag.narrativeType}</div>
-                              <div>primary peak: {diag.primaryPeakId ?? "none"}</div>
-                              <div>
-                                flow score: {diag.flowScoreBeforeRepair} → {diag.flowScoreAfterRepair}
-                              </div>
-                              <div>overflow: {diag.overflowMin} min</div>
-                              <div>status: {diag.finalStatus}</div>
-                            </div>
-                            {diag.repairs?.length > 0 && (
-                              <div style={{ marginTop: 8, fontSize: 12, opacity: 0.82 }}>
-                                <div style={{ marginBottom: 4, fontWeight: 700 }}>repairs</div>
-                                {diag.repairs.map((repair, idx) => (
-                                  <div key={idx}>
-                                    • step {repair.step}: {repair.action}
-                                    {repair.targetExperienceId
-                                      ? ` (${repair.targetExperienceId})`
-                                      : ""}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                            {diag.notes?.length > 0 && (
-                              <div style={{ marginTop: 8, fontSize: 12, opacity: 0.72 }}>
-                                <div style={{ marginBottom: 4, fontWeight: 700 }}>scheduling notes</div>
-                                {diag.notes.map((note, idx) => (
-                                  <div key={idx}>• {note}</div>
-                                ))}
-                              </div>
-                            )}
-                            {planDay && planDay.notes?.length > 0 && (
-                              <div
-                                style={{
-                                  marginTop: 8,
-                                  fontSize: 12,
-                                  opacity: 0.72,
-                                  borderTop: "1px solid rgba(255,255,255,0.08)",
-                                  paddingTop: 8,
-                                }}
-                              >
-                                <div style={{ marginBottom: 4, fontWeight: 700 }}>planning notes (contract observation)</div>
-                                {planDay.notes.map((note, idx) => (
-                                  <div
-                                    key={idx}
-                                    style={{ wordBreak: "break-word", marginBottom: 2 }}
-                                  >
-                                    • {note}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
             </section>
           </>
         )}
