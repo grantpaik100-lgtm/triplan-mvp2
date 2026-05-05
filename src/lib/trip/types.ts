@@ -376,10 +376,120 @@ export type DecisionDiagnostics = {
   notes: string[];
 };
 
+// ─── Decision Layer ──────────────────────────────────────────────────────────
+//
+// Decision Layer 전용 실행 타입 계약.
+// 기존 FlowRole / DaySkeletonType과 분리된 Decision-facing subset.
+// engine 파이프라인 구조(Scoring → Planning → Scheduling)를 변경하지 않는다.
+
+/**
+ * Decision Layer가 사용자에게 제시하는 하루 구조 유형.
+ * 기존 DaySkeletonType과 분리.
+ */
+export type DecisionDayStructureType =
+  | "balanced"
+  | "peak_centric"
+  | "relaxed";
+
+/**
+ * Decision Layer에서 각 option이 담당하는 역할.
+ * 기존 FlowRole과 분리.
+ */
+export type DecisionFlowRole =
+  | "peak"
+  | "recovery"
+  | "support";
+
+/**
+ * Decision scoring에 사용하는 가중치.
+ * 합계 = 1.0 권장 (강제하지 않음, MVP 기준).
+ */
+export type DecisionScoreWeights = {
+  preferenceMatch: number;
+  behaviorAlignment: number;
+  flowFit: number;
+  constraintRisk: number;
+};
+
+/**
+ * 사용자에게 제시되는 하나의 선택지.
+ */
+export type DecisionOption = {
+  id: string;
+  experienceId: string;
+  role: DecisionFlowRole;
+  title: string;
+
+  scoreBreakdown: {
+    preferenceMatch: number;
+    behaviorAlignment: number;
+    flowFit: number;
+    constraintRisk: number;
+    finalScore: number;
+  };
+
+  explanation: {
+    whyRecommended: string;
+    roleReason: string;
+    tradeOff: string;
+    duplicateDifference?: string;
+  };
+
+  metadata: {
+    experienceType: string;
+    area: Area;
+    themeCluster?: ThemeCluster;
+    expectedFatigue: number;
+    estimatedDuration: number;
+    feasible: boolean;
+  };
+};
+
+/**
+ * Decision Layer가 사용자에게 제시하는 day plan 계약.
+ * 기존 DayPlan을 변경하지 않는 독립 wrapper.
+ */
+export type DecisionReadyDayPlan = {
+  dayIndex: number;
+  structureType: DecisionDayStructureType;
+  roleSequence: DecisionFlowRole[];
+
+  options: {
+    peak: DecisionOption[];
+    recovery: DecisionOption[];
+    support: DecisionOption[];
+  };
+
+  diagnostics: {
+    candidateCounts: Record<DecisionFlowRole, number>;
+    feasibilityFilteredCount: number;
+    duplicatePolicyUsed: boolean;
+    fallbackUsed: boolean;
+    notes: string[];
+  };
+};
+
+/**
+ * 사용자가 role별로 내린 선택 기록.
+ */
+export type UserChoiceLog = {
+  selectedOptionId: string;
+  rejectedOptionIds: string[];
+  role: DecisionFlowRole;
+  selectionOrder: number;
+  context?: {
+    dayIndex?: number;
+    companionType?: CompanionType;
+    structureType?: DecisionDayStructureType;
+    optionSetSize?: number;
+    optionRank?: number;
+  };
+};
+
 export type TripDebug = {
   candidateDiagnostics: CandidateDiagnostics;
   planningDiagnostics: PlanningDiagnostics;
-  decisionDiagnostics: DecisionDiagnostics;   // ← 이 줄만 추가
+  decisionDiagnostics: DecisionDiagnostics;
   schedulingDiagnostics: SchedulingDiagnostics;
 };
 
@@ -625,131 +735,4 @@ export type CharacterProfile = {
     peakStructure: "single" | "double_wave";
     eveningActivation: boolean;
   };
-};
-// ─── Decision Layer ──────────────────────────────────────────────────────────
-//
-// Decision Layer 전용 타입 계약.
-// engine 파이프라인(Scoring → Planning → Scheduling) 구조를 변경하지 않는다.
-// DaySkeletonType / FlowRole의 subset을 사용하지만, Decision Layer 계약으로 별도 정의한다.
-
-/**
- * Decision Layer가 사용자에게 제시하는 하루 구조 유형.
- * DaySkeletonType("short" | "extended" 제외)의 UI-facing subset.
- */
-export type DayStructureType = "balanced" | "peak_centric" | "relaxed";
-
-/**
- * Decision Layer에서 각 option이 담당하는 역할.
- * FlowRole의 decision-facing subset.
- */
-export type DecisionFlowRole = "peak" | "recovery" | "support";
-
-/**
- * 사용자에게 제시되는 하나의 선택지.
- * role별 3개 고정.
- */
-export type DecisionOption = {
-  experienceId: string;
-  placeName: string;
-  role: DecisionFlowRole;
-  planningScore: number;
-  themeCluster?: ThemeCluster;
-};
-
-/**
- * Decision Layer가 사용자에게 제시하는 day plan 계약.
- * 기존 DayPlan을 변경하지 않는 독립 wrapper.
- * options는 role별 정확히 3개 tuple.
- */
-export type DecisionReadyDayPlan = {
-  dayIndex: number;
-  structureType: DayStructureType;
-  options: {
-    peak: [DecisionOption, DecisionOption, DecisionOption];
-    recovery: [DecisionOption, DecisionOption, DecisionOption];
-    support: [DecisionOption, DecisionOption, DecisionOption];
-  };
-};
-
-/**
- * 사용자가 role별로 내린 선택 기록.
- */
-export type UserChoiceLog = {
-  dayIndex: number;
-  role: DecisionFlowRole;
-  chosenExperienceId: string;
-  chosenAt: number; // Unix timestamp (ms)
-};
-
-/**
- * Decision scoring에 사용하는 가중치.
- * 합계 = 1.0 권장 (강제하지 않음, MVP 기준).
- */
-export type DecisionScoreWeights = {
-  planningScore: number;
-  companionFit: number;
-  themeCoherence: number;
-  fatigueBalance: number;
-};
-// ─── Decision Layer ──────────────────────────────────────────────────────────
-
-export type DecisionDayStructureType =
-  | "balanced"
-  | "peak_centric"
-  | "relaxed";
-
-export type DecisionFlowRole =
-  | "peak"
-  | "recovery"
-  | "support";
-
-export type DecisionOption = {
-  id: string;
-  experienceId: string;
-  role: DecisionFlowRole;
-  title: string;
-  scoreBreakdown: {
-    preferenceMatch: number;
-    behaviorAlignment: number;
-    flowFit: number;
-    constraintRisk: number;
-    finalScore: number;
-  };
-  explanation: {
-    whyRecommended: string;
-    roleReason: string;
-    tradeOff: string;
-    duplicateDifference?: string;
-  };
-  metadata: {
-    experienceType: string;
-    area: Area;
-    expectedFatigue: number;
-    estimatedDuration: number;
-    feasible: boolean;
-  };
-};
-
-export type DecisionReadyDayPlan = {
-  dayIndex: number;
-  structure: DecisionDayStructureType;
-  options: {
-    peak: DecisionOption[];
-    recovery: DecisionOption[];
-    support: DecisionOption[];
-  };
-};
-
-export type DecisionScoreWeights = {
-  preferenceMatch: number;
-  behaviorAlignment: number;
-  flowFit: number;
-  constraintRisk: number;
-};
-
-export type UserChoiceLog = {
-  selectedOptionId: string;
-  rejectedOptionIds: string[];
-  role: DecisionFlowRole;
-  selectionOrder: number;
 };
