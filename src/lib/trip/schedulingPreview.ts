@@ -279,7 +279,7 @@ function detectConflicts(params: {
     if (!metadata) {
       conflicts.push({
         type: "recovery_placement_risk",
-        severity: "medium",
+        severity: "low",
         affectedOptionIds: [recoveryOption.id],
         affectedExperienceIds: [recoveryOption.experienceId],
         message: "recovery 선택지의 메타데이터를 찾지 못해 실제 배치 안정성을 판단하기 어렵다.",
@@ -606,24 +606,23 @@ function buildPreviewDay(params: {
     experienceMap,
   });
 
-  const highSeverity = conflicts.some((c) => c.severity === "high");
+ const highSeverity = conflicts.some((c) => c.severity === "high");
 const mediumSeverity = conflicts.some((c) => c.severity === "medium");
 
-const structuralConflict = conflicts.some(
+const realStructuralConflict = conflicts.some(
   (c) =>
     c.type === "recovery_missing" ||
     c.type === "recovery_placement_risk" ||
-    c.type === "peak_placement_risk" ||
-    c.type === "selection_schedule_mismatch",
+    c.type === "peak_placement_risk",
 );
 
 let status: SchedulingPreviewStatus;
 
 if (highSeverity) {
   status = "conflict";
-} else if (structuralConflict && mediumSeverity) {
+} else if (realStructuralConflict && mediumSeverity) {
   status = "conflict";
-} else if (structuralConflict) {
+} else if (realStructuralConflict) {
   status = "tight";
 } else if (analysis.status === "tight") {
   status = "tight";
