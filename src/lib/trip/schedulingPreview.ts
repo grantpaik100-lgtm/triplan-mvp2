@@ -401,7 +401,7 @@ function detectConflicts(params: {
   if (hasPeak && hasRecovery && supportOptions.length === 0) {
     conflicts.push({
       type: "selection_schedule_mismatch",
-      severity: "medium",
+      severity: "low",
       affectedOptionIds: selectedOptionIds,
       affectedExperienceIds: selectedExperienceIds,
       message: "선택 구조가 peak/recovery만으로 단순해 실제 scheduling 결과와 preview 판단이 어긋날 수 있다.",
