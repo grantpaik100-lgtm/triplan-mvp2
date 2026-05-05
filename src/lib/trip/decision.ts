@@ -542,60 +542,126 @@ export function convertDecisionSelectionToDayPlan(
   const { sourceDayPlan, selectedOptions, structureType } = params;
 
   const plannedMap = buildPlannedExperienceMap(sourceDayPlan);
-  const roleSequence = DAY_STRUCTURE_TEMPLATES[structureType];
 
-  const selectedByRole: Partial<Record<DecisionFlowRole, PlannedExperience[]>> = {
-    peak: selectedOptions.peak
-      ? [requirePlannedExperience(plannedMap, selectedOptions.peak.experienceId, "peak")]
-      : [],
-    recovery: selectedOptions.recovery
-      ? [
-          requirePlannedExperience(
-            plannedMap,
-            selectedOptions.recovery.experienceId,
-            "recovery",
-          ),
-        ]
-      : [],
-    support: selectedOptions.support.map((option) =>
-      requirePlannedExperience(plannedMap, option.experienceId, "support"),
-    ),
-  };
+  const peakItem = selectedOptions.peak
+    ? requirePlannedExperience(plannedMap, selectedOptions.peak.experienceId, "peak")
+    : undefined;
 
-  const orderedItems = materializeDecisionRoleSequence(roleSequence, selectedByRole);
+  const recoveryItem = selectedOptions.recovery
+    ? requirePlannedExperience(
+        plannedMap,
+        selectedOptions.recovery.experienceId,
+        "recovery",
+      )
+    : undefined;
 
-  const dedupedOrderedItems = dedupePlannedExperiences(orderedItems);
+  const supportItems = selectedOptions.support.map((option) =>
+    requirePlannedExperience(plannedMap, option.experienceId, "support"),
+  );
+
+  const targetItemCount =
+    sourceDayPlan.selection?.targetItemCount ??
+    sourceDayPlan.suggestedFlow?.length ??
+    sourceDayPlan.roughOrder.length ??
+    sourceDayPlan.anchor.length + sourceDayPlan.core.length + sourceDayPlan.optional.length;
+
+  const sourceOrderIds =
+    sourceDayPlan.suggestedFlow && sourceDayPlan.suggestedFlow.length > 0
+      ? sourceDayPlan.suggestedFlow
+      : sourceDayPlan.roughOrder;
+
+  const oldPeakId = sourceDayPlan.selection?.peakCandidateId;
+  const oldRecoveryId = sourceDayPlan.selection?.recoveryCandidateId;
+
+  const selectedIds = new Set<string>();
+
+  const orderedItems: PlannedExperience[] = [];
+
+  function pushUnique(item?: PlannedExperience): void {
+    if (!item) return;
+
+    const id = item.experience.id;
+    if (selectedIds.has(id)) return;
+
+    orderedItems.push(item);
+    selectedIds.add(id);
+  }
+
+  for (const id of sourceOrderIds) {
+    if (oldPeakId && id === oldPeakId && peakItem) {
+      pushUnique(peakItem);
+      continue;
+    }
+
+    if (oldRecoveryId && id === oldRecoveryId && recoveryItem) {
+      pushUnique(recoveryItem);
+      continue;
+    }
+
+    const item = plannedMap.get(id);
+    pushUnique(item);
+  }
+
+  // selected option이 기존 suggestedFlow 안에 없던 경우 보존 삽입
+  pushUnique(peakItem);
+  for (const supportItem of supportItems) {
+    pushUnique(supportItem);
+  }
+  pushUnique(recoveryItem);
+
+  // 그래도 targetItemCount보다 부족하면 기존 planning pool에서 채운다.
+  const fallbackItems = [
+    ...sourceDayPlan.anchor,
+    ...sourceDayPlan.core,
+    ...sourceDayPlan.optional,
+    ...(sourceDayPlan.lateFallbackReserve ?? []),
+  ];
+
+  for (const item of fallbackItems) {
+    if (orderedItems.length >= targetItemCount) break;
+    pushUnique(item);
+  }
+
+  const dedupedOrderedItems = dedupePlannedExperiences(
+    orderedItems.slice(0, targetItemCount),
+  );
+
   const suggestedFlow = dedupedOrderedItems.map((item) => item.experience.id);
 
-  const peakItem = selectedByRole.peak?.[0];
-  const recoveryItem = selectedByRole.recovery?.[0];
+  const nextAnchor = peakItem ? [peakItem] : sourceDayPlan.anchor;
+
+  const nextAnchorIds = new Set(nextAnchor.map((item) => item.experience.id));
+
+  const nextCore = dedupedOrderedItems.filter((item) => {
+    const id = item.experience.id;
+    return !nextAnchorIds.has(id);
+  });
+
+  const nextOptional = sourceDayPlan.optional.filter((item) => {
+    const id = item.experience.id;
+    return !suggestedFlow.includes(id);
+  });
 
   return {
     ...sourceDayPlan,
 
-    anchor: peakItem ? [peakItem] : [],
-
-core: dedupedOrderedItems.filter((item) => {
-  const id = item.experience.id;
-
-  // peak만 제외하고 전부 core로 유지 (recovery 포함)
-  return id !== peakItem?.experience.id;
-}),
-
-optional: [],
+    anchor: nextAnchor,
+    core: nextCore,
+    optional: nextOptional,
 
     roughOrder: suggestedFlow,
     suggestedFlow,
 
     selection: {
       skeletonType: structureType,
-      hardCap: dedupedOrderedItems.length,
-      targetItemCount: dedupedOrderedItems.length,
-      peakCandidateId: peakItem?.experience.id,
-      recoveryCandidateId: recoveryItem?.experience.id,
-      lateFallbackIds: [],
+      hardCap: sourceDayPlan.selection?.hardCap ?? targetItemCount,
+      targetItemCount,
+      peakCandidateId: peakItem?.experience.id ?? sourceDayPlan.selection?.peakCandidateId,
+      recoveryCandidateId:
+        recoveryItem?.experience.id ?? sourceDayPlan.selection?.recoveryCandidateId,
+      lateFallbackIds: sourceDayPlan.selection?.lateFallbackIds ?? [],
       selectedOrder: suggestedFlow,
-      spareCapacity: 0,
+      spareCapacity: Math.max(0, targetItemCount - dedupedOrderedItems.length),
       items: dedupedOrderedItems.map((item) => ({
         experienceId: item.experience.id,
         role:
@@ -612,54 +678,27 @@ optional: [],
     },
 
     pins: {
+      ...sourceDayPlan.pins,
       peak: peakItem
         ? {
             experienceId: peakItem.experience.id,
             flowRole: "peak",
             confidence: "hard",
           }
-        : undefined,
+        : sourceDayPlan.pins?.peak,
       recovery: recoveryItem
         ? {
             experienceId: recoveryItem.experience.id,
             flowRole: "recovery",
             confidence: "hard",
           }
-        : undefined,
+        : sourceDayPlan.pins?.recovery,
     },
 
-    lateFallbackReserve: [],
-    fallbackPool: [],
+    lateFallbackReserve: sourceDayPlan.lateFallbackReserve ?? [],
+    fallbackPool: sourceDayPlan.fallbackPool ?? [],
   };
 }
-
-function buildPlannedExperienceMap(dayPlan: DayPlan): Map<string, PlannedExperience> {
-  const items = [
-    ...dayPlan.anchor,
-    ...dayPlan.core,
-    ...dayPlan.optional,
-    ...(dayPlan.lateFallbackReserve ?? []),
-  ];
-
-  return new Map(items.map((item) => [item.experience.id, item]));
-}
-
-function requirePlannedExperience(
-  plannedMap: Map<string, PlannedExperience>,
-  experienceId: string,
-  role: DecisionFlowRole,
-): PlannedExperience {
-  const item = plannedMap.get(experienceId);
-
-  if (!item) {
-    throw new Error(
-      `convertDecisionSelectionToDayPlan: selected ${role} option not found in source DayPlan. experienceId=${experienceId}`,
-    );
-  }
-
-  return item;
-}
-
 function materializeDecisionRoleSequence(
   roleSequence: readonly DecisionFlowRole[],
   selectedByRole: Partial<Record<DecisionFlowRole, PlannedExperience[]>>,
