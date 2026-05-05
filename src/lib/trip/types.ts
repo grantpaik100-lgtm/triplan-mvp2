@@ -567,10 +567,13 @@ export type TripDebug = {
   decisionDiagnostics: DecisionDiagnostics;
   decisionPlans?: DecisionReadyDayPlan[];
   selectedOptions?: {
-    dayIndex: number;
-    selectedOptions: DecisionSelectedOptions;
-  }[];
-  schedulingDiagnostics: SchedulingDiagnostics;
+  dayIndex: number;
+  selectedOptions: DecisionSelectedOptions;
+}[];
+
+schedulingPreview?: SchedulingPreviewResult;
+
+schedulingDiagnostics: SchedulingDiagnostics;
 };
 
 export type ExperienceFeatures = {
