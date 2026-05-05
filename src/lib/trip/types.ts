@@ -725,6 +725,12 @@ export type TripPlanResult = {
 };
 
 // ─── CharacterProfile ────────────────────────────────────────────────────────
+export type DecisionScoreWeights = {
+  preferenceMatch: number;
+  behaviorAlignment: number;
+  flowFit: number;
+  constraintRisk: number;
+};
 
 export type CharacterProfile = {
   primaryType: "rest" | "schedule" | "mood" | "strategy";
