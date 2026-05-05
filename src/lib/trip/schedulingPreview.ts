@@ -1,4 +1,4 @@
-/**
+  /**
  * TriPlan V4
  * Current Role:
  * - 사용자 선택 결과를 기반으로 실행 가능성/충돌/trade-off를 분석하는 Scheduling Preview Engine이다.
@@ -52,6 +52,7 @@ import type {
   SchedulingPreviewDiagnostics,
   SchedulingPreviewResult,
   SchedulingPreviewStatus,
+  ExperienceQualityLevel,
 } from "./types";
 
 export type GenerateSchedulingPreviewDayInput = {
@@ -411,6 +412,57 @@ function detectConflicts(params: {
 
   return conflicts;
 }
+
+function evaluateExperienceQuality(options: DecisionOption[]): {
+  quality: ExperienceQualityLevel;
+  qualityScore: number;
+  qualitySummary: string;
+} {
+  const hasPeak = options.some((option) => option.role === "peak");
+  const hasRecovery = options.some((option) => option.role === "recovery");
+  const supportCount = options.filter((option) => option.role === "support").length;
+
+  let qualityScore = 0;
+
+  if (hasPeak) qualityScore += 40;
+  if (hasRecovery) qualityScore += 30;
+  qualityScore += Math.min(supportCount, 2) * 15;
+
+  if (qualityScore >= 85) {
+    return {
+      quality: "rich",
+      qualityScore,
+      qualitySummary:
+        "peak/recovery/support가 함께 구성되어 경험 밀도와 흐름이 풍부하다.",
+    };
+  }
+
+  if (qualityScore >= 70) {
+    return {
+      quality: "balanced",
+      qualityScore,
+      qualitySummary:
+        "핵심 경험과 회복 경험이 함께 있어 기본적인 흐름은 안정적이다.",
+    };
+  }
+
+  if (qualityScore >= 50) {
+    return {
+      quality: "flat",
+      qualityScore,
+      qualitySummary:
+        "실행은 쉽지만 peak/recovery 중심으로 단순해 경험 밀도는 낮을 수 있다.",
+    };
+  }
+
+  return {
+    quality: "weak",
+    qualityScore,
+    qualitySummary:
+      "경험 구조가 약하다. peak 또는 recovery 역할이 부족해 하루 만족 구조가 불안정할 수 있다.",
+  };
+}
+
 function buildTradeOffs(params: {
   analysis: SchedulingPreviewAnalysis;
   conflicts: SchedulingPreviewConflict[];
@@ -605,7 +657,7 @@ function buildPreviewDay(params: {
     analysis,
     experienceMap,
   });
-
+  const qualityResult = evaluateExperienceQuality(selectedOptions);
  const highSeverity = conflicts.some((c) => c.severity === "high");
 const mediumSeverity = conflicts.some((c) => c.severity === "medium");
 
@@ -640,8 +692,11 @@ if (highSeverity) {
 
     feasibility: status,
     status,
+    quality: qualityResult.quality,
+qualityScore: qualityResult.qualityScore,
+qualitySummary: qualityResult.qualitySummary,
 
-    analysis: {
+analysis: {
       ...analysis,
       status,
     },
