@@ -45,6 +45,7 @@ import {
 } from "./constants";
 
 import type {
+  ConvertDecisionSelectionParams,
   DecisionDayStructureType,
   DecisionDiagnostics,
   DecisionFlowRole,
@@ -533,4 +534,150 @@ export function applyDecisionLayer(
     dayPlans,
     diagnostics,
   };
+}
+
+export function convertDecisionSelectionToDayPlan(
+  params: ConvertDecisionSelectionParams,
+): DayPlan {
+  const { sourceDayPlan, selectedOptions, structureType } = params;
+
+  const plannedMap = buildPlannedExperienceMap(sourceDayPlan);
+  const roleSequence = DAY_STRUCTURE_TEMPLATES[structureType];
+
+  const selectedByRole: Partial<Record<DecisionFlowRole, PlannedExperience[]>> = {
+    peak: selectedOptions.peak
+      ? [requirePlannedExperience(plannedMap, selectedOptions.peak.experienceId, "peak")]
+      : [],
+    recovery: selectedOptions.recovery
+      ? [
+          requirePlannedExperience(
+            plannedMap,
+            selectedOptions.recovery.experienceId,
+            "recovery",
+          ),
+        ]
+      : [],
+    support: selectedOptions.support.map((option) =>
+      requirePlannedExperience(plannedMap, option.experienceId, "support"),
+    ),
+  };
+
+  const orderedItems = materializeDecisionRoleSequence(roleSequence, selectedByRole);
+
+  const dedupedOrderedItems = dedupePlannedExperiences(orderedItems);
+  const suggestedFlow = dedupedOrderedItems.map((item) => item.experience.id);
+
+  const peakItem = selectedByRole.peak?.[0];
+  const recoveryItem = selectedByRole.recovery?.[0];
+
+  return {
+    ...sourceDayPlan,
+
+    anchor: peakItem ? [peakItem] : [],
+    core: dedupedOrderedItems.filter((item) => {
+      const id = item.experience.id;
+      return id !== peakItem?.experience.id && id !== recoveryItem?.experience.id;
+    }),
+    optional: recoveryItem ? [recoveryItem] : [],
+
+    roughOrder: suggestedFlow,
+    suggestedFlow,
+
+    selection: {
+      skeletonType: structureType,
+      hardCap: dedupedOrderedItems.length,
+      targetItemCount: dedupedOrderedItems.length,
+      peakCandidateId: peakItem?.experience.id,
+      recoveryCandidateId: recoveryItem?.experience.id,
+      lateFallbackIds: [],
+      selectedOrder: suggestedFlow,
+      spareCapacity: 0,
+      items: dedupedOrderedItems.map((item) => ({
+        experienceId: item.experience.id,
+        role:
+          item.experience.id === peakItem?.experience.id
+            ? "peak_candidate"
+            : item.experience.id === recoveryItem?.experience.id
+              ? "recovery_candidate"
+              : "core_support",
+        priority: item.priority,
+        planningTier: item.planningTier,
+        functionalRole: item.functionalRole,
+        planningScore: item.planningScore,
+      })),
+    },
+
+    pins: {
+      peak: peakItem
+        ? {
+            experienceId: peakItem.experience.id,
+            flowRole: "peak",
+            confidence: "hard",
+          }
+        : undefined,
+      recovery: recoveryItem
+        ? {
+            experienceId: recoveryItem.experience.id,
+            flowRole: "recovery",
+            confidence: "hard",
+          }
+        : undefined,
+    },
+
+    lateFallbackReserve: [],
+    fallbackPool: [],
+  };
+}
+
+function buildPlannedExperienceMap(dayPlan: DayPlan): Map<string, PlannedExperience> {
+  const items = [
+    ...dayPlan.anchor,
+    ...dayPlan.core,
+    ...dayPlan.optional,
+    ...(dayPlan.lateFallbackReserve ?? []),
+  ];
+
+  return new Map(items.map((item) => [item.experience.id, item]));
+}
+
+function requirePlannedExperience(
+  plannedMap: Map<string, PlannedExperience>,
+  experienceId: string,
+  role: DecisionFlowRole,
+): PlannedExperience {
+  const item = plannedMap.get(experienceId);
+
+  if (!item) {
+    throw new Error(
+      `convertDecisionSelectionToDayPlan: selected ${role} option not found in source DayPlan. experienceId=${experienceId}`,
+    );
+  }
+
+  return item;
+}
+
+function materializeDecisionRoleSequence(
+  roleSequence: readonly DecisionFlowRole[],
+  selectedByRole: Partial<Record<DecisionFlowRole, PlannedExperience[]>>,
+): PlannedExperience[] {
+  const roleCursor: Record<DecisionFlowRole, number> = {
+    peak: 0,
+    recovery: 0,
+    support: 0,
+  };
+
+  const result: PlannedExperience[] = [];
+
+  for (const role of roleSequence) {
+    const candidates = selectedByRole[role] ?? [];
+    const index = roleCursor[role];
+    const item = candidates[index];
+
+    if (item) {
+      result.push(item);
+      roleCursor[role] += 1;
+    }
+  }
+
+  return result;
 }
