@@ -1,505 +1,487 @@
 /**
- * TriPlan V3 — Decision Layer (MVP)
- *
+ * TriPlan V3
  * Current Role:
- * - Planning 결과(DayPlan)를 받아 role별 DecisionOption 3개씩 생성하는 MVP Decision Layer.
+ * - Planning 결과(DayPlan)를 Decision Layer 계약으로 변환한다.
  *
  * Target Role:
- * - 사용자에게 제시할 경험 후보를 role 기준으로 큐레이션하는 공식 decision 엔진.
+ * - Planning과 Scheduling 사이에서 role 기반 선택지를 생성하는 공식 Decision Layer.
  *
  * Chain:
- * - engine (post-planning, pre-UI)
+ * - engine | planning -> decision -> scheduling
  *
  * Inputs:
- * - DayPlan (planning.ts 출력)
+ * - DayPlan
  * - PlanningInput
  *
  * Outputs:
- * - DecisionReadyDayPlan (role별 최대 3개 후보 배열)
+ * - DecisionReadyDayPlan
  *
  * Called From:
- * - (예정) engine.ts 또는 UI layer
+ * - engine layer 또는 UI decision flow
  *
  * Side Effects:
- * - 없음 (pure function)
+ * - 없음
  *
  * Current Status:
- * - MVP
+ * - canonical
  *
  * Decision:
  * - keep
  *
+ * Move Target:
+ * - 없음
+ *
  * Notes:
- * - planning.ts / scheduling.ts 를 전혀 수정하지 않는다.
- * - DayPlan을 read-only로 소비한다.
- * - score weight는 파일 내 DECISION_SCORE_WEIGHTS 상수에서 가져온다.
- *   (TODO: 이후 constants.ts 로 이동)
- * - explanation은 템플릿 기반 단순 생성 (MVP 단순화).
- * - feasibility는 timeBudget.isFeasible + priority 기반 판단.
- * - diversity는 themeCluster 기반: 최소 2개 서로 다른 cluster 보장,
- *   3번째 option만 중복 허용, 중복 시 differentiatorNote 포함.
+ * - scheduling.ts 수정 금지.
+ * - 파일 내부 타입 재정의 금지.
+ * - 타입은 types.ts에서만 import한다.
+ * - 상수는 constants.ts에서만 import한다.
  */
+
+import {
+  DAY_STRUCTURE_TEMPLATES,
+  DECISION_OPTION_COUNT_PER_ROLE,
+  DECISION_SCORE_WEIGHTS,
+} from "./constants";
 
 import type {
+  DecisionDayStructureType,
+  DecisionFlowRole,
+  DecisionOption,
+  DecisionReadyDayPlan,
   DayPlan,
-  FunctionalRole,
   PlannedExperience,
   PlanningInput,
-  ThemeCluster,
+  UserVector,
 } from "./types";
 
-// ─── Decision-layer 전용 타입 ─────────────────────────────────────────────────
-// types.ts에 존재하지 않으므로 이 파일 내에서 정의한다.
-// 안정화 이후 types.ts 로 이동 고려.
+const USER_VECTOR_KEYS: readonly (keyof UserVector)[] = [
+  "food",
+  "culture",
+  "nature",
+  "shopping",
+  "entertainment",
+  "quiet",
+  "romantic",
+  "local",
+  "touristy",
+  "luxury",
+  "hipster",
+  "traditional",
+  "walkIntensity",
+  "crowdLevel",
+  "activityIntensity",
+  "cost",
+] as const;
 
-/** Decision 후보를 분류하는 3개 role */
-export type DecisionRole = "peak" | "recovery" | "support";
+export function buildDecisionReadyDayPlan(
+  dayPlan: DayPlan,
+  input: PlanningInput,
+  userVector: UserVector,
+): DecisionReadyDayPlan {
+  const structureType = resolveDecisionDayStructureType(dayPlan);
 
-/** score 세부 breakdown */
-export type DecisionScoreBreakdown = {
-  /** planningScore 정규화값 (0~1) */
-  planningBase: number;
-  /** role에 대한 적합도 (0~1) */
-  roleAlignment: number;
-  /** fatigue 역보상 (0~1) */
-  fatigueBalance: number;
-  /** timeBudget 여유 기반 bonus (0~1) */
-  timeFitBonus: number;
-  /** weighted sum */
-  total: number;
-};
+  const allItems = [
+    ...dayPlan.anchor,
+    ...dayPlan.core,
+    ...dayPlan.optional,
+    ...(dayPlan.lateFallbackReserve ?? []),
+  ];
 
-/** 템플릿 기반 설명 */
-export type DecisionExplanation = {
-  headline: string;
-  tags: string[];
-  /** 같은 themeCluster 중복일 때 차이 설명 */
-  differentiatorNote?: string;
-};
+  const uniqueItems = dedupePlannedExperiences(allItems);
+  const feasibilityFilteredCount = uniqueItems.filter(
+    (item) => !isDecisionFeasible(item, dayPlan, input),
+  ).length;
 
-/** 단일 Decision 후보 */
-export type DecisionOption = {
-  experienceId: string;
-  placeName: string;
-  decisionRole: DecisionRole;
-  score: number;
-  scoreBreakdown: DecisionScoreBreakdown;
-  explanation: DecisionExplanation;
-  isFeasible: boolean;
-  themeCluster?: ThemeCluster;
-  functionalRole: FunctionalRole;
-};
+  const optionsByRole = {
+    peak: buildOptionsForRole(uniqueItems, "peak", dayPlan, input, userVector),
+    recovery: buildOptionsForRole(uniqueItems, "recovery", dayPlan, input, userVector),
+    support: buildOptionsForRole(uniqueItems, "support", dayPlan, input, userVector),
+  };
 
-/** role별 최대 3개 후보 묶음 */
-export type DecisionRoleOptions = {
-  role: DecisionRole;
-  /** feasible 후보만 포함, 최대 DECISION_OPTIONS_PER_ROLE(3)개 */
-  options: DecisionOption[];
-};
+  const duplicatePolicyUsed = Object.values(optionsByRole).some((options) =>
+    hasDuplicateExperienceType(options),
+  );
 
-/** buildDecisionReadyDayPlan의 최종 출력 */
-export type DecisionReadyDayPlan = {
-  dayIndex: number;
-  roleOptions: DecisionRoleOptions[];
-  /** dayPlan.timeBudget.isFeasible 기반 */
-  feasible: boolean;
-  notes: string[];
-};
+  const fallbackUsed = Object.values(optionsByRole).some(
+    (options) => options.length < DECISION_OPTION_COUNT_PER_ROLE,
+  );
 
-// ─── Score weight 상수 ────────────────────────────────────────────────────────
-// MVP에서는 이 파일 내에 정의.
-// TODO: constants.ts로 이동 후 import로 교체.
+  return {
+    dayIndex: dayPlan.day,
+    structureType,
+    roleSequence: [...DAY_STRUCTURE_TEMPLATES[structureType]],
+    options: optionsByRole,
+    diagnostics: {
+      candidateCounts: {
+        peak: optionsByRole.peak.length,
+        recovery: optionsByRole.recovery.length,
+        support: optionsByRole.support.length,
+      },
+      feasibilityFilteredCount,
+      duplicatePolicyUsed,
+      fallbackUsed,
+      notes: [
+        `structure=${structureType}`,
+        `peak=${optionsByRole.peak.length}`,
+        `recovery=${optionsByRole.recovery.length}`,
+        `support=${optionsByRole.support.length}`,
+      ],
+    },
+  };
+}
 
-const DECISION_SCORE_WEIGHTS = {
-  planningBase: 0.5,
-  roleAlignment: 0.3,
-  fatigueBalance: 0.1,
-  timeFitBonus: 0.1,
-} as const;
-
-/** role당 최대 후보 수 */
-const DECISION_OPTIONS_PER_ROLE = 3;
-
-/**
- * planningScore 정규화 기준값.
- * scoring.ts 로직상 현실적 최대값 추정 (empirical).
- * 정확한 상한이 필요하면 engine 단에서 max를 집계 후 주입 가능.
- */
-const PLANNING_SCORE_NORM = 12;
-
-// ─── Role classification ──────────────────────────────────────────────────────
-
-/**
- * PlannedExperience → DecisionRole 분류.
- *
- * 우선순위:
- * 1. dayPlan.selection.items 의 role 필드 (planning 단계 마킹 우선)
- * 2. dayPlan.pins (structural pin 확인)
- * 3. functionalRole / fatigue / isMeal heuristic
- */
 export function classifyDecisionRole(
   item: PlannedExperience,
-  dayPlan: DayPlan,
-): DecisionRole {
-  const expId = item.experience.id;
+  dayPlan?: DayPlan,
+): DecisionFlowRole {
+  const experienceId = item.experience.id;
 
-  // 1. planning selection role 우선
-  const selItem = dayPlan.selection?.items?.find(
-    (s) => s.experienceId === expId,
+  const selectionItem = dayPlan?.selection?.items?.find(
+    (selected) => selected.experienceId === experienceId,
   );
-  if (selItem?.role === "peak_candidate") return "peak";
-  if (selItem?.role === "recovery_candidate") return "recovery";
 
-  // 2. structural pins 확인
-  if (dayPlan.pins?.peak?.experienceId === expId) return "peak";
-  if (dayPlan.pins?.recovery?.experienceId === expId) return "recovery";
+  if (selectionItem?.role === "peak_candidate") return "peak";
+  if (selectionItem?.role === "recovery_candidate") return "recovery";
 
-  // 3. heuristic
-  const fr = item.functionalRole;
-  const exp = item.experience;
+  if (dayPlan?.pins?.peak?.experienceId === experienceId) return "peak";
+  if (dayPlan?.pins?.recovery?.experienceId === experienceId) return "recovery";
 
-  if (fr === "rest" || fr === "transition_safe") return "recovery";
-  if (exp.isMeal) return "recovery";
-  if (fr === "anchor" || fr === "viewpoint") return "peak";
-  if (exp.fatigue >= 4 && exp.priorityHints.canBeAnchor) return "peak";
-  if (exp.fatigue <= 2) return "recovery";
+  if (item.functionalRole === "anchor" || item.functionalRole === "viewpoint") {
+    return "peak";
+  }
+
+  if (
+    item.functionalRole === "rest" ||
+    item.functionalRole === "transition_safe" ||
+    item.experience.fatigue <= 2
+  ) {
+    return "recovery";
+  }
 
   return "support";
 }
 
-// ─── Score components ─────────────────────────────────────────────────────────
+export function calculateDecisionScore(params: {
+  item: PlannedExperience;
+  role: DecisionFlowRole;
+  dayPlan: DayPlan;
+  input: PlanningInput;
+  userVector: UserVector;
+}): DecisionOption["scoreBreakdown"] {
+  const { item, role, dayPlan, input, userVector } = params;
 
-/**
- * role에 대한 적합도(roleAlignment) 계산 (0~1).
- *
- * peak  : 높은 fatigue + canBeAnchor 선호, meal 패널티
- * recovery: 낮은 fatigue + rest/meal/quiet 선호
- * support : 중간 fatigue 친화
- */
-function computeRoleAlignment(
-  item: PlannedExperience,
-  role: DecisionRole,
-): number {
-  const exp = item.experience;
+  const preferenceMatch = calculatePreferenceMatch(item, userVector);
+  const behaviorAlignment = calculateBehaviorAlignment(item, input);
+  const flowFit = calculateFlowFit(item, role);
+  const constraintRisk = calculateConstraintRisk(item, dayPlan, input);
 
-  switch (role) {
-    case "peak": {
-      const fatigueBonus = (exp.fatigue - 1) / 4; // 0(fatigue=1) ~ 1(fatigue=5)
-      const anchorBonus = exp.priorityHints.canBeAnchor ? 0.3 : 0;
-      const mealPenalty = exp.isMeal ? 0.4 : 0;
-      return clamp01(fatigueBonus + anchorBonus - mealPenalty);
-    }
-    case "recovery": {
-      const fatigueInverse = 1 - (exp.fatigue - 1) / 4; // 높은 fatigue일수록 낮음
-      const restBonus = exp.functionalRoleHints?.includes("rest") ? 0.3 : 0;
-      const mealBonus = exp.isMeal ? 0.2 : 0;
-      const quietBonus = exp.features.quiet >= 0.6 ? 0.2 : 0;
-      // 합산 후 0~1 클램프
-      return clamp01((fatigueInverse + restBonus + mealBonus + quietBonus) / 1.7);
-    }
-    case "support": {
-      // 중간 fatigue(2~3)에서 최고점
-      const midFatigue = 1 - Math.abs(exp.fatigue - 3) / 4;
-      return clamp01(midFatigue * 0.7 + 0.3);
-    }
-  }
-}
+  const finalScore =
+    DECISION_SCORE_WEIGHTS.preferenceMatch * preferenceMatch +
+    DECISION_SCORE_WEIGHTS.behaviorAlignment * behaviorAlignment +
+    DECISION_SCORE_WEIGHTS.flowFit * flowFit -
+    DECISION_SCORE_WEIGHTS.constraintRisk * constraintRisk;
 
-/**
- * fatigue balance 점수 (0~1).
- * role 기대 fatigue 대비 얼마나 잘 맞는지.
- */
-function computeFatigueBalance(
-  item: PlannedExperience,
-  role: DecisionRole,
-): number {
-  const fatigue = item.experience.fatigue; // 1~5
-
-  switch (role) {
-    case "peak":
-      return fatigue >= 3 ? 1.0 : 0.4;
-    case "recovery":
-      if (fatigue <= 2) return 1.0;
-      if (fatigue <= 3) return 0.5;
-      return 0.1;
-    case "support":
-      return fatigue <= 4 ? 0.8 : 0.3;
-  }
-}
-
-/**
- * timeBudget 여유 기반 bonus (0~1).
- * isFeasible이 false면 0, true면 bufferMin 비율.
- */
-function computeTimeFitBonus(dayPlan: DayPlan): number {
-  const budget = dayPlan.timeBudget;
-  if (!budget || !budget.isFeasible) return 0;
-  const ratio = budget.bufferMin / Math.max(1, budget.availableMin);
-  return clamp01(ratio);
-}
-
-// ─── Score entry point ────────────────────────────────────────────────────────
-
-/**
- * DecisionScore 계산.
- * planningScore를 [0, PLANNING_SCORE_NORM] → [0, 1] 정규화 후 weighted sum.
- */
-export function calculateDecisionScore(
-  item: PlannedExperience,
-  role: DecisionRole,
-  dayPlan: DayPlan,
-): DecisionScoreBreakdown {
-  const planningBase = clamp01(item.planningScore / PLANNING_SCORE_NORM);
-  const roleAlignment = computeRoleAlignment(item, role);
-  const fatigueBalance = computeFatigueBalance(item, role);
-  const timeFitBonus = computeTimeFitBonus(dayPlan);
-
-  const total =
-    planningBase * DECISION_SCORE_WEIGHTS.planningBase +
-    roleAlignment * DECISION_SCORE_WEIGHTS.roleAlignment +
-    fatigueBalance * DECISION_SCORE_WEIGHTS.fatigueBalance +
-    timeFitBonus * DECISION_SCORE_WEIGHTS.timeFitBonus;
-
-  return { planningBase, roleAlignment, fatigueBalance, timeFitBonus, total };
-}
-
-// ─── Explanation builder ──────────────────────────────────────────────────────
-
-const ROLE_HEADLINES: Record<DecisionRole, (name: string) => string> = {
-  peak: (name) => `${name} — 오늘의 하이라이트`,
-  recovery: (name) => `${name} — 여유로운 전환`,
-  support: (name) => `${name} — 흐름을 잇는 경험`,
-};
-
-function buildTagsFromItem(
-  item: PlannedExperience,
-  role: DecisionRole,
-): string[] {
-  const exp = item.experience;
-  const tags: string[] = [];
-
-  if (exp.priorityHints.canBeAnchor) tags.push("핵심 스팟");
-  if (exp.isMeal) tags.push("식사");
-  if (exp.isIndoor) tags.push("실내");
-  if (exp.isNightFriendly) tags.push("야간 가능");
-  if (exp.fatigue <= 2) tags.push("가벼운 피로도");
-  if (exp.fatigue >= 4) tags.push("몰입형");
-  if (exp.features.quiet >= 0.6) tags.push("조용함");
-  if (exp.features.local >= 0.5) tags.push("로컬");
-  if (exp.timeFlexibility === "low") tags.push("시간 민감");
-  if (role === "peak" && exp.actionStrength >= 0.7) tags.push("강렬한 경험");
-  if (role === "recovery" && exp.features.quiet >= 0.5) tags.push("회복형");
-
-  return tags.slice(0, 4);
-}
-
-/**
- * 템플릿 기반 explanation 생성.
- * differentiatorNote는 같은 themeCluster 중복 시에만 포함.
- */
-export function buildDecisionExplanation(
-  item: PlannedExperience,
-  role: DecisionRole,
-  differentiatorNote?: string,
-): DecisionExplanation {
-  const base: DecisionExplanation = {
-    headline: ROLE_HEADLINES[role](item.experience.placeName),
-    tags: buildTagsFromItem(item, role),
+  return {
+    preferenceMatch,
+    behaviorAlignment,
+    flowFit,
+    constraintRisk,
+    finalScore: clamp01(finalScore),
   };
-
-  if (differentiatorNote !== undefined && differentiatorNote.length > 0) {
-    return { ...base, differentiatorNote };
-  }
-
-  return base;
 }
 
-// ─── Feasibility check ────────────────────────────────────────────────────────
+export function applyDecisionDiversityPolicy(
+  options: DecisionOption[],
+): DecisionOption[] {
+  const sorted = [...options].sort(
+    (a, b) => b.scoreBreakdown.finalScore - a.scoreBreakdown.finalScore,
+  );
 
-/**
- * 개별 item feasibility 판단.
- *
- * MVP 기준:
- * - timeBudget overflow 시 optional item은 feasible하지 않음
- * - recommendedDuration이 availableMin의 50% 초과 시도 제외
- * - anchor / core는 budget 상태에 무관하게 feasible
- */
-function isItemFeasible(item: PlannedExperience, dayPlan: DayPlan): boolean {
+  const selected: DecisionOption[] = [];
+  const usedTypes = new Set<string>();
+
+  for (const option of sorted) {
+    if (selected.length >= 2) break;
+
+    if (!usedTypes.has(option.metadata.experienceType)) {
+      selected.push(option);
+      usedTypes.add(option.metadata.experienceType);
+    }
+  }
+
+  for (const option of sorted) {
+    if (selected.length >= DECISION_OPTION_COUNT_PER_ROLE) break;
+    if (selected.some((current) => current.id === option.id)) continue;
+
+    const isDuplicate = usedTypes.has(option.metadata.experienceType);
+
+    selected.push(
+      isDuplicate
+        ? {
+            ...option,
+            explanation: {
+              ...option.explanation,
+              duplicateDifference:
+                option.explanation.duplicateDifference ??
+                buildDuplicateDifference(option, selected),
+            },
+          }
+        : option,
+    );
+
+    usedTypes.add(option.metadata.experienceType);
+  }
+
+  return selected;
+}
+
+export function buildDecisionExplanation(params: {
+  item: PlannedExperience;
+  role: DecisionFlowRole;
+  scoreBreakdown: DecisionOption["scoreBreakdown"];
+  isDuplicate?: boolean;
+}): DecisionOption["explanation"] {
+  const { item, role, scoreBreakdown, isDuplicate } = params;
+  const placeName = item.experience.placeName;
+
+  return {
+    whyRecommended: `${placeName}은(는) 사용자 선호와 ${toPercent(
+      scoreBreakdown.preferenceMatch,
+    )} 수준으로 맞는 경험입니다.`,
+    roleReason: getRoleReason(role),
+    tradeOff: buildTradeOff(item, scoreBreakdown),
+    ...(isDuplicate
+      ? {
+          duplicateDifference: `${placeName}은(는) 같은 유형의 다른 후보와 비교해 피로도, 위치, 역할이 다릅니다.`,
+        }
+      : {}),
+  };
+}
+
+function buildOptionsForRole(
+  items: PlannedExperience[],
+  role: DecisionFlowRole,
+  dayPlan: DayPlan,
+  input: PlanningInput,
+  userVector: UserVector,
+): DecisionOption[] {
+  const candidates = items
+    .filter((item) => classifyDecisionRole(item, dayPlan) === role)
+    .filter((item) => isDecisionFeasible(item, dayPlan, input));
+
+  const rawOptions = candidates.map((item, index) => {
+    const scoreBreakdown = calculateDecisionScore({
+      item,
+      role,
+      dayPlan,
+      input,
+      userVector,
+    });
+
+    const option: DecisionOption = {
+      id: `${dayPlan.day}-${role}-${item.experience.id}-${index}`,
+      experienceId: item.experience.id,
+      role,
+      title: item.experience.baseExperienceLabel || item.experience.placeName,
+      scoreBreakdown,
+      explanation: buildDecisionExplanation({
+        item,
+        role,
+        scoreBreakdown,
+      }),
+      metadata: {
+        experienceType: getExperienceType(item),
+        area: item.experience.area,
+        themeCluster: item.themeCluster,
+        expectedFatigue: item.experience.fatigue,
+        estimatedDuration: item.experience.recommendedDuration,
+        feasible: true,
+      },
+    };
+
+    return option;
+  });
+
+  return applyDecisionDiversityPolicy(rawOptions);
+}
+
+function resolveDecisionDayStructureType(dayPlan: DayPlan): DecisionDayStructureType {
+  const skeletonType = dayPlan.selection?.skeletonType;
+
+  if (skeletonType === "peak_centric") return "peak_centric";
+  if (skeletonType === "relaxed") return "relaxed";
+
+  return "balanced";
+}
+
+function dedupePlannedExperiences(items: PlannedExperience[]): PlannedExperience[] {
+  const seen = new Set<string>();
+
+  return items.filter((item) => {
+    if (seen.has(item.experience.id)) return false;
+    seen.add(item.experience.id);
+    return true;
+  });
+}
+
+function isDecisionFeasible(
+  item: PlannedExperience,
+  dayPlan: DayPlan,
+  input: PlanningInput,
+): boolean {
+  if (input.blockedAreas?.includes(item.experience.area)) return false;
+
   const budget = dayPlan.timeBudget;
   if (!budget) return true;
   if (budget.isFeasible) return true;
 
-  // overflow 상태에서 optional은 제외
   if (item.priority === "optional") return false;
 
-  // overflow 상태에서 duration 비중이 너무 큰 경우도 제외
-  const overThreshold =
-    item.experience.recommendedDuration > budget.availableMin * 0.5;
-  if (overThreshold) return false;
-
-  return true;
+  return item.experience.recommendedDuration <= budget.availableMin * 0.5;
 }
 
-// ─── Diversity policy ─────────────────────────────────────────────────────────
+function calculatePreferenceMatch(
+  item: PlannedExperience,
+  userVector: UserVector,
+): number {
+  const total = USER_VECTOR_KEYS.reduce((sum, key) => {
+    const userValue = userVector[key] ?? 0;
+    const experienceValue = item.experience.features[key] ?? 0;
+    return sum + (1 - Math.abs(userValue - experienceValue));
+  }, 0);
 
-/**
- * differentiatorNote 생성 헬퍼.
- */
-function buildDifferentiatorNote(
-  opt: DecisionOption,
-  existing: DecisionOption[],
-): string {
-  const sameCluster = existing.find((e) => e.themeCluster === opt.themeCluster);
-  if (!sameCluster) return "";
-
-  const roleDesc =
-    opt.functionalRole === "rest"
-      ? "더 가벼운 쉼을"
-      : opt.functionalRole === "meal"
-        ? "식사 역할을"
-        : opt.functionalRole === "viewpoint"
-          ? "다른 시야를"
-          : "다른 관점을";
-
-  return `${sameCluster.placeName}와 같은 유형이지만, ${opt.placeName}은(는) ${roleDesc} 제공합니다.`;
+  return clamp01(total / USER_VECTOR_KEYS.length);
 }
 
-/**
- * Diversity 정책 적용.
- *
- * 규칙:
- * - 최소 2개는 서로 다른 themeCluster
- * - 3번째 option만 중복 cluster 허용
- * - 중복이면 explanation에 differentiatorNote 포함
- *
- * 입력: 점수 내림차순 정렬된 DecisionOption[]
- * 출력: 최대 DECISION_OPTIONS_PER_ROLE(3)개
- */
-export function applyDecisionDiversityPolicy(
-  options: DecisionOption[],
-): DecisionOption[] {
-  if (options.length <= 1) return options;
+function calculateBehaviorAlignment(
+  item: PlannedExperience,
+  input: PlanningInput,
+): number {
+  const companionFit = item.experience.companionFit[input.companionType] ?? 0.5;
 
-  const result: DecisionOption[] = [];
-  const usedClusters = new Set<ThemeCluster | undefined>();
-  const resultIds = new Set<string>();
+  const densityFit =
+    input.dailyDensity >= 4
+      ? item.experience.fatigue >= 3
+        ? 0.8
+        : 0.5
+      : item.experience.fatigue <= 3
+        ? 0.8
+        : 0.4;
 
-  // 1단계: 다른 cluster 우선 채우기 (최대 2개)
-  for (const opt of options) {
-    if (result.length >= 2) break;
-    if (!usedClusters.has(opt.themeCluster)) {
-      usedClusters.add(opt.themeCluster);
-      resultIds.add(opt.experienceId);
-      result.push(opt);
-    }
+  const areaFit = input.preferredAreas?.includes(item.experience.area) ? 1 : 0.7;
+
+  return clamp01((companionFit + densityFit + areaFit) / 3);
+}
+
+function calculateFlowFit(
+  item: PlannedExperience,
+  role: DecisionFlowRole,
+): number {
+  const fatigue = item.experience.fatigue;
+
+  if (role === "peak") {
+    return clamp01((item.experience.actionStrength + (fatigue >= 3 ? 1 : 0.4)) / 2);
   }
 
-  // 2단계: 3번째 슬롯 — 중복 cluster 허용, differentiatorNote 추가
-  if (result.length < DECISION_OPTIONS_PER_ROLE) {
-    for (const opt of options) {
-      if (result.length >= DECISION_OPTIONS_PER_ROLE) break;
-      if (resultIds.has(opt.experienceId)) continue;
-
-      const isDuplicate = usedClusters.has(opt.themeCluster);
-      const enriched: DecisionOption = isDuplicate
-        ? {
-            ...opt,
-            explanation: {
-              ...opt.explanation,
-              differentiatorNote: buildDifferentiatorNote(opt, result),
-            },
-          }
-        : opt;
-
-      resultIds.add(enriched.experienceId);
-      usedClusters.add(enriched.themeCluster);
-      result.push(enriched);
-    }
+  if (role === "recovery") {
+    const lowFatigueFit = fatigue <= 2 ? 1 : fatigue === 3 ? 0.6 : 0.2;
+    const quietFit = item.experience.features.quiet;
+    return clamp01((lowFatigueFit + quietFit) / 2);
   }
 
-  return result;
+  const supportFatigueFit = fatigue <= 4 ? 0.8 : 0.4;
+  return clamp01((supportFatigueFit + item.experience.timeFlexibilityScore ?? 0.6) / 2);
 }
 
-// ─── Role-level option builder ────────────────────────────────────────────────
-
-/**
- * dayPlan의 모든 items에서 특정 role에 해당하는 feasible 후보를 추출하고
- * score 내림차순 정렬 후 diversity policy 적용 → 최대 3개 반환.
- *
- * PlanningInput은 향후 companion-aware scoring 확장을 위해 시그니처에 포함.
- * (MVP에서는 timeFitBonus 계산 시 dayPlan.timeBudget를 통해 간접 사용)
- */
-export function buildDecisionOptionsForRole(
-  dayPlan: DayPlan,
-  role: DecisionRole,
-  _input: PlanningInput,
-): DecisionOption[] {
-  const allItems: PlannedExperience[] = [
-    ...dayPlan.anchor,
-    ...dayPlan.core,
-    ...dayPlan.optional,
-  ];
-
-  const candidates = allItems
-    .filter((item) => classifyDecisionRole(item, dayPlan) === role)
-    .filter((item) => isItemFeasible(item, dayPlan));
-
-  if (candidates.length === 0) return [];
-
-  const scored: DecisionOption[] = candidates.map((item) => {
-    const scoreBreakdown = calculateDecisionScore(item, role, dayPlan);
-    return {
-      experienceId: item.experience.id,
-      placeName: item.experience.placeName,
-      decisionRole: role,
-      score: scoreBreakdown.total,
-      scoreBreakdown,
-      explanation: buildDecisionExplanation(item, role),
-      isFeasible: true,
-      themeCluster: item.themeCluster,
-      functionalRole: item.functionalRole,
-    };
-  });
-
-  const sorted = [...scored].sort((a, b) => b.score - a.score);
-  return applyDecisionDiversityPolicy(sorted);
-}
-
-// ─── Top-level entry point ────────────────────────────────────────────────────
-
-/**
- * Planning 결과(DayPlan)를 받아 role별 DecisionOption 3개씩을 포함한
- * DecisionReadyDayPlan을 반환한다.
- *
- * - 기존 planning / scheduling은 전혀 건드리지 않는다.
- * - DayPlan을 read-only로 소비하는 pure function이다.
- * - engine.ts에서 scheduleDayPlan과 동일한 위치(post-planning)에 삽입 가능.
- */
-export function buildDecisionReadyDayPlan(
+function calculateConstraintRisk(
+  item: PlannedExperience,
   dayPlan: DayPlan,
   input: PlanningInput,
-): DecisionReadyDayPlan {
-  const roles: DecisionRole[] = ["peak", "recovery", "support"];
-  const notes: string[] = [];
+): number {
+  let risk = 0;
 
-  const roleOptions: DecisionRoleOptions[] = roles.map((role) => {
-    const options = buildDecisionOptionsForRole(dayPlan, role, input);
-    notes.push(`${role}:candidates=${options.length}`);
-    return { role, options };
-  });
+  if (input.blockedAreas?.includes(item.experience.area)) risk += 1;
+  if (item.experience.fatigue > input.dailyDensity + 1) risk += 0.25;
+  if (item.experience.timeFlexibility === "low") risk += 0.15;
 
-  const feasible = dayPlan.timeBudget?.isFeasible ?? true;
-  if (!feasible) notes.push("timeBudget:infeasible");
+  const budget = dayPlan.timeBudget;
+  if (budget && !budget.isFeasible) risk += 0.35;
 
-  return {
-    dayIndex: dayPlan.day,
-    roleOptions,
-    feasible,
-    notes,
-  };
+  return clamp01(risk);
 }
 
-// ─── 유틸리티 ─────────────────────────────────────────────────────────────────
+function getExperienceType(item: PlannedExperience): string {
+  return (
+    item.experience.placeType ||
+    item.experience.microAction ||
+    item.experience.macroAction ||
+    item.experience.category ||
+    "unknown"
+  );
+}
+
+function hasDuplicateExperienceType(options: DecisionOption[]): boolean {
+  const seen = new Set<string>();
+
+  for (const option of options) {
+    if (seen.has(option.metadata.experienceType)) return true;
+    seen.add(option.metadata.experienceType);
+  }
+
+  return false;
+}
+
+function buildDuplicateDifference(
+  option: DecisionOption,
+  selected: DecisionOption[],
+): string {
+  const sameType = selected.find(
+    (current) =>
+      current.metadata.experienceType === option.metadata.experienceType,
+  );
+
+  if (!sameType) {
+    return `${option.title}은(는) 같은 역할 안에서 다른 분위기의 대안입니다.`;
+  }
+
+  return `${sameType.title}와 같은 유형이지만, ${option.title}은(는) 위치·피로도·소요시간이 다른 선택지입니다.`;
+}
+
+function getRoleReason(role: DecisionFlowRole): string {
+  if (role === "peak") {
+    return "이 선택지는 하루의 핵심 만족도를 만드는 peak 역할입니다.";
+  }
+
+  if (role === "recovery") {
+    return "이 선택지는 피로를 낮추고 다음 경험으로 넘어가기 위한 recovery 역할입니다.";
+  }
+
+  return "이 선택지는 경험 사이의 흐름을 이어주는 support 역할입니다.";
+}
+
+function buildTradeOff(
+  item: PlannedExperience,
+  scoreBreakdown: DecisionOption["scoreBreakdown"],
+): string {
+  if (scoreBreakdown.constraintRisk >= 0.5) {
+    return "현실 제약 리스크가 있어 시간·피로도 확인이 필요합니다.";
+  }
+
+  if (item.experience.fatigue >= 4) {
+    return "몰입도는 높지만 피로가 누적될 수 있습니다.";
+  }
+
+  if (item.experience.timeFlexibility === "low") {
+    return "시간대 제약이 있어 배치 자유도가 낮습니다.";
+  }
+
+  return "큰 제약은 낮지만, 최종 배치는 Scheduling 단계에서 검증해야 합니다.";
+}
+
+function toPercent(value: number): string {
+  return `${Math.round(clamp01(value) * 100)}%`;
+}
 
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
