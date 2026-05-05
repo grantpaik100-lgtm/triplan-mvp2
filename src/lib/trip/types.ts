@@ -490,6 +490,11 @@ export type TripDebug = {
   candidateDiagnostics: CandidateDiagnostics;
   planningDiagnostics: PlanningDiagnostics;
   decisionDiagnostics: DecisionDiagnostics;
+  decisionPlans?: DecisionReadyDayPlan[];
+  selectedOptions?: {
+    dayIndex: number;
+    selectedOptions: DecisionSelectedOptions;
+  }[];
   schedulingDiagnostics: SchedulingDiagnostics;
 };
 
