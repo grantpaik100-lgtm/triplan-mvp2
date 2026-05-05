@@ -574,11 +574,15 @@ export function convertDecisionSelectionToDayPlan(
     ...sourceDayPlan,
 
     anchor: peakItem ? [peakItem] : [],
-    core: dedupedOrderedItems.filter((item) => {
-      const id = item.experience.id;
-      return id !== peakItem?.experience.id && id !== recoveryItem?.experience.id;
-    }),
-    optional: recoveryItem ? [recoveryItem] : [],
+
+core: dedupedOrderedItems.filter((item) => {
+  const id = item.experience.id;
+
+  // peak만 제외하고 전부 core로 유지 (recovery 포함)
+  return id !== peakItem?.experience.id;
+}),
+
+optional: [],
 
     roughOrder: suggestedFlow,
     suggestedFlow,
