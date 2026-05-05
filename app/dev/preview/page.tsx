@@ -124,6 +124,10 @@ function buildPreviewText(results: PreviewScenarioResult[]) {
       lines.push(`qualityScore=${day.qualityScore}`);
       lines.push(`qualitySummary=${day.qualitySummary}`);
 
+      for (const suggestion of day.suggestions ?? []) {
+        lines.push(`suggestion=${suggestion}`);
+      }
+
 
       
       lines.push(
