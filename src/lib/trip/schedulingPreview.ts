@@ -630,10 +630,7 @@ if (highSeverity) {
 } else {
   status = "safe";
 }
-  const status: SchedulingPreviewStatus =
-    analysis.status === "conflict" || hasConflict
-      ? "conflict"
-      : analysis.status;
+  
 
   return {
     dayIndex: day.dayIndex,
