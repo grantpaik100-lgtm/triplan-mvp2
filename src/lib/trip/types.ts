@@ -486,6 +486,81 @@ export type UserChoiceLog = {
   };
 };
 
+// ─── Scheduling Preview Layer ────────────────────────────────────────────────
+//
+// Scheduling Preview는 기존 SchedulingDiagnostics / DaySchedule을 대체하지 않는다.
+// 사용자 선택 결과를 제거/교체하지 않고, 실행 가능성·충돌·trade-off만 분석하는
+// Decision-facing preview contract다.
+
+export type SchedulingPreviewStatus = "safe" | "tight" | "conflict";
+
+export type SchedulingPreviewConflictType =
+  | "time"
+  | "distance"
+  | "fatigue"
+  | "sequence"
+  | "time_window";
+
+export type SchedulingPreviewConflict = {
+  type: SchedulingPreviewConflictType;
+  severity: "low" | "medium" | "high";
+  affectedOptionIds: string[];
+  affectedExperienceIds: string[];
+  message: string;
+  reason: string;
+};
+
+export type SchedulingPreviewAlternative = {
+  id: string;
+  title: string;
+  description: string;
+  suggestedOptionIds: string[];
+  suggestedExperienceIds: string[];
+  improves: SchedulingPreviewConflictType[];
+  tradeOffs: string[];
+};
+
+export type SchedulingPreviewAnalysis = {
+  estimatedTotalMinutes: number;
+  availableMinutes: number;
+  estimatedTravelMinutes: number;
+  estimatedFatigue: number;
+  bufferMinutes: number;
+  status: SchedulingPreviewStatus;
+  summary: string;
+};
+
+export type SchedulingPreviewDay = {
+  dayIndex: number;
+  structureType: DecisionDayStructureType;
+
+  selectedOptionIds: string[];
+  selectedExperienceIds: string[];
+
+  feasibility: SchedulingPreviewStatus;
+  status: SchedulingPreviewStatus;
+
+  analysis: SchedulingPreviewAnalysis;
+  conflicts: SchedulingPreviewConflict[];
+  tradeOffs: string[];
+  alternatives: SchedulingPreviewAlternative[];
+  notes: string[];
+};
+
+export type SchedulingPreviewDiagnostics = {
+  totalDays: number;
+  safeDays: number;
+  tightDays: number;
+  conflictDays: number;
+  totalConflictCount: number;
+  notes: string[];
+};
+
+export type SchedulingPreviewResult = {
+  days: SchedulingPreviewDay[];
+  diagnostics: SchedulingPreviewDiagnostics;
+};
+
 export type TripDebug = {
   candidateDiagnostics: CandidateDiagnostics;
   planningDiagnostics: PlanningDiagnostics;
