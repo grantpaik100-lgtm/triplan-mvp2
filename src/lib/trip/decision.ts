@@ -486,3 +486,22 @@ function toPercent(value: number): string {
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
+
+// ─────────────────────────────────────────────────────────────
+// 🔴 ENGINE ENTRY POINT (필수)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Planning → Decision Layer 연결 함수
+ *
+ * engine.ts에서 사용하는 공식 entry point
+ */
+export function applyDecisionLayer(
+  dayPlans: DayPlan[],
+  input: PlanningInput,
+  userVector: UserVector,
+): DecisionReadyDayPlan[] {
+  return dayPlans.map((dayPlan) =>
+    buildDecisionReadyDayPlan(dayPlan, input, userVector),
+  );
+}
