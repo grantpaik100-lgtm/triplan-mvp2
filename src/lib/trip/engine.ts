@@ -39,7 +39,11 @@
  */
 
 import { planDaysWithDiagnostics } from "./planning";
-import { applyDecisionLayer } from "./decision";
+import {
+  buildDecisionReadyDayPlan,
+  convertDecisionSelectionToDayPlan,
+} from "./decision";
+
 import { scheduleDayPlan } from "./scheduling";
 import type {
   CandidateDiagnostics,
@@ -115,17 +119,79 @@ export function generateTripPlan(
     diagnostics: planningDiagnostics,
   } = planDaysWithDiagnostics(user, input, experiences);
 
-  // [2] Decision Layer
-  // planning 결과를 받아 scheduling 전에 day-level 결정을 적용한다.
-  // - timeBudget 초과 시 optional 트림
-  // - suggestedFlow 무결성 정리
-  // 절대 하지 않는 것: selection.* 변경, anchor/core 수정, dayPlans 재정렬
-  const {
-    dayPlans,
-    diagnostics: decisionDiagnostics,
-  } = applyDecisionLayer(rawDayPlans, input);
+  // [2] Decision Ready Plan 생성
+  // Planning 결과를 role 기반 선택지 구조로 변환한다.
+  // 실제 UI 선택은 아직 없으므로 MVP에서는 각 role별 1순위 option을 자동 선택한다.
+  const decisionPlans = rawDayPlans.map((dayPlan) =>
+    buildDecisionReadyDayPlan(dayPlan, input, user),
+  );
 
-  // [3] Scheduling
+  // [3] Auto Choice Fallback
+  // MVP 조건:
+  // - peak/recovery/support 각 role의 1순위 option 자동 선택
+  // - 선택 로그는 debug.selectedOptions에 남긴다
+  const selectedOptionLogs: {
+    dayIndex: number;
+    selectedOptions: DecisionSelectedOptions;
+  }[] = [];
+
+  const dayPlans = rawDayPlans.map((rawDayPlan, index) => {
+    const decisionPlan = decisionPlans[index];
+
+    const selectedOptions: DecisionSelectedOptions = {
+      peak: decisionPlan.options.peak[0],
+      recovery: decisionPlan.options.recovery[0],
+      support: decisionPlan.options.support[0]
+        ? [decisionPlan.options.support[0]]
+        : [],
+    };
+
+    selectedOptionLogs.push({
+      dayIndex: decisionPlan.dayIndex,
+      selectedOptions,
+    });
+
+    return convertDecisionSelectionToDayPlan({
+      sourceDayPlan: rawDayPlan,
+      selectedOptions,
+      structureType: decisionPlan.structureType,
+    });
+  });
+
+  // [4] Decision Diagnostics
+  // 기존 planning/scheduling diagnostics와 별도로 decision layer 상태를 남긴다.
+  const decisionDiagnostics: DecisionDiagnostics = {
+    days: decisionPlans.map((decisionPlan) => ({
+      dayIndex: decisionPlan.dayIndex,
+      actionsTaken: ["no_op"],
+      trimmedOptionalIds: [],
+      suggestedFlowRebuilt: false,
+      budgetBeforeMin:
+        rawDayPlans[decisionPlan.dayIndex - 1]?.timeBudget?.estimatedTotalMin ??
+        0,
+      budgetAfterMin:
+        dayPlans[decisionPlan.dayIndex - 1]?.timeBudget?.estimatedTotalMin ?? 0,
+      notes: [
+        "decision_layer:decision_ready_plan_created",
+        "decision_layer:auto_choice_fallback_used",
+        `structure=${decisionPlan.structureType}`,
+        `peakOptions=${decisionPlan.options.peak.length}`,
+        `recoveryOptions=${decisionPlan.options.recovery.length}`,
+        `supportOptions=${decisionPlan.options.support.length}`,
+      ],
+    })),
+    totalTrimsApplied: 0,
+    notes: [
+      "Decision Layer MVP active",
+      "DecisionReadyDayPlan generated",
+      "Auto choice fallback selected first option per role",
+      "Selected options converted back to DayPlan before scheduling",
+      "Planning diagnostics preserved",
+      "Scheduling diagnostics preserved",
+    ],
+  };
+
+  // [5] Scheduling
   const schedules = [];
   const schedulingDayDiagnostics: DaySchedulingDiagnostic[] = [];
 
@@ -143,7 +209,9 @@ export function generateTripPlan(
     schedulingDayDiagnostics.push(scheduledResult.diagnostic);
   }
 
-  const schedulingDiagnostics = buildSchedulingDiagnostics(schedulingDayDiagnostics);
+  const schedulingDiagnostics = buildSchedulingDiagnostics(
+    schedulingDayDiagnostics,
+  );
 
   return {
     dayPlans,
@@ -152,6 +220,8 @@ export function generateTripPlan(
       candidateDiagnostics,
       planningDiagnostics,
       decisionDiagnostics,
+      decisionPlans,
+      selectedOptions: selectedOptionLogs,
       schedulingDiagnostics,
     },
   };
