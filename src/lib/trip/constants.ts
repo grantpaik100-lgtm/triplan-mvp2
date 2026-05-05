@@ -233,7 +233,7 @@ export const DAILY_EXPERIENCE_COUNT_BY_DENSITY: Record<1 | 2 | 3 | 4 | 5, number
  *   - buildSkeletonRoles      : opener/activation 포함, 실제 sequence 생성용
  *   - DAY_STRUCTURE_TEMPLATES : support/peak/recovery 위주, Decision Layer 추론용
  */
-export const DAY_STRUCTURE_TEMPLATES: Readonly
+export const DAY_STRUCTURE_TEMPLATES: Readonly<
   Record<"balanced" | "peak_centric" | "relaxed", readonly FlowRole[]>
 > = {
   balanced:     ["support", "peak", "recovery"],
