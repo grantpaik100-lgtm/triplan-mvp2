@@ -138,15 +138,28 @@ export function generateTripPlan(
   }[] = [];
 
   const dayPlans = rawDayPlans.map((rawDayPlan, index) => {
-    const decisionPlan = decisionPlans[index];
+  const decisionPlan = decisionPlans[index];
 
-    const selectedOptions: DecisionSelectedOptions = {
-      peak: decisionPlan.options.peak[0],
-      recovery: decisionPlan.options.recovery[0],
-      support: decisionPlan.options.support[0]
-        ? [decisionPlan.options.support[0]]
-        : [],
-    };
+  const targetItemCount =
+  rawDayPlan.selection?.targetItemCount ??
+  rawDayPlan.suggestedFlow?.length ??
+  rawDayPlan.roughOrder.length ??
+  3;
+
+const mandatorySelectionCount =
+  (decisionPlan.options.peak[0] ? 1 : 0) +
+  (decisionPlan.options.recovery[0] ? 1 : 0);
+
+const supportSelectionCount = Math.max(
+  0,
+  targetItemCount - mandatorySelectionCount,
+);
+
+const selectedOptions: DecisionSelectedOptions = {
+  peak: decisionPlan.options.peak[0],
+  recovery: decisionPlan.options.recovery[0],
+  support: decisionPlan.options.support.slice(0, supportSelectionCount),
+};
 
     selectedOptionLogs.push({
       dayIndex: decisionPlan.dayIndex,
